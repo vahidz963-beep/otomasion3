@@ -1,0 +1,61 @@
+@import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700&display=swap');
+
+:root {
+  font-family: Vazirmatn, Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: #1b2126;
+  background: #f3f5f6;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 320px; min-height: 100vh; }
+button, input, select, textarea { font-family: inherit; }
+button:disabled { cursor: not-allowed; opacity: 0.65; }
+
+.app-nav {
+  display: flex;
+  gap: 8px;
+  padding: 12px;
+  background: #14181c;
+  align-items: center;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.nav-button {
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  background: transparent;
+  color: #fff;
+  font-size: 13px;
+}
+
+.nav-button.active { background: #a8672e; }
+
+.nav-profile {
+  margin-inline-start: auto;
+  color: #d9e1e7;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  white-space: nowrap;
+}
+
+.nav-logout {
+  background: transparent;
+  border: 1px solid #3b4b5c;
+  border-radius: 8px;
+  color: #fff;
+  cursor: pointer;
+  padding: 6px 10px;
+}
+
+.page-shell { min-height: calc(100vh - 56px); background: #f3f5f6; }
+
+@media (max-width: 760px) {
+  .app-nav { overflow-x: auto; align-items: stretch; }
+  .nav-profile { margin-inline-start: 0; }
+}

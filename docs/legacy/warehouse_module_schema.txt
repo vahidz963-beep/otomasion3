@@ -1,0 +1,364 @@
+-- =====================================================================
+-- WAREHOUSE / INVENTORY MODULE — بخش موجودی و انبارداری
+-- پروژه: سیستم اتوماسیون شرکت
+--
+-- وابستگی: باید بعد از 01_auth_rls_foundation.txt اجرا شود (به user_role,
+--          profiles, current_role_name(), is_active_user(), is_admin()
+--          نیاز دارد).
+--
+-- تصمیم کلیدی (بر اساس تأیید کارفرما):
+--   1) خروجی «انبارا» فایل اکسل است (نرم‌افزار ساده‌ی آفلاین شبیه Access،
+--      روی یک سیستم کامپیوتری، بدون اتصال آنلاین).
+--   2) با ثبت سفارش و ورود به مرحله‌ی «شروع تولید»، سیستم جدید خودش از
+--      موجودی محاسبه‌شده کم می‌کند و این کسری باید با انبارا هماهنگ/تطبیق
+--      داده شود (نه صرفاً یک ناظر/گزارش‌گیر منفعل).
+--   3) انبار: تک‌انبار مرکزی (نه چند انبار مجزا).
+--
+-- الگوی حل: Snapshot + Transaction (شبیه تطبیق حساب بانکی)
+--   - Snapshot = عکس لحظه‌ای موجودی فیزیکی، از فایل اکسل انبارا ایمپورت می‌شود
+--   - Transaction = کسری/افزایشی که خودِ این سیستم (نه انبارا) بعد از آخرین
+--     Snapshot ثبت می‌کند (عمدتاً از تریگر «شروع تولید»)
+--   موجودی لحظه‌ای هر کالا = آخرین Snapshot + مجموع Transaction های بعد از آن
+--
+-- نکته‌ی عملیاتی مهم (باید به تیم گفته شود، در سند طراحی هم آمده):
+--   وقتی کاربر انبارا فایل اکسل جدید صادر می‌کند، فرض بر این است که تمام
+--   کسری‌های دستی تا آن لحظه در آن فایل لحاظ شده‌اند. اگر صادرکردن فایل
+--   اکسل با فاصله‌ی زیاد از ثبت کسری دستی انجام شود، موجودی محاسبه‌شده در
+--   این سیستم ممکن است موقتاً از واقعیت فیزیکی بیشتر نشان داده شود.
+-- =====================================================================
+
+-- ---------------------------------------------------------------------
+-- 1. ENUM ها
+-- ---------------------------------------------------------------------
+CREATE TYPE warehouse_transaction_type AS ENUM (
+  'issue',       -- کسر (عمدتاً از شروع تولید)
+  'receipt',     -- افزایش (مثلاً خروجی نهایی تولید ثبت‌شده در انبار)
+  'reversal',    -- برگشت/جبران یک issue قبلی (لغو سفارش بعد از شروع تولید)
+  'adjustment'   -- اصلاح دستی توسط انباردار/مدیر کل
+);
+
+-- ---------------------------------------------------------------------
+-- 2. کالاها — مرجع مشترک؛ order_items / production_material_usage /
+--    production_output باید همگی به همین جدول ارجاع بدهند (بخش
+--    Reconciliation در انتهای فایل).
+-- ---------------------------------------------------------------------
+CREATE TABLE warehouse_items (
+  id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  item_code           text UNIQUE NOT NULL, -- باید دقیقاً با کد کالا در فایل اکسل انبارا یکی باشد
+  item_name_fa        text NOT NULL,
+  item_name_en        text,
+  unit                text NOT NULL,
+  category            text,
+  min_stock_threshold numeric NOT NULL DEFAULT 0, -- زیر این مقدار = هشدار کمبود
+  is_active           boolean NOT NULL DEFAULT true,
+  created_at          timestamptz NOT NULL DEFAULT now(),
+  updated_at          timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_warehouse_items_code ON warehouse_items(item_code);
+CREATE INDEX idx_warehouse_items_active ON warehouse_items(is_active);
+
+-- ---------------------------------------------------------------------
+-- 3. Snapshot — یک ایمپورت کامل از فایل اکسل انبارا = یک ردیف اینجا.
+--    ستون‌های فایل اکسل واقعی هنوز دقیقاً مشخص نیست؛ به همین دلیل
+--    مرحله‌ی «تطبیق ستون» در فرانت‌اند انجام می‌شود (کد کالا/نام/موجودی/
+--    واحد) و فقط داده‌ی نرمال‌شده وارد warehouse_snapshot_items می‌شود.
+-- ---------------------------------------------------------------------
+CREATE TABLE warehouse_snapshots (
+  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  file_name    text,
+  imported_by  uuid REFERENCES profiles(id),
+  imported_at  timestamptz NOT NULL DEFAULT now(),
+  row_count    int,
+  notes        text
+);
+
+CREATE INDEX idx_snapshots_imported_at ON warehouse_snapshots(imported_at);
+
+-- ردیف‌های خام هر ایمپورت (بعد از مرحله‌ی تطبیق ستون در فرانت)
+CREATE TABLE warehouse_snapshot_items (
+  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  snapshot_id  uuid NOT NULL REFERENCES warehouse_snapshots(id) ON DELETE CASCADE,
+  item_code    text NOT NULL, -- کد خام از فایل، حتی اگر با warehouse_items مچ نشود
+  item_id      uuid REFERENCES warehouse_items(id), -- پر می‌شود اگر مچ پیدا شد
+  quantity     numeric NOT NULL,
+  unit         text,
+  matched      boolean NOT NULL DEFAULT false -- false یعنی کد کالا در warehouse_items پیدا نشد؛ نیاز به بررسی دستی
+);
+
+CREATE INDEX idx_snapshot_items_snapshot ON warehouse_snapshot_items(snapshot_id);
+CREATE INDEX idx_snapshot_items_unmatched ON warehouse_snapshot_items(matched) WHERE matched = false;
+
+-- تریگر: موقع درج هر ردیف snapshot_item، تلاش برای مچ‌کردن با item_code موجود
+CREATE OR REPLACE FUNCTION fn_match_snapshot_item()
+RETURNS trigger AS $$
+BEGIN
+  SELECT id INTO NEW.item_id FROM warehouse_items WHERE item_code = NEW.item_code;
+  NEW.matched := (NEW.item_id IS NOT NULL);
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_match_snapshot_item
+BEFORE INSERT ON warehouse_snapshot_items
+FOR EACH ROW EXECUTE FUNCTION fn_match_snapshot_item();
+
+-- ---------------------------------------------------------------------
+-- 4. Transactions — کسری/افزایشی که خودِ این سیستم بعد از آخرین Snapshot
+--    ثبت می‌کند. reference_type/reference_id عمومی نگه داشته شده تا هم
+--    از ماژول تولید (production_order) و هم مسیر بازرگانی قابل استفاده
+--    باشد بدون وابستگی FK مستقیم (polymorphic reference، هماهنگ با الگوی
+--    production_module_schema.txt).
+-- ---------------------------------------------------------------------
+CREATE TABLE warehouse_transactions (
+  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  item_id          uuid NOT NULL REFERENCES warehouse_items(id),
+  transaction_type warehouse_transaction_type NOT NULL,
+  quantity         numeric NOT NULL CHECK (quantity > 0), -- همیشه مثبت؛ جهت (کسر/افزایش) از transaction_type می‌آید
+  reference_type   text, -- 'production_order' | 'order' | 'manual' | ...
+  reference_id     uuid,
+  created_by       uuid REFERENCES profiles(id),
+  note             text,
+  created_at       timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_wtx_item ON warehouse_transactions(item_id);
+CREATE INDEX idx_wtx_reference ON warehouse_transactions(reference_type, reference_id);
+CREATE INDEX idx_wtx_created_at ON warehouse_transactions(created_at);
+
+-- ---------------------------------------------------------------------
+-- 5. موجودی لحظه‌ای محاسبه‌شده (View، نه جدول ثابت — همیشه از آخرین
+--    Snapshot + Transaction های بعد از آن محاسبه می‌شود)
+-- ---------------------------------------------------------------------
+CREATE OR REPLACE VIEW v_warehouse_current_stock AS
+WITH latest_snapshot AS (
+  SELECT DISTINCT ON (wsi.item_id)
+    wsi.item_id,
+    wsi.quantity   AS snapshot_qty,
+    s.id           AS snapshot_id,
+    s.imported_at  AS snapshot_imported_at
+  FROM warehouse_snapshot_items wsi
+  JOIN warehouse_snapshots s ON s.id = wsi.snapshot_id
+  WHERE wsi.item_id IS NOT NULL
+  ORDER BY wsi.item_id, s.imported_at DESC
+),
+tx_since_snapshot AS (
+  SELECT
+    wt.item_id,
+    SUM(
+      CASE
+        WHEN wt.transaction_type = 'issue' THEN -wt.quantity
+        WHEN wt.transaction_type IN ('receipt','reversal','adjustment') THEN wt.quantity
+        ELSE 0
+      END
+    ) AS net_qty
+  FROM warehouse_transactions wt
+  JOIN latest_snapshot ls ON ls.item_id = wt.item_id
+  WHERE wt.created_at > ls.snapshot_imported_at
+  GROUP BY wt.item_id
+)
+SELECT
+  wi.id                                                          AS item_id,
+  wi.item_code,
+  wi.item_name_fa,
+  wi.item_name_en,
+  wi.unit,
+  wi.category,
+  wi.min_stock_threshold,
+  ls.snapshot_qty,
+  ls.snapshot_imported_at                                        AS last_synced_at,
+  COALESCE(tx.net_qty, 0)                                         AS net_transactions_since_sync,
+  (COALESCE(ls.snapshot_qty, 0) + COALESCE(tx.net_qty, 0))        AS current_qty,
+  ((COALESCE(ls.snapshot_qty, 0) + COALESCE(tx.net_qty, 0)) < wi.min_stock_threshold) AS is_low_stock,
+  (ls.snapshot_imported_at IS NULL)                               AS never_synced
+FROM warehouse_items wi
+LEFT JOIN latest_snapshot ls ON ls.item_id = wi.id
+LEFT JOIN tx_since_snapshot tx ON tx.item_id = wi.id
+WHERE wi.is_active;
+
+-- ---------------------------------------------------------------------
+-- 6. توابع کمکی — این‌ها را ماژول تولید (روی تریگر «شروع تولید») و ماژول
+--    سفارش (روی «لغو سفارش بعد از شروع تولید») صدا می‌زنند.
+--    SECURITY DEFINER تا بدون توجه به نقش فراخوانی‌کننده (مثلاً از تریگر
+--    داخلی ماژول تولید) اجرا شود؛ کنترل دسترسی واقعی جای دیگری (خودِ
+--    تریگر تغییر مرحله‌ی سفارش) انجام می‌شود.
+-- ---------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION fn_warehouse_issue(
+  p_item_id uuid,
+  p_quantity numeric,
+  p_reference_type text,
+  p_reference_id uuid,
+  p_created_by uuid,
+  p_note text DEFAULT NULL
+) RETURNS uuid
+SECURITY DEFINER
+LANGUAGE plpgsql AS $$
+DECLARE
+  v_tx_id uuid;
+BEGIN
+  INSERT INTO warehouse_transactions (item_id, transaction_type, quantity, reference_type, reference_id, created_by, note)
+  VALUES (p_item_id, 'issue', p_quantity, p_reference_type, p_reference_id, p_created_by, p_note)
+  RETURNING id INTO v_tx_id;
+  RETURN v_tx_id;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION fn_warehouse_reverse_issue(
+  p_item_id uuid,
+  p_quantity numeric,
+  p_reference_type text,
+  p_reference_id uuid,
+  p_created_by uuid,
+  p_note text DEFAULT NULL
+) RETURNS uuid
+SECURITY DEFINER
+LANGUAGE plpgsql AS $$
+DECLARE
+  v_tx_id uuid;
+BEGIN
+  INSERT INTO warehouse_transactions (item_id, transaction_type, quantity, reference_type, reference_id, created_by, note)
+  VALUES (p_item_id, 'reversal', p_quantity, p_reference_type, p_reference_id, p_created_by, p_note)
+  RETURNING id INTO v_tx_id;
+  RETURN v_tx_id;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION fn_warehouse_receipt(
+  p_item_id uuid,
+  p_quantity numeric,
+  p_reference_type text,
+  p_reference_id uuid,
+  p_created_by uuid,
+  p_note text DEFAULT NULL
+) RETURNS uuid
+SECURITY DEFINER
+LANGUAGE plpgsql AS $$
+DECLARE
+  v_tx_id uuid;
+BEGIN
+  INSERT INTO warehouse_transactions (item_id, transaction_type, quantity, reference_type, reference_id, created_by, note)
+  VALUES (p_item_id, 'receipt', p_quantity, p_reference_type, p_reference_id, p_created_by, p_note)
+  RETURNING id INTO v_tx_id;
+  RETURN v_tx_id;
+END;
+$$;
+
+-- ---------------------------------------------------------------------
+-- 7. هشدار کمبود موجودی — بعد از هر تراکنش، اگر کالا وارد وضعیت کمبود شد
+--    یک اعلان برای نقش warehouse ساخته می‌شود (جدول notifications از
+--    order_module_schema.sql استفاده مجدد می‌شود).
+-- ---------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION fn_notify_low_stock_after_tx()
+RETURNS trigger AS $$
+DECLARE
+  v_stock v_warehouse_current_stock%ROWTYPE;
+BEGIN
+  SELECT * INTO v_stock FROM v_warehouse_current_stock WHERE item_id = NEW.item_id;
+
+  IF v_stock.is_low_stock THEN
+    INSERT INTO notifications (recipient_role, title_fa, title_en, body_fa)
+    VALUES (
+      'warehouse',
+      'کمبود موجودی: ' || v_stock.item_name_fa || ' (' || v_stock.current_qty || ' ' || v_stock.unit || ')',
+      'Low stock: ' || COALESCE(v_stock.item_name_en, v_stock.item_name_fa),
+      'موجودی محاسبه‌شده زیر آستانه‌ی ' || v_stock.min_stock_threshold || ' رسیده است.'
+    );
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_notify_low_stock
+AFTER INSERT ON warehouse_transactions
+FOR EACH ROW EXECUTE FUNCTION fn_notify_low_stock_after_tx();
+
+-- ---------------------------------------------------------------------
+-- 8. Row Level Security
+--    نقش‌ها طبق enum اصلی user_role در 01_auth_rls_foundation.txt:
+--    'admin','sales','rnd','production','warehouse','accountant','office_admin'
+--    (نه نام‌های محلی مثل warehouse_keeper که در چت سفارش استفاده شده بود —
+--    این مورد باید در چت سفارش هم اصلاح شود، بخش Reconciliation پایین فایل)
+-- ---------------------------------------------------------------------
+ALTER TABLE warehouse_items ENABLE ROW LEVEL SECURITY;
+ALTER TABLE warehouse_snapshots ENABLE ROW LEVEL SECURITY;
+ALTER TABLE warehouse_snapshot_items ENABLE ROW LEVEL SECURITY;
+ALTER TABLE warehouse_transactions ENABLE ROW LEVEL SECURITY;
+
+-- خواندن موجودی/کالاها: همه‌ی کاربران فعال (فروش/تولید/R&D به این نیاز دارند)
+CREATE POLICY warehouse_items_read ON warehouse_items FOR SELECT
+  USING (is_active_user());
+
+-- نوشتن کالاها (تعریف کالای جدید، تغییر آستانه و...): فقط انباردار و مدیر کل
+CREATE POLICY warehouse_items_write ON warehouse_items FOR ALL
+  USING (is_admin() OR current_role_name() = 'warehouse')
+  WITH CHECK (is_admin() OR current_role_name() = 'warehouse');
+
+-- ایمپورت Snapshot: فقط انباردار و مدیر کل
+CREATE POLICY warehouse_snapshots_write ON warehouse_snapshots FOR ALL
+  USING (is_admin() OR current_role_name() = 'warehouse')
+  WITH CHECK (is_admin() OR current_role_name() = 'warehouse');
+
+CREATE POLICY warehouse_snapshots_read ON warehouse_snapshots FOR SELECT
+  USING (is_active_user());
+
+CREATE POLICY warehouse_snapshot_items_write ON warehouse_snapshot_items FOR ALL
+  USING (is_admin() OR current_role_name() = 'warehouse')
+  WITH CHECK (is_admin() OR current_role_name() = 'warehouse');
+
+CREATE POLICY warehouse_snapshot_items_read ON warehouse_snapshot_items FOR SELECT
+  USING (is_active_user());
+
+-- تراکنش‌ها: خواندن برای همه‌ی کاربران فعال (شفافیت گزارش)
+CREATE POLICY warehouse_tx_read ON warehouse_transactions FOR SELECT
+  USING (is_active_user());
+
+-- نوشتن مستقیم تراکنش فقط برای انباردار/مدیر کل (ثبت دستی adjustment)؛
+-- درج خودکار از ماژول تولید از طریق توابع SECURITY DEFINER بالا انجام
+-- می‌شود و RLS را دور می‌زند (تعمداً، چون فراخوانی از داخل تریگر
+-- تولید است، نه مستقیماً کاربر نهایی).
+CREATE POLICY warehouse_tx_manual_write ON warehouse_transactions FOR INSERT
+  WITH CHECK (is_admin() OR current_role_name() = 'warehouse');
+
+-- =====================================================================
+-- 9. RECONCILIATION — هماهنگی با ماژول‌های دیگر (باید در آن چت‌ها اعمال شود)
+-- =====================================================================
+-- الف) ماژول سفارش (order_module_schema.sql):
+--    order_items.warehouse_item_code باید FK واقعی به warehouse_items بگیرد:
+--    ALTER TABLE order_items ADD CONSTRAINT fk_order_items_warehouse_item
+--      FOREIGN KEY (warehouse_item_code) REFERENCES warehouse_items(item_code);
+--    quotation_items.warehouse_item_code همین‌طور.
+--
+--    نام نقش انباردار در RLS چت سفارش (fn_user_can_access_order) از
+--    'warehouse_keeper' استفاده کرده؛ باید به 'warehouse' اصلاح شود تا با
+--    enum اصلی user_role یکی باشد.
+--
+--    v_warehouse_stock_readonly در order_module_extensions.sql باید از
+--    روی همین v_warehouse_current_stock بازتعریف شود، نه جدول فرضی
+--    warehouse_stock_snapshot:
+--      CREATE OR REPLACE VIEW v_warehouse_stock_readonly AS
+--      SELECT item_code, item_name_fa, item_name_en, current_qty AS available_qty,
+--             unit, last_synced_at AS updated_at
+--      FROM v_warehouse_current_stock;
+--
+-- ب) ماژول تولید (production_module_schema.txt):
+--    production_material_usage.warehouse_item_id باید FK بگیرد:
+--    ALTER TABLE production_material_usage ADD CONSTRAINT fk_pmu_warehouse_item
+--      FOREIGN KEY (warehouse_item_id) REFERENCES warehouse_items(id);
+--
+--    production_output.warehouse_item_id همین‌طور:
+--    ALTER TABLE production_output ADD CONSTRAINT fk_po_warehouse_item
+--      FOREIGN KEY (warehouse_item_id) REFERENCES warehouse_items(id);
+--
+--    جای تریگرهای fn_issue_material_to_warehouse() و
+--    fn_register_output_to_warehouse() در آن فایل، باید به‌جای INSERT
+--    مستقیم روی warehouse_transactions، از توابع این فایل استفاده کنند:
+--      fn_warehouse_issue(...)   به‌جای INSERT با type='issue'
+--      fn_warehouse_receipt(...) به‌جای INSERT با type='receipt'
+--    تا منطق محاسبه‌ی موجودی و هشدار کمبود یکپارچه بماند.
+--
+-- ج) نگاشت ستون‌های فایل اکسل انبارا:
+--    فرض شده فایل حاوی حداقل: کد کالا، نام کالا، موجودی، واحد است، اما
+--    چون فایل واقعی هنوز دیده نشده، مرحله‌ی «تطبیق ستون» در UI ایمپورت
+--    (فرانت‌اند React با SheetJS) قرار داده شده تا اگر عنوان ستون‌ها فرق
+--    داشت، بدون تغییر اسکیما قابل حل باشد.
+-- =====================================================================

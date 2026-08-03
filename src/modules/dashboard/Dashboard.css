@@ -1,0 +1,20 @@
+.dashboard-page { min-height: 100%; background: #f3f5f6; padding: 24px; }
+.dashboard-container { max-width: 1180px; margin: 0 auto; }
+.dashboard-container h1 { font-size: 22px; margin: 0 0 16px; }
+.filter-bar { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; background: #fff; padding: 14px; border-radius: 14px; margin-bottom: 16px; box-shadow: 0 1px 8px rgba(20,24,28,0.06); }
+.filter-bar label span { display: block; font-size: 12px; color: #5b6670; margin-bottom: 4px; }
+.filter-bar input, .filter-bar select { width: 100%; border: 1px solid #d8dee3; border-radius: 10px; padding: 9px 10px; background: #fff; }
+.kpi-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
+.kpi-card { background: #fff; border-radius: 14px; padding: 14px; border-top: 4px solid #64748b; box-shadow: 0 1px 8px rgba(20,24,28,0.06); min-height: 102px; }
+.kpi-label { color: #5b6670; font-size: 12px; min-height: 34px; }
+.kpi-value { color: #111827; font-size: 20px; font-weight: 700; margin-top: 6px; }
+.kpi-suffix { color: #889199; font-size: 11px; margin-top: 3px; }
+.accent-amber { border-top-color: #b98a2e; } .accent-emerald { border-top-color: #4c7a61; } .accent-rose { border-top-color: #a5453f; } .accent-teal { border-top-color: #0f766e; }
+.chart-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.chart-card, .dashboard-message { background: #fff; border-radius: 14px; padding: 16px; box-shadow: 0 1px 8px rgba(20,24,28,0.06); }
+.chart-card h2 { margin: 0 0 10px; font-size: 14px; color: #374151; }
+.empty-chart { height: 260px; display: flex; align-items: center; justify-content: center; color: #9ca3af; font-size: 13px; }
+.dashboard-message.error { color: #a5453f; }
+.dashboard-message button { border: none; background: #14181c; color: #fff; padding: 8px 12px; border-radius: 8px; }
+@media (max-width: 1000px) { .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .chart-grid { grid-template-columns: 1fr; } }
+@media (max-width: 760px) { .filter-bar { grid-template-columns: 1fr; } .dashboard-page { padding: 14px; } }

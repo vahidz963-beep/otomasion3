@@ -1,0 +1,369 @@
+-- =====================================================================
+-- PRODUCTION MODULE — بخش تولید (کارخانه)
+-- پروژه: سیستم اتوماسیون شرکت
+-- وابستگی‌ها: product_categories باید قبل از این فایل اجرا شود
+--            (تعریف شده در بخش ۱ همین فایل)
+-- نکته هماهنگی: source_order_id در production_orders هنوز UUID ساده است
+--            و منتظر نهایی‌شدن ساختار جدول orders از چت "سفارش" است.
+--            اسم ستون‌های warehouse_items / warehouse_transactions باید
+--            با چت انبار تطبیق داده شود.
+-- =====================================================================
+
+-- ---------------------------------------------------------------------
+-- ۱. دسته‌بندی محصول (پایه مشترک بین تولید و R&D)
+-- ---------------------------------------------------------------------
+create table if not exists product_categories (
+  id uuid primary key default gen_random_uuid(),
+  code text unique not null,          -- 'PCB_ASSY', 'PCB_SPEC', 'TRANSFORMER', 'FULL_PRODUCT'
+  name_fa text not null,
+  name_en text not null,
+  is_active boolean default true
+);
+
+insert into product_categories (code, name_fa, name_en) values
+('PCB_ASSY', 'برد آرایه‌شده (اسمبلی)', 'Assembled PCB'),
+('PCB_SPEC', 'برد با مشخصات معین', 'Specified Board'),
+('TRANSFORMER', 'ترانس سوئیچینگ', 'Switching Transformer'),
+('FULL_PRODUCT', 'محصول کامل', 'Full Product')
+on conflict (code) do nothing;
+
+-- ---------------------------------------------------------------------
+-- ۲. ENUM ها
+-- ---------------------------------------------------------------------
+create type production_source_type as enum ('direct_order', 'rnd_project');
+
+create type production_order_status as enum (
+  'draft', 'planned', 'in_progress', 'qc_pending', 'qc_rejected',
+  'completed', 'delivered_to_warehouse', 'cancelled'
+);
+
+create type stage_status as enum ('pending', 'in_progress', 'completed', 'on_hold', 'rejected');
+
+create type qc_result as enum ('passed', 'failed', 'rework');
+
+-- نوع مفهومی مرحله؛ کلید یکپارچه‌سازی گزارش‌ها بین دسته‌های مختلف محصول
+create type stage_type as enum (
+  'planning',
+  'material_prep',
+  'assembly',
+  'soldering',
+  'winding',            -- مخصوص ترانس
+  'programming_test',
+  'assembly_final',     -- مخصوص محصول کامل
+  'qc',
+  'packaging',
+  'final_output',
+  'custom'
+);
+
+-- ---------------------------------------------------------------------
+-- ۳. قالب مراحل تولید — به‌ازای هر دسته محصول (منعطف، نه فیکس ۴ تا ۶)
+-- ---------------------------------------------------------------------
+create table production_stage_templates (
+  id uuid primary key default gen_random_uuid(),
+  product_category_id uuid references product_categories(id),
+  stage_type stage_type not null,
+  name_fa text not null,
+  name_en text not null,
+  order_index int not null,
+  requires_material_issue boolean default false,
+  requires_qc boolean default false,
+  is_final_stage boolean default false,
+  is_active boolean default true,
+  created_at timestamptz default now()
+);
+
+-- نمونه: ترانس سوئیچینگ (۴ مرحله)
+insert into production_stage_templates (product_category_id, stage_type, name_fa, name_en, order_index, requires_material_issue, requires_qc, is_final_stage)
+select id, 'material_prep', 'آماده‌سازی هسته و سیم', 'Core & Wire Prep', 1, true, false, false from product_categories where code='TRANSFORMER'
+union all
+select id, 'winding', 'سیم‌پیچی', 'Winding', 2, false, false, false from product_categories where code='TRANSFORMER'
+union all
+select id, 'qc', 'تست الکتریکی', 'Electrical Test', 3, false, true, false from product_categories where code='TRANSFORMER'
+union all
+select id, 'final_output', 'خروجی به انبار', 'Warehouse Output', 4, false, false, true from product_categories where code='TRANSFORMER';
+
+-- نمونه: برد آرایه‌شده - PCB Assembly (۷ مرحله)
+insert into production_stage_templates (product_category_id, stage_type, name_fa, name_en, order_index, requires_material_issue, requires_qc, is_final_stage)
+select id, 'material_prep', 'آماده‌سازی قطعات SMD/THT', 'Component Prep', 1, true, false, false from product_categories where code='PCB_ASSY'
+union all
+select id, 'assembly', 'چیدن قطعات (پیک‌اند‌پلیس)', 'Pick & Place', 2, false, false, false from product_categories where code='PCB_ASSY'
+union all
+select id, 'soldering', 'ری‌فلو/ویو سولدر', 'Reflow/Wave Soldering', 3, false, false, false from product_categories where code='PCB_ASSY'
+union all
+select id, 'qc', 'بازرسی بصری (AOI)', 'Visual Inspection', 4, false, true, false from product_categories where code='PCB_ASSY'
+union all
+select id, 'programming_test', 'برنامه‌ریزی و تست عملکردی', 'Programming & Functional Test', 5, false, false, false from product_categories where code='PCB_ASSY'
+union all
+select id, 'qc', 'کنترل کیفیت نهایی', 'Final QC', 6, false, true, false from product_categories where code='PCB_ASSY'
+union all
+select id, 'final_output', 'خروجی به انبار', 'Warehouse Output', 7, false, false, true from product_categories where code='PCB_ASSY';
+
+-- نمونه: محصول کامل (۵ مرحله)
+insert into production_stage_templates (product_category_id, stage_type, name_fa, name_en, order_index, requires_material_issue, requires_qc, is_final_stage)
+select id, 'material_prep', 'دریافت زیرمجموعه‌ها از انبار', 'Sub-assembly Retrieval', 1, true, false, false from product_categories where code='FULL_PRODUCT'
+union all
+select id, 'assembly_final', 'مونتاژ نهایی محصول', 'Final Assembly', 2, false, false, false from product_categories where code='FULL_PRODUCT'
+union all
+select id, 'qc', 'تست نهایی محصول', 'Final Product Test', 3, false, true, false from product_categories where code='FULL_PRODUCT'
+union all
+select id, 'packaging', 'بسته‌بندی', 'Packaging', 4, false, false, false from product_categories where code='FULL_PRODUCT'
+union all
+select id, 'final_output', 'خروجی به انبار', 'Warehouse Output', 5, false, false, true from product_categories where code='FULL_PRODUCT';
+
+-- نکته: برد با مشخصات معین (PCB_SPEC) هنوز template نگرفته؛ باید بعداً
+-- بر اساس واقعیت خط تولید تکمیل شود (مشابه الگوی بالا).
+
+-- ---------------------------------------------------------------------
+-- ۴. جدول اصلی سفارش تولید
+-- ---------------------------------------------------------------------
+create table production_orders (
+  id uuid primary key default gen_random_uuid(),
+  code text unique not null,                     -- مثلا PRD-2026-0001
+
+  source_type production_source_type not null,
+  source_order_id uuid,                          -- FK منطقی به جدول سفارش (ماژول جدا) — هنوز plain UUID
+  source_rnd_id uuid,                            -- FK منطقی به rnd_projects
+
+  product_category_id uuid references product_categories(id) not null,
+  product_name_fa text not null,
+  product_name_en text,
+  quantity_planned numeric not null,
+  quantity_produced numeric default 0,
+  unit text default 'عدد',
+
+  status production_order_status default 'draft',
+  assigned_to uuid references auth.users(id),    -- مسئول تولید
+
+  planned_start date,
+  planned_end date,
+  actual_start date,
+  actual_end date,
+
+  progress_percent numeric default 0,            -- محاسبه‌شده از مراحل
+  notes text,
+
+  created_by uuid references auth.users(id),
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+create index idx_production_orders_status on production_orders(status);
+create index idx_production_orders_source on production_orders(source_type, source_order_id, source_rnd_id);
+
+-- ---------------------------------------------------------------------
+-- ۵. نمونه‌سازی مراحل برای هر سفارش واقعی
+-- ---------------------------------------------------------------------
+create table production_order_stages (
+  id uuid primary key default gen_random_uuid(),
+  production_order_id uuid references production_orders(id) on delete cascade,
+  stage_template_id uuid references production_stage_templates(id),
+  order_index int not null,
+
+  status stage_status default 'pending',
+  assigned_to uuid references auth.users(id),
+
+  is_custom boolean default false,               -- مرحله استثنایی فقط برای این سفارش
+  custom_stage_type stage_type,
+  custom_name_fa text,
+  custom_name_en text,
+
+  started_at timestamptz,
+  completed_at timestamptz,
+  notes text,
+
+  created_at timestamptz default now()
+);
+
+create index idx_pos_order on production_order_stages(production_order_id);
+
+-- تریگر: ساخت خودکار مراحل بر اساس دسته محصول سفارش
+create or replace function fn_create_order_stages()
+returns trigger as $$
+begin
+  insert into production_order_stages (production_order_id, stage_template_id, order_index)
+  select new.id, id, order_index
+  from production_stage_templates
+  where is_active = true
+    and product_category_id = new.product_category_id
+  order by order_index;
+  return new;
+end;
+$$ language plpgsql;
+
+create trigger trg_create_order_stages
+after insert on production_orders
+for each row execute function fn_create_order_stages();
+
+-- ---------------------------------------------------------------------
+-- ۶. مصرف مواد اولیه — ارتباط با انبار
+-- توجه: warehouse_item_id و warehouse_transactions باید با ساختار واقعی
+-- ماژول انبار تطبیق داده شوند (اسم ستون‌ها ممکن است فرق کند).
+-- ---------------------------------------------------------------------
+create table production_material_usage (
+  id uuid primary key default gen_random_uuid(),
+  production_order_id uuid references production_orders(id) on delete cascade,
+  stage_id uuid references production_order_stages(id),
+
+  warehouse_item_id uuid not null,
+  quantity_requested numeric not null,
+  quantity_issued numeric,
+  status text default 'pending',                 -- pending / issued / short
+
+  requested_by uuid references auth.users(id),
+  issued_by uuid references auth.users(id),
+  created_at timestamptz default now(),
+  issued_at timestamptz
+);
+
+create or replace function fn_issue_material_to_warehouse()
+returns trigger as $$
+begin
+  if new.quantity_issued is not null and old.quantity_issued is null then
+    insert into warehouse_transactions (item_id, transaction_type, quantity, reference_type, reference_id)
+    values (new.warehouse_item_id, 'issue', new.quantity_issued, 'production_order', new.production_order_id);
+
+    new.status := 'issued';
+    new.issued_at := now();
+  end if;
+  return new;
+end;
+$$ language plpgsql;
+
+create trigger trg_issue_material
+before update on production_material_usage
+for each row execute function fn_issue_material_to_warehouse();
+
+-- ---------------------------------------------------------------------
+-- ۷. کنترل کیفیت
+-- ---------------------------------------------------------------------
+create table production_qc_checks (
+  id uuid primary key default gen_random_uuid(),
+  production_order_id uuid references production_orders(id) on delete cascade,
+  stage_id uuid references production_order_stages(id),
+
+  checked_by uuid references auth.users(id),
+  result qc_result not null,
+  quantity_checked numeric,
+  quantity_passed numeric,
+  quantity_rejected numeric,
+  rejection_reason text,
+
+  checked_at timestamptz default now()
+);
+
+-- ---------------------------------------------------------------------
+-- ۸. خروجی نهایی → ثبت در انبار
+-- ---------------------------------------------------------------------
+create table production_output (
+  id uuid primary key default gen_random_uuid(),
+  production_order_id uuid references production_orders(id) on delete cascade,
+
+  warehouse_item_id uuid not null,
+  quantity numeric not null,
+  registered_by uuid references auth.users(id),
+  registered_at timestamptz default now()
+);
+
+create or replace function fn_register_output_to_warehouse()
+returns trigger as $$
+begin
+  insert into warehouse_transactions (item_id, transaction_type, quantity, reference_type, reference_id)
+  values (new.warehouse_item_id, 'receipt', new.quantity, 'production_order', new.production_order_id);
+
+  update production_orders
+  set quantity_produced = quantity_produced + new.quantity,
+      status = case when quantity_produced + new.quantity >= quantity_planned
+                    then 'delivered_to_warehouse' else 'in_progress' end,
+      updated_at = now()
+  where id = new.production_order_id;
+
+  return new;
+end;
+$$ language plpgsql;
+
+create trigger trg_register_output
+after insert on production_output
+for each row execute function fn_register_output_to_warehouse();
+
+-- ---------------------------------------------------------------------
+-- ۹. ثبت پیشرفت و گزارش‌دهی
+-- ---------------------------------------------------------------------
+create table production_progress_logs (
+  id uuid primary key default gen_random_uuid(),
+  production_order_id uuid references production_orders(id) on delete cascade,
+  stage_id uuid references production_order_stages(id),
+
+  logged_by uuid references auth.users(id),
+  progress_percent numeric,
+  description text,
+  logged_at timestamptz default now()
+);
+
+create or replace function fn_update_order_progress()
+returns trigger as $$
+declare
+  total_stages int;
+  completed_stages int;
+begin
+  select count(*), count(*) filter (where status = 'completed')
+  into total_stages, completed_stages
+  from production_order_stages
+  where production_order_id = new.production_order_id;
+
+  update production_orders
+  set progress_percent = round((completed_stages::numeric / nullif(total_stages,0)) * 100, 1),
+      updated_at = now()
+  where id = new.production_order_id;
+
+  return new;
+end;
+$$ language plpgsql;
+
+create trigger trg_update_progress
+after update of status on production_order_stages
+for each row execute function fn_update_order_progress();
+
+-- ---------------------------------------------------------------------
+-- ۱۰. View داشبورد مدیریت تولید
+-- ---------------------------------------------------------------------
+create or replace view v_production_dashboard as
+select
+  po.id,
+  po.code,
+  po.product_name_fa,
+  po.source_type,
+  po.status,
+  po.progress_percent,
+  po.quantity_planned,
+  po.quantity_produced,
+  po.planned_start,
+  po.planned_end,
+  count(pms.id) filter (where pms.status = 'short') as material_shortages,
+  count(qc.id) filter (where qc.result = 'failed') as qc_failures
+from production_orders po
+left join production_material_usage pms on pms.production_order_id = po.id
+left join production_qc_checks qc on qc.production_order_id = po.id
+group by po.id;
+
+-- ---------------------------------------------------------------------
+-- ۱۱. View مقایسه عملکرد مراحل بین دسته‌های مختلف محصول
+-- (با وجود تعداد مراحل متفاوت، بر اساس stage_type قابل مقایسه است)
+-- ---------------------------------------------------------------------
+create or replace view v_stage_performance as
+select
+  pc.name_fa as category,
+  coalesce(pst.stage_type, pos.custom_stage_type) as stage_type,
+  coalesce(pst.name_fa, pos.custom_name_fa) as stage_name,
+  pos.status,
+  extract(epoch from (pos.completed_at - pos.started_at))/3600 as duration_hours,
+  po.code as order_code
+from production_order_stages pos
+join production_orders po on po.id = pos.production_order_id
+join product_categories pc on pc.id = po.product_category_id
+left join production_stage_templates pst on pst.id = pos.stage_template_id
+where pos.status = 'completed';
+
+-- =====================================================================
+-- پایان فایل تولید
+-- =====================================================================

@@ -1,0 +1,62 @@
+.login-screen {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #14181c;
+  padding: 20px;
+  position: relative;
+}
+.login-lang { position: absolute; top: 20px; inset-inline-end: 20px; }
+.login-lang button, .link-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  color: #fff;
+  border: 1px solid #2b333a;
+  border-radius: 10px;
+  padding: 8px 12px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.login-card {
+  width: min(390px, 92vw);
+  background: #fff;
+  border-radius: 16px;
+  padding: 28px;
+  box-shadow: 0 20px 80px rgba(0,0,0,0.25);
+}
+.login-brand { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; }
+.login-logo { background: #14181c; color: #e7c39c; border-radius: 10px; padding: 8px; display: flex; }
+.login-title-small { font-size: 15px; font-weight: 700; color: #1b2126; }
+.login-subtitle-small, .login-subtitle, .login-hint { font-size: 12px; color: #5b6670; }
+.login-title { margin: 0 0 6px; font-size: 20px; color: #1b2126; }
+.login-form { margin-top: 18px; display: flex; flex-direction: column; gap: 12px; }
+.field span { font-size: 12px; color: #5b6670; display: block; margin-bottom: 4px; }
+.field input, .field select, .field textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid #e7eaec;
+  font-size: 14px;
+  background: #fff;
+}
+.submit-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: #a8672e;
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  padding: 11px 0;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.link-btn { color: #5b6670; border: none; justify-content: center; padding: 4px; }
+.form-error { margin: 0; font-size: 12px; color: #a5453f; background: #f7e5e3; border-radius: 8px; padding: 8px 10px; }
+.form-notice { margin: 0; font-size: 12px; color: #25694a; background: #e8f4ed; border-radius: 8px; padding: 8px 10px; }
+.login-hint { text-align: center; margin-top: 16px; }

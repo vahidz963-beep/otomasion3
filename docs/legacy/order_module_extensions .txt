@@ -1,0 +1,452 @@
+-- =============================================================================
+-- ORDER MODULE — EXTENSIONS (confirmed expanded scope)
+-- Depends on: order_module_schema.sql (customers, orders, order_items,
+--   order_status_definitions, profiles, user_role, current_role(),
+--   is_active_user(), is_admin())
+-- Adds: customer_documents, price margin settings + calculator, quotations,
+--   internal_requests (ticketing), follow_up_reminders, read-only warehouse
+--   stock view, sales performance report.
+-- =============================================================================
+
+-- -----------------------------------------------------------------------------
+-- A. Customer documents (contracts, correspondence) — item 9 of scope
+-- -----------------------------------------------------------------------------
+CREATE TABLE customer_documents (
+  id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  customer_id    uuid NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+  file_path      text NOT NULL, -- storage object path: {customer_id}/{filename}
+  file_name      text NOT NULL,
+  document_type  text NOT NULL DEFAULT 'other', -- 'contract' | 'correspondence' | 'other'
+  uploaded_by    uuid REFERENCES profiles(id),
+  uploaded_at    timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_customer_documents_customer ON customer_documents(customer_id);
+
+ALTER TABLE customer_documents ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY customer_documents_access ON customer_documents FOR ALL
+  USING (is_active_user() AND (is_admin() OR current_role() = 'sales_manager'));
+
+-- Storage bucket 'customer-documents' (private), path convention:
+-- {customer_id}/{filename} — mirrors the order-attachments pattern:
+-- INSERT INTO storage.buckets (id, name, public) VALUES ('customer-documents', 'customer-documents', false);
+-- CREATE POLICY "customer docs select" ON storage.objects FOR SELECT
+--   USING (bucket_id = 'customer-documents' AND (is_admin() OR current_role() = 'sales_manager'));
+-- CREATE POLICY "customer docs insert" ON storage.objects FOR INSERT
+--   WITH CHECK (bucket_id = 'customer-documents' AND (is_admin() OR current_role() = 'sales_manager'));
+
+-- -----------------------------------------------------------------------------
+-- B. Price calculator — item 5 of scope
+--    Margin defaults per sales path, adjustable by admin; the calculator
+--    itself is a SQL function combining a material cost (usually pulled from
+--    the read-only warehouse view below) with the path's margin.
+-- -----------------------------------------------------------------------------
+CREATE TABLE price_margin_settings (
+  sales_path        order_sales_path PRIMARY KEY,
+  default_margin_pct numeric NOT NULL DEFAULT 20, -- percent
+  updated_by        uuid REFERENCES profiles(id),
+  updated_at        timestamptz NOT NULL DEFAULT now()
+);
+
+INSERT INTO price_margin_settings (sales_path, default_margin_pct) VALUES
+('trading', 20),
+('rnd', 35),
+('production', 25);
+
+ALTER TABLE price_margin_settings ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY price_margin_read ON price_margin_settings FOR SELECT
+  USING (is_active_user());
+
+CREATE POLICY price_margin_write ON price_margin_settings FOR UPDATE
+  USING (is_admin());
+
+-- fn_calculate_price(material_cost, sales_path, override_margin_pct)
+-- Returns suggested unit price = cost * (1 + margin/100). Pass override_margin_pct
+-- to let the sales manager type a custom margin instead of the default.
+CREATE OR REPLACE FUNCTION fn_calculate_price(
+  p_material_cost numeric,
+  p_sales_path order_sales_path,
+  p_override_margin_pct numeric DEFAULT NULL
+)
+RETURNS numeric AS $$
+DECLARE
+  v_margin numeric;
+BEGIN
+  IF p_override_margin_pct IS NOT NULL THEN
+    v_margin := p_override_margin_pct;
+  ELSE
+    SELECT default_margin_pct INTO v_margin
+    FROM price_margin_settings WHERE sales_path = p_sales_path;
+  END IF;
+
+  RETURN round(p_material_cost * (1 + COALESCE(v_margin, 0) / 100.0), 2);
+END;
+$$ LANGUAGE plpgsql STABLE;
+
+-- -----------------------------------------------------------------------------
+-- C. Quotations (پیش‌فاکتور) — item 4 of scope
+--    A quotation precedes a confirmed order. On approval it converts into a
+--    real `orders` row (via fn_convert_quotation_to_order below); it never
+--    mutates an existing order, keeping "one path per order" intact.
+-- -----------------------------------------------------------------------------
+CREATE TYPE quotation_status AS ENUM ('draft', 'sent', 'approved', 'rejected', 'expired', 'converted');
+
+CREATE TABLE quotations (
+  id                 uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  quotation_code     text UNIQUE NOT NULL,
+  customer_id        uuid NOT NULL REFERENCES customers(id),
+  sales_path         order_sales_path NOT NULL,
+  status             quotation_status NOT NULL DEFAULT 'draft',
+  title_fa           text NOT NULL,
+  title_en           text,
+  valid_until        date,
+  discount_amount    numeric NOT NULL DEFAULT 0,
+  tax_pct            numeric NOT NULL DEFAULT 0,
+  sales_officer_id   uuid REFERENCES profiles(id),
+  created_by         uuid NOT NULL REFERENCES profiles(id),
+  converted_order_id uuid REFERENCES orders(id),
+  notes              text,
+  created_at         timestamptz NOT NULL DEFAULT now(),
+  updated_at         timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_quotations_customer ON quotations(customer_id);
+CREATE INDEX idx_quotations_status ON quotations(status);
+
+CREATE TABLE quotation_items (
+  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  quotation_id     uuid NOT NULL REFERENCES quotations(id) ON DELETE CASCADE,
+  item_name_fa     text NOT NULL,
+  item_name_en     text,
+  warehouse_item_code text,
+  quantity         numeric NOT NULL CHECK (quantity > 0),
+  unit             text NOT NULL,
+  material_cost    numeric NOT NULL DEFAULT 0, -- pulled from warehouse view at calc time
+  margin_pct       numeric, -- NULL = use price_margin_settings default for the quotation's sales_path
+  unit_price        numeric GENERATED ALWAYS AS (NULL) STORED, -- placeholder; real value set by fn_recalculate_quotation_item below (generated columns can't call functions)
+  line_total       numeric,
+  created_at       timestamptz NOT NULL DEFAULT now()
+);
+
+-- NOTE: unit_price as a plain STORED generated column can't call fn_calculate_price
+-- (Postgres generated columns must be immutable-only expressions). Instead we
+-- compute and store unit_price/line_total via trigger below, so the UI can
+-- still just read the columns directly.
+ALTER TABLE quotation_items DROP COLUMN unit_price;
+ALTER TABLE quotation_items ADD COLUMN unit_price numeric;
+
+CREATE OR REPLACE FUNCTION fn_recalculate_quotation_item()
+RETURNS trigger AS $$
+DECLARE
+  v_path order_sales_path;
+BEGIN
+  SELECT sales_path INTO v_path FROM quotations WHERE id = NEW.quotation_id;
+  NEW.unit_price := fn_calculate_price(NEW.material_cost, v_path, NEW.margin_pct);
+  NEW.line_total := round(NEW.unit_price * NEW.quantity, 2);
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_recalculate_quotation_item
+BEFORE INSERT OR UPDATE ON quotation_items
+FOR EACH ROW EXECUTE FUNCTION fn_recalculate_quotation_item();
+
+CREATE INDEX idx_quotation_items_quotation ON quotation_items(quotation_id);
+
+-- Auto-generate quotation_code: QUO-YYYY-XXXX
+CREATE SEQUENCE quotation_code_seq;
+
+CREATE OR REPLACE FUNCTION fn_generate_quotation_code()
+RETURNS trigger AS $$
+DECLARE
+  yr text := to_char(now(), 'YYYY');
+BEGIN
+  IF NEW.quotation_code IS NULL THEN
+    NEW.quotation_code := 'QUO-' || yr || '-' || lpad(nextval('quotation_code_seq')::text, 4, '0');
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_generate_quotation_code
+BEFORE INSERT ON quotations
+FOR EACH ROW EXECUTE FUNCTION fn_generate_quotation_code();
+
+-- Convert an approved quotation into a real order (idempotent: no-ops if
+-- already converted). Copies items into order_items. Sales path/customer
+-- carry over unchanged (a quotation and its resulting order always share
+-- the same path, consistent with "one path per order").
+CREATE OR REPLACE FUNCTION fn_convert_quotation_to_order(p_quotation_id uuid)
+RETURNS uuid AS $$
+DECLARE
+  v_quotation quotations%ROWTYPE;
+  v_order_id uuid;
+BEGIN
+  SELECT * INTO v_quotation FROM quotations WHERE id = p_quotation_id FOR UPDATE;
+
+  IF v_quotation.status <> 'approved' THEN
+    RAISE EXCEPTION 'Only approved quotations can be converted (quotation %)', v_quotation.quotation_code;
+  END IF;
+
+  IF v_quotation.converted_order_id IS NOT NULL THEN
+    RETURN v_quotation.converted_order_id; -- already converted
+  END IF;
+
+  INSERT INTO orders (customer_id, sales_path, title_fa, title_en, sales_officer_id, created_by)
+  VALUES (v_quotation.customer_id, v_quotation.sales_path, v_quotation.title_fa, v_quotation.title_en,
+          v_quotation.sales_officer_id, v_quotation.created_by)
+  RETURNING id INTO v_order_id;
+
+  INSERT INTO order_items (order_id, item_name_fa, item_name_en, warehouse_item_code, quantity, unit, unit_price)
+  SELECT v_order_id, item_name_fa, item_name_en, warehouse_item_code, quantity, unit, unit_price
+  FROM quotation_items WHERE quotation_id = p_quotation_id;
+
+  UPDATE quotations SET status = 'converted', converted_order_id = v_order_id, updated_at = now()
+  WHERE id = p_quotation_id;
+
+  RETURN v_order_id;
+END;
+$$ LANGUAGE plpgsql;
+
+ALTER TABLE quotations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE quotation_items ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY quotations_sales_manager ON quotations FOR ALL
+  USING (is_active_user() AND (is_admin() OR (current_role() = 'sales_manager' AND sales_officer_id = auth.uid())));
+
+CREATE POLICY quotation_items_via_quotation ON quotation_items FOR ALL
+  USING (EXISTS (SELECT 1 FROM quotations q WHERE q.id = quotation_items.quotation_id));
+
+-- -----------------------------------------------------------------------------
+-- D. Internal requests / ticketing to other departments — item 3 of scope
+-- -----------------------------------------------------------------------------
+CREATE TYPE internal_request_department AS ENUM ('warehouse', 'production', 'rnd');
+CREATE TYPE internal_request_status AS ENUM ('pending', 'answered', 'closed');
+
+CREATE TABLE internal_requests (
+  id                 uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  request_code       text UNIQUE NOT NULL,
+  target_department  internal_request_department NOT NULL,
+  related_order_id   uuid REFERENCES orders(id),
+  related_customer_id uuid REFERENCES customers(id),
+  subject_fa         text NOT NULL,
+  subject_en         text,
+  description_fa     text,
+  description_en     text,
+  status             internal_request_status NOT NULL DEFAULT 'pending',
+  response_fa        text,
+  response_en        text,
+  requested_by       uuid NOT NULL REFERENCES profiles(id),
+  responded_by       uuid REFERENCES profiles(id),
+  responded_at       timestamptz,
+  created_at         timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_internal_requests_department_status ON internal_requests(target_department, status);
+CREATE INDEX idx_internal_requests_order ON internal_requests(related_order_id);
+
+CREATE SEQUENCE internal_request_code_seq;
+
+CREATE OR REPLACE FUNCTION fn_generate_request_code()
+RETURNS trigger AS $$
+DECLARE
+  yr text := to_char(now(), 'YYYY');
+BEGIN
+  IF NEW.request_code IS NULL THEN
+    NEW.request_code := 'REQ-' || yr || '-' || lpad(nextval('internal_request_code_seq')::text, 4, '0');
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_generate_request_code
+BEFORE INSERT ON internal_requests
+FOR EACH ROW EXECUTE FUNCTION fn_generate_request_code();
+
+-- Notify the target department the moment a request is created
+CREATE OR REPLACE FUNCTION fn_notify_internal_request()
+RETURNS trigger AS $$
+DECLARE
+  v_role user_role;
+BEGIN
+  v_role := CASE NEW.target_department
+    WHEN 'warehouse' THEN 'warehouse_keeper'
+    WHEN 'production' THEN 'production_officer'
+    WHEN 'rnd' THEN 'rnd_officer'
+  END;
+
+  INSERT INTO notifications (recipient_role, title_fa, title_en, body_fa, related_order_id)
+  VALUES (v_role, 'درخواست جدید از فروش: ' || NEW.subject_fa, 'New request from Sales', NEW.request_code, NEW.related_order_id);
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_notify_internal_request
+AFTER INSERT ON internal_requests
+FOR EACH ROW EXECUTE FUNCTION fn_notify_internal_request();
+
+-- When the target department responds, notify the original requester back
+CREATE OR REPLACE FUNCTION fn_notify_request_answered()
+RETURNS trigger AS $$
+BEGIN
+  IF TG_OP = 'UPDATE' AND OLD.status <> 'answered' AND NEW.status = 'answered' THEN
+    INSERT INTO notifications (recipient_id, title_fa, title_en, body_fa, related_order_id)
+    VALUES (NEW.requested_by, 'پاسخ به درخواست ' || NEW.request_code, 'Your request was answered', NEW.response_fa, NEW.related_order_id);
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_notify_request_answered
+BEFORE UPDATE ON internal_requests
+FOR EACH ROW EXECUTE FUNCTION fn_notify_request_answered();
+
+ALTER TABLE internal_requests ENABLE ROW LEVEL SECURITY;
+
+-- Sales manager: sees/creates their own requests; admin sees all
+CREATE POLICY internal_requests_sales ON internal_requests FOR ALL
+  USING (is_active_user() AND (is_admin() OR requested_by = auth.uid()));
+
+-- Target department can see and answer (update) requests addressed to them
+CREATE POLICY internal_requests_department_select ON internal_requests FOR SELECT
+  USING (is_active_user() AND (
+    (current_role() = 'warehouse_keeper' AND target_department = 'warehouse') OR
+    (current_role() = 'production_officer' AND target_department = 'production') OR
+    (current_role() = 'rnd_officer' AND target_department = 'rnd')
+  ));
+
+CREATE POLICY internal_requests_department_update ON internal_requests FOR UPDATE
+  USING (is_active_user() AND (
+    (current_role() = 'warehouse_keeper' AND target_department = 'warehouse') OR
+    (current_role() = 'production_officer' AND target_department = 'production') OR
+    (current_role() = 'rnd_officer' AND target_department = 'rnd')
+  ));
+
+-- -----------------------------------------------------------------------------
+-- E. Follow-up reminders — item 6 of scope
+--    Manual reminders + an auto-computed "needs follow-up" view (no order/
+--    quotation activity in N days). N is admin-configurable via
+--    price_margin_settings-style row in system_settings (assumed to already
+--    exist from the Auth session; falls back to 14 days if missing).
+-- -----------------------------------------------------------------------------
+CREATE TABLE follow_up_reminders (
+  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  customer_id      uuid NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+  related_order_id uuid REFERENCES orders(id),
+  reminder_date    date NOT NULL,
+  note             text,
+  is_done          boolean NOT NULL DEFAULT false,
+  created_by       uuid NOT NULL REFERENCES profiles(id),
+  created_at       timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_followup_customer ON follow_up_reminders(customer_id);
+CREATE INDEX idx_followup_date_pending ON follow_up_reminders(reminder_date) WHERE is_done = false;
+
+ALTER TABLE follow_up_reminders ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY followup_owner ON follow_up_reminders FOR ALL
+  USING (is_active_user() AND (is_admin() OR created_by = auth.uid()));
+
+-- Auto-computed view: customers with no order in the last N days.
+-- Reads system_settings.follow_up_threshold_days if that row exists,
+-- otherwise defaults to 14. Adjust the table/column name once the Auth
+-- session's system_settings shape is confirmed.
+CREATE OR REPLACE VIEW v_customers_needing_followup AS
+WITH threshold AS (
+  SELECT COALESCE(
+    (SELECT value::int FROM system_settings WHERE key = 'follow_up_threshold_days'),
+    14
+  ) AS days
+),
+last_activity AS (
+  SELECT customer_id, MAX(created_at) AS last_order_at
+  FROM orders
+  GROUP BY customer_id
+)
+SELECT
+  c.id AS customer_id,
+  c.company_name,
+  c.tier,
+  la.last_order_at,
+  (CURRENT_DATE - la.last_order_at::date) AS days_since_last_order
+FROM customers c
+LEFT JOIN last_activity la ON la.customer_id = c.id
+CROSS JOIN threshold t
+WHERE c.is_active
+  AND (la.last_order_at IS NULL OR la.last_order_at < now() - (t.days || ' days')::interval);
+
+-- -----------------------------------------------------------------------------
+-- F. Read-only warehouse stock view for Sales Manager — item 7 of scope
+--    NOTE: reconcile table/column names against the actual Snapshot +
+--    Transaction model from the Warehouse session. Placeholder assumes a
+--    table `warehouse_stock_snapshot(item_code, item_name_fa, item_name_en,
+--    available_qty, unit, updated_at)`.
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE VIEW v_warehouse_stock_readonly AS
+SELECT
+  item_code,
+  item_name_fa,
+  item_name_en,
+  available_qty,
+  unit,
+  updated_at
+FROM warehouse_stock_snapshot;
+-- Grant: sales_manager role gets SELECT via a policy on the underlying
+-- table/view once the warehouse session confirms its RLS approach, e.g.:
+-- CREATE POLICY warehouse_stock_sales_read ON warehouse_stock_snapshot FOR SELECT
+--   USING (is_active_user() AND (is_admin() OR current_role() = 'sales_manager'));
+
+-- -----------------------------------------------------------------------------
+-- G. Personal sales performance report — item 8 of scope
+--    Single RPC per the project's established dashboard pattern (DB-side
+--    aggregation to minimize Supabase free-tier round-trips).
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION get_sales_performance_kpis(
+  p_officer_id uuid,
+  p_start_date date,
+  p_end_date date
+)
+RETURNS json AS $$
+DECLARE
+  v_result json;
+BEGIN
+  SELECT json_build_object(
+    'total_orders', COUNT(*) FILTER (WHERE o.sales_officer_id = p_officer_id),
+    'orders_by_path', json_object_agg(o.sales_path, path_count) FILTER (WHERE o.sales_path IS NOT NULL),
+    'closed_orders', COUNT(*) FILTER (WHERE o.sales_officer_id = p_officer_id AND o.current_stage = 'closed'),
+    'cancelled_orders', COUNT(*) FILTER (WHERE o.sales_officer_id = p_officer_id AND o.is_cancelled),
+    'quotations_sent', (SELECT COUNT(*) FROM quotations q WHERE q.sales_officer_id = p_officer_id AND q.status IN ('sent','approved','rejected','converted') AND q.created_at BETWEEN p_start_date AND p_end_date),
+    'quotations_converted', (SELECT COUNT(*) FROM quotations q WHERE q.sales_officer_id = p_officer_id AND q.status = 'converted' AND q.created_at BETWEEN p_start_date AND p_end_date),
+    'total_order_value', (SELECT COALESCE(SUM(oi.line_total), 0) FROM order_items oi JOIN orders o2 ON o2.id = oi.order_id WHERE o2.sales_officer_id = p_officer_id AND o2.created_at BETWEEN p_start_date AND p_end_date)
+  ) INTO v_result
+  FROM orders o
+  LEFT JOIN (
+    SELECT sales_path, COUNT(*) AS path_count FROM orders
+    WHERE sales_officer_id = p_officer_id AND created_at BETWEEN p_start_date AND p_end_date
+    GROUP BY sales_path
+  ) path_counts ON true
+  WHERE o.sales_officer_id = p_officer_id AND o.created_at BETWEEN p_start_date AND p_end_date;
+
+  RETURN v_result;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER STABLE;
+
+-- Access: sales manager can only call this for their own id; admin for anyone.
+-- Enforce in the calling Edge Function / RLS-checked wrapper, e.g.:
+-- REVOKE EXECUTE ON FUNCTION get_sales_performance_kpis FROM PUBLIC;
+-- (grant via a thin wrapper that checks p_officer_id = auth.uid() OR is_admin())
+
+-- =============================================================================
+-- RECONCILIATION TODOs (extensions)
+-- =============================================================================
+-- 1. Confirm `system_settings(key, value)` shape from the Auth session for
+--    v_customers_needing_followup's threshold lookup.
+-- 2. Confirm warehouse stock snapshot table/column names for
+--    v_warehouse_stock_readonly (section F) — currently a placeholder.
+-- 3. Decide whether internal_requests needs file attachments (e.g. attaching
+--    a spec sheet when asking R&D for an estimate) — not in original scope,
+--    flagged here in case it comes up.

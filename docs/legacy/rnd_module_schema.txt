@@ -1,0 +1,331 @@
+-- =====================================================================
+-- R&D MODULE — بخش تحقیق و توسعه
+-- پروژه: سیستم اتوماسیون شرکت
+-- وابستگی: باید بعد از production_module_schema.sql اجرا شود
+--          (به product_categories و production_orders نیاز دارد)
+-- نکته هماهنگی: source_order_id در rnd_projects هنوز plain UUID است،
+--          منتظر نهایی‌شدن ساختار جدول orders از چت "سفارش".
+-- نکته مهم: انبار مواد/لوازم مصرفی R&D کاملاً مستقل و جدا از انبار
+--          اصلی شرکت است. این ماژول فعلاً به آن انبار کوچک متصل
+--          نمی‌شود (به تصمیم صریح کارفرما) — فقط یک ستون رزرو برای
+--          اتصال آینده در rnd_material_usage گذاشته شده است.
+-- =====================================================================
+
+-- ---------------------------------------------------------------------
+-- ۱. ENUM ها
+-- ---------------------------------------------------------------------
+create type rnd_project_status as enum (
+  'requested', 'design', 'prototyping', 'testing',
+  'revision_needed', 'approved', 'sent_to_production', 'rejected', 'archived'
+);
+
+create type rnd_stage_status as enum ('pending', 'in_progress', 'completed', 'failed', 'skipped');
+
+create type rnd_output_destination as enum ('internal_production', 'customer_delivery', 'both');
+
+create type rnd_stage_type as enum (
+  'requirement_analysis',
+  'schematic_design',
+  'pcb_layout',
+  'bom_finalization',
+  'prototype_build',
+  'functional_test',
+  'customer_review',
+  'design_freeze',
+  'handoff_production',
+  'custom'
+);
+
+-- ---------------------------------------------------------------------
+-- ۲. جدول اصلی پروژه R&D
+-- ---------------------------------------------------------------------
+create table rnd_projects (
+  id uuid primary key default gen_random_uuid(),
+  code text unique not null,                     -- مثلا RND-2026-0001
+
+  title_fa text not null,
+  title_en text,
+  product_category_id uuid references product_categories(id),
+
+  requested_by uuid references auth.users(id),   -- فروش یا مدیر کل
+  source_order_id uuid,                          -- FK منطقی به سفارش — هنوز plain UUID
+
+  assigned_to uuid references auth.users(id),    -- مسئول R&D
+
+  status rnd_project_status default 'requested',
+  output_destination rnd_output_destination default 'internal_production',
+
+  customer_requirements text,
+  technical_notes text,
+
+  current_revision int default 1,
+  planned_start date,
+  planned_end date,
+  actual_start date,
+  actual_end date,
+
+  progress_percent numeric default 0,
+
+  created_by uuid references auth.users(id),
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+create index idx_rnd_projects_status on rnd_projects(status);
+
+-- ---------------------------------------------------------------------
+-- ۳. نسخه‌های طراحی (Revision)
+-- ---------------------------------------------------------------------
+create table rnd_design_revisions (
+  id uuid primary key default gen_random_uuid(),
+  rnd_project_id uuid references rnd_projects(id) on delete cascade,
+  revision_number int not null,
+
+  design_file_url text,          -- لینک فایل طراحی (شماتیک/BOM/گربر و...)
+  bom_summary text,
+  change_notes text,
+
+  created_by uuid references auth.users(id),
+  created_at timestamptz default now(),
+
+  unique(rnd_project_id, revision_number)
+);
+
+-- ---------------------------------------------------------------------
+-- ۴. قالب مراحل R&D (به‌ازای هر دسته محصول، منعطف)
+-- ---------------------------------------------------------------------
+create table rnd_stage_templates (
+  id uuid primary key default gen_random_uuid(),
+  product_category_id uuid references product_categories(id),
+  stage_type rnd_stage_type not null,
+  name_fa text not null,
+  name_en text not null,
+  order_index int not null,
+  requires_material_issue boolean default false,
+  is_active boolean default true
+);
+
+-- نمونه قالب برای برد آرایه‌شده
+insert into rnd_stage_templates (product_category_id, stage_type, name_fa, name_en, order_index)
+select id, 'requirement_analysis', 'تحلیل نیازمندی', 'Requirement Analysis', 1 from product_categories where code='PCB_ASSY'
+union all
+select id, 'schematic_design', 'طراحی شماتیک', 'Schematic Design', 2 from product_categories where code='PCB_ASSY'
+union all
+select id, 'pcb_layout', 'طراحی لایوت PCB', 'PCB Layout', 3 from product_categories where code='PCB_ASSY'
+union all
+select id, 'bom_finalization', 'نهایی‌سازی لیست قطعات', 'BOM Finalization', 4 from product_categories where code='PCB_ASSY'
+union all
+select id, 'prototype_build', 'ساخت نمونه اولیه', 'Prototype Build', 5 from product_categories where code='PCB_ASSY'
+union all
+select id, 'functional_test', 'تست عملکردی نمونه', 'Prototype Test', 6 from product_categories where code='PCB_ASSY'
+union all
+select id, 'design_freeze', 'تثبیت طراحی نهایی', 'Design Freeze', 7 from product_categories where code='PCB_ASSY';
+
+-- نکته: قالب مراحل برای TRANSFORMER, FULL_PRODUCT, PCB_SPEC هنوز تعریف
+-- نشده؛ باید بعداً مشابه الگوی بالا بر اساس واقعیت کار R&D تکمیل شود.
+
+-- ---------------------------------------------------------------------
+-- ۵. نمونه‌سازی مراحل برای هر پروژه واقعی
+-- ---------------------------------------------------------------------
+create table rnd_project_stages (
+  id uuid primary key default gen_random_uuid(),
+  rnd_project_id uuid references rnd_projects(id) on delete cascade,
+  stage_template_id uuid references rnd_stage_templates(id),
+  order_index int not null,
+
+  status rnd_stage_status default 'pending',
+  assigned_to uuid references auth.users(id),
+
+  is_custom boolean default false,
+  custom_stage_type rnd_stage_type,
+  custom_name_fa text,
+  custom_name_en text,
+
+  started_at timestamptz,
+  completed_at timestamptz,
+  notes text,
+
+  created_at timestamptz default now()
+);
+
+create index idx_rps_project on rnd_project_stages(rnd_project_id);
+
+-- تریگر: ساخت خودکار مراحل بر اساس دسته محصول پروژه
+create or replace function fn_create_rnd_stages()
+returns trigger as $$
+begin
+  insert into rnd_project_stages (rnd_project_id, stage_template_id, order_index)
+  select new.id, id, order_index
+  from rnd_stage_templates
+  where is_active = true
+    and product_category_id = new.product_category_id
+  order by order_index;
+  return new;
+end;
+$$ language plpgsql;
+
+create trigger trg_create_rnd_stages
+after insert on rnd_projects
+for each row execute function fn_create_rnd_stages();
+
+-- ---------------------------------------------------------------------
+-- ۶. مصرف مواد در نمونه‌سازی
+-- توجه مهم: این جدول عمداً به انبار اصلی (warehouse_transactions) وصل
+-- نیست. R&D انبار کوچک مستقل خودش را دارد که فعلاً خارج از محدوده این
+-- سیستم است. این فقط یک لاگ توصیفی ساده برای مستندسازی/هزینه است.
+-- future_rnd_warehouse_item_id برای اتصال بعدی به انبار کوچک R&D رزرو شده.
+-- ---------------------------------------------------------------------
+create table rnd_material_usage (
+  id uuid primary key default gen_random_uuid(),
+  rnd_project_id uuid references rnd_projects(id) on delete cascade,
+  stage_id uuid references rnd_project_stages(id),
+
+  item_description text not null,     -- توصیف آزاد، مثلا "مقاومت 10k - 20 عدد"
+  quantity numeric,
+  unit text,
+  estimated_cost numeric,
+
+  future_rnd_warehouse_item_id uuid,  -- رزرو برای اتصال به انبار کوچک R&D در آینده
+
+  requested_by uuid references auth.users(id),
+  created_at timestamptz default now(),
+  notes text
+);
+
+-- ---------------------------------------------------------------------
+-- ۷. تست عملکردی نمونه
+-- ---------------------------------------------------------------------
+create table rnd_prototype_tests (
+  id uuid primary key default gen_random_uuid(),
+  rnd_project_id uuid references rnd_projects(id) on delete cascade,
+  revision_id uuid references rnd_design_revisions(id),
+
+  test_description text,
+  result text,                -- passed / failed / needs_revision
+  tested_by uuid references auth.users(id),
+  tested_at timestamptz default now(),
+  attachment_url text
+);
+
+-- ---------------------------------------------------------------------
+-- ۸. Handoff رسمی به تولید
+-- ---------------------------------------------------------------------
+create table rnd_production_handoffs (
+  id uuid primary key default gen_random_uuid(),
+  rnd_project_id uuid references rnd_projects(id),
+  final_revision_id uuid references rnd_design_revisions(id),
+  production_order_id uuid references production_orders(id),
+
+  quantity_to_produce numeric not null,
+  handed_off_by uuid references auth.users(id),
+  handed_off_at timestamptz default now(),
+  notes text
+);
+
+create or replace function fn_handoff_to_production(
+  p_rnd_project_id uuid,
+  p_quantity numeric,
+  p_handed_off_by uuid
+) returns uuid as $$
+declare
+  v_project rnd_projects%rowtype;
+  v_revision_id uuid;
+  v_order_id uuid;
+  v_code text;
+begin
+  select * into v_project from rnd_projects where id = p_rnd_project_id;
+
+  if v_project.status <> 'approved' then
+    raise exception 'پروژه هنوز تأیید نهایی نشده است';
+  end if;
+
+  select id into v_revision_id
+  from rnd_design_revisions
+  where rnd_project_id = p_rnd_project_id
+  order by revision_number desc limit 1;
+
+  v_code := 'PRD-' || to_char(now(), 'YYYY') || '-' || substr(md5(random()::text), 1, 6);
+
+  insert into production_orders (
+    code, source_type, source_rnd_id, product_category_id,
+    product_name_fa, product_name_en, quantity_planned, status, created_by
+  ) values (
+    v_code, 'rnd_project', p_rnd_project_id, v_project.product_category_id,
+    v_project.title_fa, v_project.title_en, p_quantity, 'planned', p_handed_off_by
+  ) returning id into v_order_id;
+
+  insert into rnd_production_handoffs (
+    rnd_project_id, final_revision_id, production_order_id,
+    quantity_to_produce, handed_off_by
+  ) values (
+    p_rnd_project_id, v_revision_id, v_order_id, p_quantity, p_handed_off_by
+  );
+
+  update rnd_projects
+  set status = 'sent_to_production', updated_at = now()
+  where id = p_rnd_project_id;
+
+  return v_order_id;
+end;
+$$ language plpgsql;
+
+-- ---------------------------------------------------------------------
+-- ۹. پیشرفت و گزارش‌دهی R&D
+-- ---------------------------------------------------------------------
+create table rnd_progress_logs (
+  id uuid primary key default gen_random_uuid(),
+  rnd_project_id uuid references rnd_projects(id) on delete cascade,
+  stage_id uuid references rnd_project_stages(id),
+
+  logged_by uuid references auth.users(id),
+  progress_percent numeric,
+  description text,
+  logged_at timestamptz default now()
+);
+
+create or replace function fn_update_rnd_progress()
+returns trigger as $$
+declare
+  total_stages int;
+  completed_stages int;
+begin
+  select count(*), count(*) filter (where status = 'completed')
+  into total_stages, completed_stages
+  from rnd_project_stages
+  where rnd_project_id = new.rnd_project_id;
+
+  update rnd_projects
+  set progress_percent = round((completed_stages::numeric / nullif(total_stages,0)) * 100, 1),
+      updated_at = now()
+  where id = new.rnd_project_id;
+
+  return new;
+end;
+$$ language plpgsql;
+
+create trigger trg_update_rnd_progress
+after update of status on rnd_project_stages
+for each row execute function fn_update_rnd_progress();
+
+-- ---------------------------------------------------------------------
+-- ۱۰. View داشبورد مدیریتی R&D
+-- ---------------------------------------------------------------------
+create or replace view v_rnd_dashboard as
+select
+  rp.id,
+  rp.code,
+  rp.title_fa,
+  pc.name_fa as category,
+  rp.status,
+  rp.progress_percent,
+  rp.current_revision,
+  rp.output_destination,
+  h.production_order_id,
+  h.handed_off_at
+from rnd_projects rp
+left join product_categories pc on pc.id = rp.product_category_id
+left join rnd_production_handoffs h on h.rnd_project_id = rp.id;
+
+-- =====================================================================
+-- پایان فایل R&D
+-- =====================================================================

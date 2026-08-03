@@ -1,0 +1,20 @@
+.admin-panel { padding: 24px; max-width: 1180px; margin: 0 auto; }
+.admin-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
+.admin-header h2 { margin: 0; font-size: 22px; }
+.admin-header p, .hint { margin: 6px 0 0; color: #5b6670; font-size: 13px; }
+.primary-btn { background: #a8672e; color: #fff; border: none; border-radius: 10px; padding: 10px 14px; cursor: pointer; font-weight: 600; }
+.user-form { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; background: #fff; border-radius: 14px; padding: 14px; margin-bottom: 14px; box-shadow: 0 1px 8px rgba(20,24,28,0.06); }
+.user-form input, .user-form select, .user-table select { width: 100%; padding: 9px 10px; border: 1px solid #d8dee3; border-radius: 8px; background: #fff; }
+.admin-msg { background: #e8f4ed; color: #25694a; padding: 10px 12px; border-radius: 10px; margin-bottom: 12px; font-size: 13px; }
+.admin-msg.error { background: #f7e5e3; color: #a5453f; }
+.table-wrap { overflow-x: auto; background: #fff; border-radius: 14px; box-shadow: 0 1px 8px rgba(20,24,28,0.06); }
+.user-table { border-collapse: collapse; width: 100%; min-width: 760px; }
+.user-table th, .user-table td { text-align: start; padding: 12px; border-bottom: 1px solid #edf0f2; font-size: 13px; vertical-align: middle; }
+.user-table th { color: #5b6670; background: #f8fafb; font-weight: 600; }
+.status { display: inline-flex; border-radius: 999px; padding: 4px 9px; font-size: 12px; }
+.status.active { background: #e5f3eb; color: #25694a; }
+.status.inactive { background: #f6e5e3; color: #a5453f; }
+.actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.actions button { border: 1px solid #d8dee3; border-radius: 8px; background: #fff; padding: 7px 9px; cursor: pointer; font-size: 12px; }
+.actions .danger { color: #a5453f; border-color: #e5b9b5; }
+@media (max-width: 900px) { .user-form { grid-template-columns: 1fr; } .admin-header { align-items: stretch; flex-direction: column; } }

@@ -1,0 +1,388 @@
+-- ============================================================
+-- ماژول اداری (فاز دوم) - حضور و غیاب / مرخصی / مکاتبات داخلی
+-- Supabase (PostgreSQL) — دوزبانه فارسی/انگلیسی
+-- ============================================================
+
+-- فرض: جدول employees از فاز اول موجود است با ساختار مشابه زیر.
+-- اگر نام/ستون‌ها فرق دارد، لطفاً اصلاح شود.
+-- create table employees (
+--   id uuid primary key default gen_random_uuid(),
+--   full_name text not null,
+--   role text not null check (role in ('ceo','sales','rnd','production','warehouse','accountant','admin')),
+--   auth_user_id uuid references auth.users(id),
+--   is_active boolean default true,
+--   created_at timestamptz default now()
+-- );
+
+-- ------------------------------------------------------------
+-- 1) حضور و غیاب — ثبت توسط خود کارمند (بدون GPS)
+-- ------------------------------------------------------------
+create table attendance_records (
+  id uuid primary key default gen_random_uuid(),
+  employee_id uuid not null references employees(id) on delete cascade,
+  work_date date not null default current_date,
+  check_in timestamptz,
+  check_out timestamptz,
+  status text not null default 'present'
+    check (status in ('present','late','absent','on_leave')),
+  note text,
+  created_at timestamptz default now(),
+  unique (employee_id, work_date)
+);
+
+-- محاسبه ساعت کارکرد به صورت generated column
+alter table attendance_records
+  add column work_hours numeric generated always as (
+    case when check_in is not null and check_out is not null
+    then round(extract(epoch from (check_out - check_in)) / 3600.0, 2)
+    else null end
+  ) stored;
+
+create index idx_attendance_employee_date on attendance_records (employee_id, work_date);
+
+-- ------------------------------------------------------------
+-- 2) انواع مرخصی — استحقاقی/استعلاجی/بدون‌حقوق/ساعتی/مأموریت
+--    قابل مدیریت توسط مدیر کل (نه هاردکد)
+-- ------------------------------------------------------------
+create table leave_types (
+  id uuid primary key default gen_random_uuid(),
+  code text unique not null,          -- annual, sick, unpaid, hourly, mission
+  name_fa text not null,
+  name_en text not null,
+  is_hourly boolean default false,     -- برای مرخصی ساعتی
+  requires_approval boolean default true,
+  annual_quota_days numeric,           -- سقف سالانه (nullable برای مأموریت/بدون‌حقوق)
+  is_active boolean default true
+);
+
+insert into leave_types (code, name_fa, name_en, is_hourly, annual_quota_days) values
+  ('annual', 'استحقاقی', 'Annual Leave', false, 26),
+  ('sick', 'استعلاجی', 'Sick Leave', false, null),
+  ('unpaid', 'بدون حقوق', 'Unpaid Leave', false, null),
+  ('hourly', 'ساعتی', 'Hourly Leave', true, null),
+  ('mission', 'مأموریت کاری', 'Work Mission', false, null);
+
+-- ------------------------------------------------------------
+-- 3) درخواست مرخصی + گردش تأیید مدیر
+-- ------------------------------------------------------------
+create table leave_requests (
+  id uuid primary key default gen_random_uuid(),
+  employee_id uuid not null references employees(id) on delete cascade,
+  leave_type_id uuid not null references leave_types(id),
+  start_date date not null,
+  end_date date not null,
+  start_time time,          -- برای مرخصی ساعتی
+  end_time time,             -- برای مرخصی ساعتی
+  total_days numeric,        -- محاسبه‌شده در بک‌اند/تریگر
+  reason text,
+  status text not null default 'pending'
+    check (status in ('pending','approved','rejected','cancelled')),
+  reviewed_by uuid references employees(id),
+  reviewed_at timestamptz,
+  review_note text,
+  created_at timestamptz default now()
+);
+
+create index idx_leave_employee on leave_requests (employee_id);
+create index idx_leave_status on leave_requests (status);
+
+-- تریگر: وقتی مرخصی تأیید شد، رکورد attendance را روی on_leave ست کن
+create or replace function sync_attendance_on_leave_approval()
+returns trigger as $$
+begin
+  if new.status = 'approved' and old.status is distinct from 'approved' then
+    insert into attendance_records (employee_id, work_date, status)
+    select new.employee_id, d::date, 'on_leave'
+    from generate_series(new.start_date, new.end_date, interval '1 day') d
+    on conflict (employee_id, work_date)
+    do update set status = 'on_leave';
+  end if;
+  return new;
+end;
+$$ language plpgsql;
+
+create trigger trg_leave_approval
+after update on leave_requests
+for each row execute function sync_attendance_on_leave_approval();
+
+-- ------------------------------------------------------------
+-- 4) مکاتبات اداری — آرشیو نامه‌های رسمی با شماره‌گذاری و پیگیری
+--    (طبق پاسخ شما: نامه‌های رسمی نیاز به شماره و آرشیو دارند)
+-- ------------------------------------------------------------
+create sequence correspondence_number_seq start 1;
+
+create table correspondence (
+  id uuid primary key default gen_random_uuid(),
+  letter_number text not null unique
+    default ('AD-' || to_char(now(),'YYYY') || '-' || lpad(nextval('correspondence_number_seq')::text, 4, '0')),
+  subject text not null,
+  body text,
+  from_employee_id uuid not null references employees(id),
+  to_employee_id uuid references employees(id),   -- nullable = برای کل شرکت/دپارتمان
+  to_department text,                              -- مثال: 'production', 'warehouse'
+  status text not null default 'sent'
+    check (status in ('draft','sent','seen','archived')),
+  attachment_url text,
+  created_at timestamptz default now()
+);
+
+create index idx_correspondence_to on correspondence (to_employee_id);
+create index idx_correspondence_dept on correspondence (to_department);
+
+-- ------------------------------------------------------------
+-- 5) Row Level Security — مدیر کل همه‌چیز، کارمند فقط داده خودش
+-- ------------------------------------------------------------
+alter table attendance_records enable row level security;
+alter table leave_requests enable row level security;
+alter table correspondence enable row level security;
+
+-- کارمند: فقط رکورد حضور خودش را می‌بیند/می‌سازد
+create policy attendance_self_select on attendance_records
+  for select using (
+    employee_id = (select id from employees where auth_user_id = auth.uid())
+    or exists (select 1 from employees e where e.auth_user_id = auth.uid() and e.role = 'ceo')
+  );
+
+create policy attendance_self_insert on attendance_records
+  for insert with check (
+    employee_id = (select id from employees where auth_user_id = auth.uid())
+  );
+
+-- مرخصی: کارمند رکورد خودش را می‌سازد و می‌بیند؛ مدیر همه را می‌بیند و تأیید می‌کند
+create policy leave_self_select on leave_requests
+  for select using (
+    employee_id = (select id from employees where auth_user_id = auth.uid())
+    or exists (select 1 from employees e where e.auth_user_id = auth.uid() and e.role = 'ceo')
+  );
+
+create policy leave_self_insert on leave_requests
+  for insert with check (
+    employee_id = (select id from employees where auth_user_id = auth.uid())
+  );
+
+create policy leave_manager_update on leave_requests
+  for update using (
+    exists (select 1 from employees e where e.auth_user_id = auth.uid() and e.role = 'ceo')
+  );
+
+-- مکاتبات: گیرنده/فرستنده/مدیر کل می‌بینند
+create policy correspondence_visibility on correspondence
+  for select using (
+    from_employee_id = (select id from employees where auth_user_id = auth.uid())
+    or to_employee_id = (select id from employees where auth_user_id = auth.uid())
+    or exists (select 1 from employees e where e.auth_user_id = auth.uid() and e.role = 'ceo')
+  );
+
+create policy correspondence_insert on correspondence
+  for insert with check (
+    from_employee_id = (select id from employees where auth_user_id = auth.uid())
+  );
+
+-- ------------------------------------------------------------
+-- 6) مشاوره کسب‌وکار / تصمیمات استراتژیک
+--    شامل: جلسات مشاوره بیرونی + تصمیمات استراتژیک داخلی مدیران
+--    دسترسی محدود به مدیر کل (محتوای حساس)
+-- ------------------------------------------------------------
+create table strategic_consultations (
+  id uuid primary key default gen_random_uuid(),
+  session_date date not null default current_date,
+  session_type text not null
+    check (session_type in ('external_consultant','internal_strategy')),
+  consultant_name text,              -- فقط برای external_consultant
+  participants text,                 -- اسامی حاضرین (متنی، ساده)
+  topic text not null,
+  summary text,                      -- خلاصه بحث
+  decisions text,                    -- تصمیمات نهایی
+  status text not null default 'open'
+    check (status in ('open','closed')),
+  created_by uuid not null references employees(id),
+  created_at timestamptz default now()
+);
+
+-- اقدامات پیگیری (action items) هر جلسه/تصمیم
+create table strategic_action_items (
+  id uuid primary key default gen_random_uuid(),
+  consultation_id uuid not null references strategic_consultations(id) on delete cascade,
+  title text not null,
+  owner_employee_id uuid references employees(id),
+  due_date date,
+  status text not null default 'pending'
+    check (status in ('pending','in_progress','done','cancelled')),
+  created_at timestamptz default now()
+);
+
+create index idx_strategic_action_consultation on strategic_action_items (consultation_id);
+
+alter table strategic_consultations enable row level security;
+alter table strategic_action_items enable row level security;
+
+-- فقط مدیر کل به کل محتوا دسترسی دارد
+create policy strategic_ceo_only on strategic_consultations
+  for all using (
+    exists (select 1 from employees e where e.auth_user_id = auth.uid() and e.role = 'ceo')
+  );
+
+-- صاحب اقدام (owner) می‌تونه فقط وضعیت کار خودش رو ببینه/آپدیت کنه؛ مدیر کل همه‌چیز
+create policy strategic_action_owner_select on strategic_action_items
+  for select using (
+    owner_employee_id = (select id from employees where auth_user_id = auth.uid())
+    or exists (select 1 from employees e where e.auth_user_id = auth.uid() and e.role = 'ceo')
+  );
+
+create policy strategic_action_owner_update on strategic_action_items
+  for update using (
+    owner_employee_id = (select id from employees where auth_user_id = auth.uid())
+    or exists (select 1 from employees e where e.auth_user_id = auth.uid() and e.role = 'ceo')
+  );
+
+create policy strategic_action_ceo_insert on strategic_action_items
+  for insert with check (
+    exists (select 1 from employees e where e.auth_user_id = auth.uid() and e.role = 'ceo')
+  );
+
+-- ------------------------------------------------------------
+-- 7) مدیریت جلسات — ثبت جلسه + صورت‌جلسه + مصوبات با پیگیری
+-- ------------------------------------------------------------
+create table meetings (
+  id uuid primary key default gen_random_uuid(),
+  title text not null,
+  meeting_date date not null,
+  start_time time,
+  end_time time,
+  location text,
+  organized_by uuid not null references employees(id),
+  department text,              -- دپارتمان مرتبط (nullable = عمومی/همه)
+  minutes text,                  -- صورت‌جلسه
+  status text not null default 'scheduled'
+    check (status in ('scheduled','held','cancelled')),
+  created_at timestamptz default now()
+);
+
+create table meeting_attendees (
+  id uuid primary key default gen_random_uuid(),
+  meeting_id uuid not null references meetings(id) on delete cascade,
+  employee_id uuid not null references employees(id),
+  attendance_status text not null default 'invited'
+    check (attendance_status in ('invited','attended','absent')),
+  unique (meeting_id, employee_id)
+);
+
+-- مصوبات جلسه با مسئول و پیگیری (همان الگوی strategic_action_items)
+create table meeting_decisions (
+  id uuid primary key default gen_random_uuid(),
+  meeting_id uuid not null references meetings(id) on delete cascade,
+  decision_text text not null,
+  owner_employee_id uuid references employees(id),
+  due_date date,
+  status text not null default 'pending'
+    check (status in ('pending','in_progress','done','cancelled')),
+  created_at timestamptz default now()
+);
+
+create index idx_meeting_attendees_meeting on meeting_attendees (meeting_id);
+create index idx_meeting_decisions_meeting on meeting_decisions (meeting_id);
+
+alter table meetings enable row level security;
+alter table meeting_attendees enable row level security;
+alter table meeting_decisions enable row level security;
+
+-- جلسه قابل مشاهده برای برگزارکننده، دعوت‌شدگان، و مدیر کل
+create policy meetings_visibility on meetings
+  for select using (
+    organized_by = (select id from employees where auth_user_id = auth.uid())
+    or exists (select 1 from meeting_attendees ma
+               join employees e on e.id = ma.employee_id
+               where ma.meeting_id = meetings.id and e.auth_user_id = auth.uid())
+    or exists (select 1 from employees e where e.auth_user_id = auth.uid() and e.role = 'ceo')
+  );
+
+create policy meetings_insert on meetings
+  for insert with check (
+    organized_by = (select id from employees where auth_user_id = auth.uid())
+  );
+
+create policy meetings_update on meetings
+  for update using (
+    organized_by = (select id from employees where auth_user_id = auth.uid())
+    or exists (select 1 from employees e where e.auth_user_id = auth.uid() and e.role = 'ceo')
+  );
+
+create policy meeting_attendees_visibility on meeting_attendees
+  for select using (
+    exists (select 1 from meetings m where m.id = meeting_attendees.meeting_id
+            and (m.organized_by = (select id from employees where auth_user_id = auth.uid())
+                 or exists (select 1 from employees e where e.auth_user_id = auth.uid() and e.role = 'ceo')))
+    or employee_id = (select id from employees where auth_user_id = auth.uid())
+  );
+
+create policy meeting_decisions_visibility on meeting_decisions
+  for select using (
+    owner_employee_id = (select id from employees where auth_user_id = auth.uid())
+    or exists (select 1 from meetings m where m.id = meeting_decisions.meeting_id
+               and m.organized_by = (select id from employees where auth_user_id = auth.uid()))
+    or exists (select 1 from employees e where e.auth_user_id = auth.uid() and e.role = 'ceo')
+  );
+
+create policy meeting_decisions_owner_update on meeting_decisions
+  for update using (
+    owner_employee_id = (select id from employees where auth_user_id = auth.uid())
+    or exists (select 1 from meetings m where m.id = meeting_decisions.meeting_id
+               and m.organized_by = (select id from employees where auth_user_id = auth.uid()))
+    or exists (select 1 from employees e where e.auth_user_id = auth.uid() and e.role = 'ceo')
+  );
+
+-- ------------------------------------------------------------
+-- 8) بایگانی اسناد — قراردادها/مجوزها/مکاتبات اسکن‌شده/هر فایل دیگر
+--    دسترسی بر اساس دپارتمان + سطح محرمانگی
+-- ------------------------------------------------------------
+create table documents (
+  id uuid primary key default gen_random_uuid(),
+  title text not null,
+  category text not null default 'other'
+    check (category in ('contract','license','correspondence_scan','other')),
+  department text,                -- 'sales','rnd','production','warehouse','accountant','admin', null = عمومی
+  confidentiality_level text not null default 'restricted'
+    check (confidentiality_level in ('public','restricted','confidential')),
+  file_url text not null,          -- مسیر فایل در Supabase Storage
+  expiry_date date,                -- برای مجوزها/قراردادهای دارای تاریخ انقضا
+  uploaded_by uuid not null references employees(id),
+  created_at timestamptz default now()
+);
+
+create index idx_documents_department on documents (department);
+create index idx_documents_confidentiality on documents (confidentiality_level);
+
+alter table documents enable row level security;
+
+-- عمومی: همه کاربران فعال می‌بینند
+-- محدود: فقط همون دپارتمان + مدیر کل + اداری
+-- محرمانه: فقط آپلودکننده + مدیر کل
+create policy documents_select on documents
+  for select using (
+    confidentiality_level = 'public'
+    or (
+      confidentiality_level = 'restricted'
+      and (
+        department = (select role from employees where auth_user_id = auth.uid())
+        or exists (select 1 from employees e where e.auth_user_id = auth.uid() and e.role in ('ceo','admin'))
+      )
+    )
+    or (
+      confidentiality_level = 'confidential'
+      and (
+        uploaded_by = (select id from employees where auth_user_id = auth.uid())
+        or exists (select 1 from employees e where e.auth_user_id = auth.uid() and e.role = 'ceo')
+      )
+    )
+  );
+
+create policy documents_insert on documents
+  for insert with check (
+    uploaded_by = (select id from employees where auth_user_id = auth.uid())
+  );
+
+create policy documents_manage on documents
+  for update using (
+    uploaded_by = (select id from employees where auth_user_id = auth.uid())
+    or exists (select 1 from employees e where e.auth_user_id = auth.uid() and e.role = 'ceo')
+  );
