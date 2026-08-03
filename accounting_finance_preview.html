@@ -1,0 +1,1036 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>پیش‌نمایش ماژول مالی و حسابداری | Otomasion2</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&display=swap');
+
+    :root {
+      --graphite-950: #0f1215;
+      --graphite-900: #14181c;
+      --graphite-850: #1a2026;
+      --graphite-800: #1e252b;
+      --graphite-700: #2b333a;
+      --paper: #f3f5f6;
+      --paper-2: #e7eaec;
+      --card: #ffffff;
+      --ink: #1b2126;
+      --muted: #5b6670;
+      --muted-2: #889199;
+      --copper: #a8672e;
+      --copper-2: #e7c39c;
+      --green: #4c7a61;
+      --green-bg: #e5f3eb;
+      --red: #a5453f;
+      --red-bg: #f7e5e3;
+      --amber: #b98a2e;
+      --amber-bg: #fff1d6;
+      --blue: #3b4b5c;
+      --blue-bg: #e7edf3;
+      --shadow: 0 14px 40px rgba(20, 24, 28, .10);
+      --shadow-soft: 0 1px 12px rgba(20, 24, 28, .07);
+      --radius: 18px;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      font-family: Vazirmatn, Inter, system-ui, sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at top left, rgba(168, 103, 46, .16), transparent 28rem),
+        radial-gradient(circle at 90% 10%, rgba(59, 75, 92, .16), transparent 32rem),
+        var(--paper);
+      min-height: 100vh;
+    }
+
+    button, input, select, textarea { font-family: inherit; }
+    button { cursor: pointer; }
+
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 30;
+      background: rgba(20, 24, 28, .96);
+      backdrop-filter: blur(12px);
+      color: #fff;
+      border-bottom: 1px solid rgba(255,255,255,.08);
+    }
+    .topbar-inner {
+      max-width: 1320px;
+      margin: 0 auto;
+      padding: 12px 18px;
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      overflow-x: auto;
+    }
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      min-width: max-content;
+      margin-inline-end: 10px;
+    }
+    .brand-logo {
+      width: 34px;
+      height: 34px;
+      border-radius: 12px;
+      display: grid;
+      place-items: center;
+      background: linear-gradient(145deg, var(--copper), #7c4821);
+      color: #fff;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.22);
+    }
+    .brand strong { display:block; font-size: 13px; }
+    .brand small { display:block; color: #b6c0c8; font-size: 11px; margin-top: 1px; }
+    .nav-pill {
+      border: 1px solid rgba(255,255,255,.10);
+      background: transparent;
+      color: #d9e1e7;
+      border-radius: 12px;
+      padding: 8px 12px;
+      white-space: nowrap;
+      font-size: 13px;
+    }
+    .nav-pill.active {
+      background: var(--copper);
+      border-color: var(--copper);
+      color: #fff;
+      box-shadow: 0 6px 18px rgba(168,103,46,.28);
+    }
+    .profile-chip {
+      margin-inline-start: auto;
+      display: inline-flex;
+      align-items: center;
+      gap: 9px;
+      white-space: nowrap;
+      color: #d9e1e7;
+      font-size: 12px;
+    }
+    .avatar {
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      background: #2f3942;
+      display: grid;
+      place-items: center;
+      color: var(--copper-2);
+      font-weight: 700;
+    }
+
+    main {
+      max-width: 1320px;
+      margin: 0 auto;
+      padding: 22px 18px 42px;
+    }
+
+    .hero {
+      border-radius: 24px;
+      padding: 24px;
+      background: linear-gradient(135deg, var(--graphite-900) 0%, var(--graphite-800) 68%, #39291e 100%);
+      color: #fff;
+      display: grid;
+      grid-template-columns: minmax(0, 1.3fr) minmax(310px, .7fr);
+      gap: 24px;
+      box-shadow: 0 22px 70px rgba(20,24,28,.24);
+      overflow: hidden;
+      position: relative;
+    }
+    .hero::after {
+      content: "";
+      position: absolute;
+      width: 360px;
+      height: 360px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(231,195,156,.20), transparent 68%);
+      inset-inline-start: -120px;
+      bottom: -180px;
+      pointer-events: none;
+    }
+    .eyebrow {
+      color: var(--copper-2);
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      font-size: 11px;
+      margin-bottom: 8px;
+    }
+    .hero h1 { margin: 0; font-size: clamp(24px, 4vw, 35px); line-height: 1.35; }
+    .hero p { margin: 10px 0 0; color: #d8dee3; line-height: 1.95; font-size: 13.5px; max-width: 800px; }
+    .hero-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 9px;
+      margin-top: 18px;
+      position: relative;
+      z-index: 1;
+    }
+    .btn {
+      border: 1px solid transparent;
+      border-radius: 13px;
+      padding: 10px 13px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      font-weight: 700;
+      font-size: 13px;
+      transition: .18s ease;
+    }
+    .btn:hover { transform: translateY(-1px); }
+    .btn.primary { background: var(--copper); color: #fff; box-shadow: 0 10px 22px rgba(168,103,46,.26); }
+    .btn.dark { background: var(--graphite-900); color: #fff; }
+    .btn.light { background: rgba(255,255,255,.08); color:#fff; border-color: rgba(255,255,255,.13); }
+    .btn.ghost { background: #fff; color: var(--ink); border-color: var(--paper-2); }
+    .btn.danger { background: var(--red-bg); color: var(--red); }
+    .btn.small { padding: 7px 10px; border-radius: 10px; font-size: 12px; }
+
+    .hero-panel {
+      background: rgba(255,255,255,.08);
+      border: 1px solid rgba(255,255,255,.13);
+      border-radius: 20px;
+      padding: 16px;
+      display: grid;
+      gap: 12px;
+      align-content: center;
+    }
+    .mini-metric {
+      background: rgba(255,255,255,.08);
+      border-radius: 16px;
+      padding: 12px;
+      display: flex;
+      justify-content: space-between;
+      gap: 14px;
+      align-items: center;
+    }
+    .mini-metric span { color: #c3ccd4; font-size: 12px; }
+    .mini-metric strong { color: #fff; font-size: 15px; }
+
+    .tabs {
+      margin: 16px 0;
+      background: var(--card);
+      border-radius: 18px;
+      padding: 7px;
+      display: flex;
+      gap: 7px;
+      overflow-x: auto;
+      box-shadow: var(--shadow-soft);
+    }
+    .tab {
+      border: none;
+      background: transparent;
+      color: var(--muted);
+      padding: 10px 14px;
+      border-radius: 13px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .tab.active { background: var(--graphite-900); color: #fff; }
+
+    .section { display: none; animation: fade .18s ease; }
+    .section.active { display: block; }
+    @keyframes fade { from { opacity: 0; transform: translateY(5px); } to { opacity:1; transform:none; } }
+
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(7, minmax(0,1fr));
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+    .kpi {
+      background: var(--card);
+      border-radius: 18px;
+      padding: 15px;
+      min-height: 118px;
+      border-top: 4px solid var(--blue);
+      box-shadow: var(--shadow-soft);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .kpi .icon { width: 32px; height: 32px; border-radius: 12px; display:grid; place-items:center; background: var(--blue-bg); }
+    .kpi span { color: var(--muted); font-size: 12px; }
+    .kpi strong { margin-top: auto; font-size: 18px; color: var(--ink); direction: ltr; text-align: right; }
+    .kpi.green { border-top-color: var(--green); } .kpi.green .icon { background: var(--green-bg); }
+    .kpi.red { border-top-color: var(--red); } .kpi.red .icon { background: var(--red-bg); }
+    .kpi.amber { border-top-color: var(--amber); } .kpi.amber .icon { background: var(--amber-bg); }
+    .kpi.copper { border-top-color: var(--copper); } .kpi.copper .icon { background: #fff1e5; }
+    .kpi.dark { background: var(--graphite-900); color:#fff; border-top-color: var(--copper); }
+    .kpi.dark span, .kpi.dark strong { color:#fff; } .kpi.dark .icon { background: rgba(231,195,156,.16); }
+
+    .grid { display: grid; gap: 16px; }
+    .grid.two { grid-template-columns: minmax(0, 1.2fr) minmax(0, .9fr); }
+    .grid.three { grid-template-columns: repeat(3, minmax(0,1fr)); }
+
+    .card {
+      background: var(--card);
+      border-radius: var(--radius);
+      padding: 16px;
+      box-shadow: var(--shadow-soft);
+      min-width: 0;
+    }
+    .card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+    .card-title {
+      display:flex;
+      align-items:center;
+      gap: 8px;
+    }
+    .card-title .icon-sm { color: var(--copper); }
+    .card h2 { margin: 0; font-size: 15.5px; }
+    .muted { color: var(--muted); font-size: 13px; line-height: 1.8; }
+
+    .toolbar {
+      display:flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+    .input, .select, .textarea {
+      border: 1px solid #dce2e7;
+      background:#fff;
+      border-radius: 12px;
+      padding: 10px 11px;
+      color: var(--ink);
+      outline: none;
+      font-size: 13px;
+    }
+    .input:focus, .select:focus, .textarea:focus { border-color: var(--copper); box-shadow: 0 0 0 3px rgba(168,103,46,.10); }
+    .textarea { resize: vertical; min-height: 86px; }
+
+    .table-wrap { overflow-x: auto; border-radius: 14px; border: 1px solid #eef1f3; }
+    table { width: 100%; border-collapse: collapse; min-width: 780px; background:#fff; }
+    th, td { padding: 11px 10px; border-bottom: 1px solid #edf0f2; text-align: right; font-size: 12.5px; vertical-align: middle; }
+    th { background: #f8fafb; color: var(--muted); font-weight: 800; white-space: nowrap; }
+    tr:hover td { background:#fbfcfd; }
+    tr.overdue td { background: #fff8f7; }
+    .ltr { direction:ltr; text-align:left; }
+    .money { direction:ltr; white-space: nowrap; text-align: right; }
+    .positive { color: var(--green); font-weight: 800; }
+    .negative { color: var(--red); font-weight: 800; }
+    .warning { color: var(--amber); font-weight: 800; }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 999px;
+      padding: 4px 8px;
+      font-size: 11px;
+      font-weight: 800;
+      white-space: nowrap;
+      background: #edf0f2;
+      color: var(--muted);
+    }
+    .badge.green { background: var(--green-bg); color: #25694a; }
+    .badge.red { background: var(--red-bg); color: var(--red); }
+    .badge.amber { background: var(--amber-bg); color: #8a5c10; }
+    .badge.blue { background: var(--blue-bg); color: var(--blue); }
+    .badge.dark { background: var(--graphite-900); color:#fff; }
+
+    .party-layout { grid-template-columns: 430px minmax(0,1fr); }
+    .party-list { display:flex; flex-direction: column; gap: 8px; max-height: 580px; overflow:auto; padding-inline-end: 2px; }
+    .party-row {
+      width:100%;
+      border: 1px solid #edf0f2;
+      background:#fff;
+      border-radius: 16px;
+      padding: 12px;
+      display:flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items:center;
+      text-align:right;
+    }
+    .party-row.active { border-color: var(--copper); background:#fffaf5; box-shadow: 0 0 0 3px rgba(168,103,46,.08); }
+    .party-row strong { display:block; color:var(--ink); margin-bottom:4px; }
+    .party-row small { display:block; color:var(--muted-2); }
+
+    .referral-list { display:grid; gap: 10px; }
+    .referral-card {
+      border: 1px solid #edf0f2;
+      border-inline-start: 4px solid var(--amber);
+      border-radius: 16px;
+      padding: 13px;
+      display:flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items:center;
+      background:#fff;
+    }
+    .referral-card.p1 { border-inline-start-color: var(--red); }
+    .referral-card.p3 { border-inline-start-color: var(--green); }
+    .referral-card strong { display:block; margin-bottom: 4px; }
+    .referral-card small { color: var(--muted-2); font-size:12px; }
+    .referral-meta { display:flex; align-items:center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+
+    .quick-grid { display:grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 12px; }
+    .quick-card {
+      border: 1px solid #edf0f2;
+      background: linear-gradient(180deg, #fff, #fbfcfd);
+      border-radius: 16px;
+      padding: 14px;
+      display:flex;
+      flex-direction: column;
+      gap: 8px;
+      min-height: 145px;
+    }
+    .quick-card .icon { font-size: 22px; }
+    .quick-card strong { font-size: 14px; }
+    .quick-card p { margin: 0; color: var(--muted); font-size: 12px; line-height:1.8; }
+
+    .toast {
+      position: fixed;
+      inset-inline-start: 18px;
+      bottom: 18px;
+      z-index: 80;
+      background: var(--graphite-900);
+      color:#fff;
+      padding: 12px 14px;
+      border-radius: 14px;
+      box-shadow: 0 15px 42px rgba(20,24,28,.28);
+      opacity: 0;
+      transform: translateY(10px);
+      pointer-events: none;
+      transition:.22s ease;
+      max-width: min(420px, calc(100vw - 36px));
+      font-size: 13px;
+    }
+    .toast.show { opacity:1; transform:none; }
+
+    .modal-backdrop {
+      position: fixed;
+      inset:0;
+      z-index: 60;
+      background: rgba(15,18,21,.54);
+      display:none;
+      align-items:center;
+      justify-content:center;
+      padding: 18px;
+    }
+    .modal-backdrop.show { display:flex; }
+    .modal {
+      width: min(620px, 96vw);
+      background:#fff;
+      border-radius: 22px;
+      box-shadow: 0 24px 80px rgba(0,0,0,.35);
+      overflow:hidden;
+      animation: pop .18s ease;
+    }
+    @keyframes pop { from { transform: scale(.97) translateY(8px); opacity:.7; } to { transform:none; opacity:1; } }
+    .modal-header {
+      background: var(--graphite-900);
+      color:#fff;
+      padding: 16px 18px;
+      display:flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items:center;
+    }
+    .modal-header h3 { margin:0; font-size: 16px; }
+    .modal-close { border:none; background:rgba(255,255,255,.10); color:#fff; border-radius:10px; width:34px; height:34px; }
+    .modal-body { padding: 18px; }
+    .form-grid { display:grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .form-field.full { grid-column: 1 / -1; }
+    .form-field label { display:block; color: var(--muted); font-size: 12px; margin-bottom: 5px; }
+    .form-field input, .form-field select, .form-field textarea { width:100%; }
+    .modal-footer { padding: 0 18px 18px; display:flex; justify-content:flex-end; gap:8px; flex-wrap: wrap; }
+
+    .empty {
+      min-height: 150px;
+      border-radius: 16px;
+      background: #f8fafb;
+      border: 1px dashed #dce2e7;
+      display:grid;
+      place-items:center;
+      color: var(--muted-2);
+      text-align:center;
+      padding: 18px;
+    }
+
+    @media (max-width: 1180px) {
+      .hero { grid-template-columns: 1fr; }
+      .kpi-grid { grid-template-columns: repeat(3, minmax(0,1fr)); }
+      .grid.two, .party-layout { grid-template-columns: 1fr; }
+      .quick-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
+      .profile-chip { margin-inline-start: 0; }
+    }
+    @media (max-width: 760px) {
+      main { padding: 14px 12px 32px; }
+      .hero { padding: 18px; border-radius: 20px; }
+      .kpi-grid { grid-template-columns: 1fr; }
+      .quick-grid { grid-template-columns: 1fr; }
+      .form-grid { grid-template-columns: 1fr; }
+      .hero-actions .btn { flex: 1 1 100%; }
+      .topbar-inner { padding: 10px 12px; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">
+        <div class="brand-logo">⚙</div>
+        <div>
+          <strong>اتوماسیون شرکت</strong>
+          <small>Otomasion2 Preview</small>
+        </div>
+      </div>
+      <button class="nav-pill">داشبورد</button>
+      <button class="nav-pill">سفارش‌ها</button>
+      <button class="nav-pill">R&D</button>
+      <button class="nav-pill">تولید</button>
+      <button class="nav-pill">انبار</button>
+      <button class="nav-pill active">مالی / حسابداری</button>
+      <button class="nav-pill">کاربران</button>
+      <div class="profile-chip">
+        <span>مدیر کل · admin</span>
+        <div class="avatar">م</div>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div>
+        <div class="eyebrow">Automation Finance Module</div>
+        <h1>ماژول مالی و حسابداری حرفه‌ای، ساده و متصل به کل اتوماسیون</h1>
+        <p>
+          این پیش‌نمایش HTML بر اساس معماری ساخته‌شده در پروژه است: فاکتور فروش، پیش‌فاکتور، فاکتور خرید، دریافت و پرداخت، چک، صورت‌حساب اشخاص، سود و زیان سفارش و ارجاع بین واحدها. داده‌ها نمونه هستند و برای بررسی ظاهر و رفتار رابط کاربری استفاده می‌شوند.
+        </p>
+        <div class="hero-actions">
+          <button class="btn primary" onclick="openModal('invoice')">＋ فاکتور جدید</button>
+          <button class="btn light" onclick="openModal('payment')">💳 ثبت دریافت / پرداخت</button>
+          <button class="btn light" onclick="openModal('referral')">🔗 ارجاع مالی</button>
+          <button class="btn light" onclick="demoToast('در نسخه واقعی، چاپ و خروجی PDF فاکتور از همین بخش اضافه می‌شود.')">🖨 چاپ / PDF</button>
+        </div>
+      </div>
+      <aside class="hero-panel">
+        <div class="mini-metric">
+          <span>وضعیت اتصال ماژول‌ها</span>
+          <strong>سفارش ⇄ مالی ⇄ انبار ⇄ تولید</strong>
+        </div>
+        <div class="mini-metric">
+          <span>مدل مالی</span>
+          <strong>فاکتور + دریافت/پرداخت + سند حسابداری</strong>
+        </div>
+        <div class="mini-metric">
+          <span>سطح پیچیدگی</span>
+          <strong>حرفه‌ای ولی قابل فهم</strong>
+        </div>
+      </aside>
+    </section>
+
+    <nav class="tabs" aria-label="Accounting tabs">
+      <button class="tab active" data-tab="overview">نمای کلی</button>
+      <button class="tab" data-tab="documents">فاکتورها و اسناد</button>
+      <button class="tab" data-tab="parties">اشخاص و صورت‌حساب</button>
+      <button class="tab" data-tab="profit">سود سفارش‌ها</button>
+      <button class="tab" data-tab="referrals">ارجاعات بین بخش‌ها</button>
+      <button class="tab" data-tab="features">عملکردهای طراحی‌شده</button>
+    </nav>
+
+    <section id="overview" class="section active">
+      <div class="kpi-grid" id="kpiGrid"></div>
+
+      <div class="grid two">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><span class="icon-sm">📄</span><h2>آخرین فاکتورها و اسناد مالی</h2></div>
+            <button class="btn ghost small" onclick="showTab('documents')">مشاهده همه</button>
+          </div>
+          <div class="table-wrap"><table id="recentDocsTable"></table></div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><span class="icon-sm">📈</span><h2>سود و زیان سفارش‌های مهم</h2></div>
+            <button class="btn ghost small" onclick="showTab('profit')">تحلیل کامل</button>
+          </div>
+          <div class="table-wrap"><table id="profitMiniTable"></table></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="documents" class="section">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title"><span class="icon-sm">🧾</span><h2>فاکتورها، پیش‌فاکتورها، خریدها و هزینه‌ها</h2></div>
+          <button class="btn primary small" onclick="openModal('invoice')">＋ فاکتور جدید</button>
+        </div>
+        <div class="toolbar">
+          <input id="docSearch" class="input" placeholder="جست‌وجوی شماره، شخص، سفارش..." oninput="renderDocuments()" />
+          <select id="docTypeFilter" class="select" onchange="renderDocuments()">
+            <option value="all">همه انواع</option>
+            <option value="sales_invoice">فاکتور فروش</option>
+            <option value="sales_proforma">پیش‌فاکتور</option>
+            <option value="purchase_invoice">فاکتور خرید</option>
+            <option value="expense_invoice">هزینه</option>
+          </select>
+          <select id="docStatusFilter" class="select" onchange="renderDocuments()">
+            <option value="all">همه وضعیت‌ها</option>
+            <option value="draft">پیش‌نویس</option>
+            <option value="approved">تأیید شده</option>
+            <option value="partially_paid">بخشی تسویه</option>
+            <option value="paid">تسویه شده</option>
+          </select>
+        </div>
+        <div class="table-wrap"><table id="docsTable"></table></div>
+      </div>
+    </section>
+
+    <section id="parties" class="section">
+      <div class="grid party-layout">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><span class="icon-sm">👥</span><h2>اشخاص / مخاطبین مالی</h2></div>
+            <button class="btn ghost small" onclick="demoToast('فرم تعریف شخص جدید در مرحله فرم‌های عملیاتی تکمیل می‌شود.')">＋ شخص</button>
+          </div>
+          <div class="toolbar">
+            <input id="partySearch" class="input" placeholder="جست‌وجوی شخص..." oninput="renderParties()" style="width:100%" />
+          </div>
+          <div class="party-list" id="partyList"></div>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><span class="icon-sm">📚</span><h2 id="statementTitle">صورت‌حساب شخص</h2></div>
+            <button class="btn ghost small" onclick="demoToast('در نسخه واقعی خروجی Excel/PDF از صورت‌حساب اضافه می‌شود.')">خروجی</button>
+          </div>
+          <p class="muted" id="statementHint">برای مشاهده گردش، یک شخص را از لیست انتخاب کنید.</p>
+          <div class="table-wrap" id="statementWrap" style="display:none"><table id="statementTable"></table></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="profit" class="section">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title"><span class="icon-sm">💹</span><h2>سود و زیان سفارش‌ها</h2></div>
+          <button class="btn ghost small" onclick="demoToast('این گزارش از فاکتور فروش، فاکتور خرید، هزینه مستقیم و هزینه تولید/R&D محاسبه می‌شود.')">روش محاسبه</button>
+        </div>
+        <p class="muted">در نسخه واقعی، این جدول از view دیتابیس <span class="ltr">v_order_profitability</span> خوانده می‌شود و نشان می‌دهد هر سفارش چقدر سود یا زیان داشته است.</p>
+        <div class="table-wrap"><table id="profitTable"></table></div>
+      </div>
+    </section>
+
+    <section id="referrals" class="section">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title"><span class="icon-sm">🔗</span><h2>ارجاعات مالی بین بخش‌ها</h2></div>
+          <button class="btn primary small" onclick="openModal('referral')">＋ ارجاع جدید</button>
+        </div>
+        <p class="muted">این بخش برای ارسال و دریافت کار بین فروش، مالی، تولید، انبار، R&D و مدیریت طراحی شده است.</p>
+        <div class="referral-list" id="referralList"></div>
+      </div>
+    </section>
+
+    <section id="features" class="section">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title"><span class="icon-sm">🧩</span><h2>عملکردهای طراحی‌شده در معماری مالی</h2></div>
+        </div>
+        <div class="quick-grid">
+          <div class="quick-card"><div class="icon">🧾</div><strong>فاکتور و پیش‌فاکتور</strong><p>فروش، خرید، برگشتی، هزینه، یادداشت بدهکار/بستانکار و اتصال به سفارش.</p></div>
+          <div class="quick-card"><div class="icon">👥</div><strong>صورت‌حساب اشخاص</strong><p>گردش بدهکار/بستانکار برای مشتری، تأمین‌کننده، کارمند و سایر اشخاص.</p></div>
+          <div class="quick-card"><div class="icon">💳</div><strong>دریافت و پرداخت</strong><p>نقد، کارت، حواله، پوز، چک، تهاتر و تخصیص پرداخت به چند فاکتور.</p></div>
+          <div class="quick-card"><div class="icon">🏦</div><strong>بانک، صندوق و چک</strong><p>بانک و صندوق، چک دریافتی/پرداختی، سررسید، پاس‌شده، برگشتی و خرج‌شده.</p></div>
+          <div class="quick-card"><div class="icon">📘</div><strong>سند حسابداری</strong><p>کدینگ پایه و تولید سند دوبل پشت‌صحنه برای فاکتور و دریافت/پرداخت.</p></div>
+          <div class="quick-card"><div class="icon">📈</div><strong>سود و زیان سفارش</strong><p>مقایسه درآمد، خرید، هزینه مستقیم، تولید و R&D برای هر سفارش.</p></div>
+          <div class="quick-card"><div class="icon">🔗</div><strong>ارجاع بین واحدها</strong><p>فروش به مالی، مالی به فروش، تولید به مالی، انبار به مالی و مدیریت تأییدها.</p></div>
+          <div class="quick-card"><div class="icon">📊</div><strong>داشبورد مالی</strong><p>دریافتنی، پرداختنی، سررسید گذشته، فروش ماه، هزینه ماه و سود ماه.</p></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div class="modal-backdrop" id="modalBackdrop" onclick="backdropClose(event)">
+    <div class="modal" role="dialog" aria-modal="true" onclick="event.stopPropagation()">
+      <div class="modal-header">
+        <h3 id="modalTitle">فرم</h3>
+        <button class="modal-close" onclick="closeModal()">×</button>
+      </div>
+      <div class="modal-body" id="modalBody"></div>
+      <div class="modal-footer" id="modalFooter"></div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    const toman = new Intl.NumberFormat('fa-IR');
+    const dateFmt = new Intl.DateTimeFormat('fa-IR');
+
+    const docLabels = {
+      sales_proforma: 'پیش‌فاکتور فروش',
+      sales_invoice: 'فاکتور فروش',
+      purchase_invoice: 'فاکتور خرید',
+      sales_return: 'برگشت از فروش',
+      purchase_return: 'برگشت از خرید',
+      expense_invoice: 'هزینه',
+      credit_note: 'یادداشت بستانکار',
+      debit_note: 'یادداشت بدهکار',
+      opening_balance: 'مانده افتتاحیه'
+    };
+    const statusLabels = {
+      draft: ['پیش‌نویس','blue'],
+      pending_approval: ['در انتظار تأیید','amber'],
+      approved: ['تأیید شده','green'],
+      sent: ['ارسال شده','blue'],
+      partially_paid: ['بخشی تسویه','amber'],
+      paid: ['تسویه شده','green'],
+      cancelled: ['لغو شده','red'],
+      void: ['باطل','red'],
+      open: ['باز','blue'],
+      in_progress: ['در حال انجام','amber'],
+      answered: ['پاسخ داده شده','green'],
+      done: ['انجام شده','green']
+    };
+    const partyTypes = { customer:'مشتری', supplier:'تأمین‌کننده', employee:'کارمند', shareholder:'سهامدار', other:'سایر' };
+    const moduleLabels = { sales:'فروش', orders:'سفارش', accounting:'مالی', production:'تولید', warehouse:'انبار', rnd:'R&D', admin:'مدیریت', manual:'دستی' };
+
+    let documents = [
+      { id: 1, no:'SI-2026-00012', type:'sales_invoice', status:'partially_paid', party:'شرکت آرمان نیرو', order:'ORD-2026-0042', date:'2026-08-01', due:'2026-08-08', total: 1850000000, paid: 900000000 },
+      { id: 2, no:'PF-2026-00018', type:'sales_proforma', status:'sent', party:'صنایع بهین کنترل', order:'ORD-2026-0048', date:'2026-07-30', due:'2026-08-06', total: 620000000, paid: 0 },
+      { id: 3, no:'PI-2026-00007', type:'purchase_invoice', status:'approved', party:'تأمین قطعه شرق', order:'ORD-2026-0042', date:'2026-07-28', due:'2026-08-04', total: 720000000, paid: 0 },
+      { id: 4, no:'EX-2026-00009', type:'expense_invoice', status:'approved', party:'واحد تولید', order:'ORD-2026-0037', date:'2026-07-27', due:'2026-08-02', total: 180000000, paid: 0 },
+      { id: 5, no:'SI-2026-00011', type:'sales_invoice', status:'paid', party:'پارس الکترونیک', order:'ORD-2026-0035', date:'2026-07-24', due:'2026-07-30', total: 950000000, paid: 950000000 },
+      { id: 6, no:'SI-2026-00010', type:'sales_invoice', status:'approved', party:'رایان صنعت', order:'ORD-2026-0032', date:'2026-07-20', due:'2026-07-28', total: 430000000, paid: 0 },
+    ];
+
+    let parties = [
+      { id:'p1', name:'شرکت آرمان نیرو', type:'customer', phone:'021-88445566', balance: 950000000 },
+      { id:'p2', name:'صنایع بهین کنترل', type:'customer', phone:'031-33221100', balance: 620000000 },
+      { id:'p3', name:'تأمین قطعه شرق', type:'supplier', phone:'051-37660011', balance: -720000000 },
+      { id:'p4', name:'پارس الکترونیک', type:'customer', phone:'021-44550022', balance: 0 },
+      { id:'p5', name:'رایان صنعت', type:'customer', phone:'026-34567890', balance: 430000000 },
+      { id:'p6', name:'واحد تولید', type:'other', phone:'داخلی ۱۰۲', balance: -180000000 },
+    ];
+
+    let statements = {
+      p1: [
+        ['2026-07-26','PF-2026-00015','پیش‌فاکتور','صدور پیش‌فاکتور ترانس سفارشی',0,0,0],
+        ['2026-08-01','SI-2026-00012','فاکتور فروش','فاکتور فروش سفارش ORD-2026-0042',1850000000,0,1850000000],
+        ['2026-08-01','RC-2026-00008','دریافت','دریافت حواله بانکی',0,900000000,950000000],
+      ],
+      p2: [
+        ['2026-07-30','PF-2026-00018','پیش‌فاکتور','پیش‌فاکتور برد کنترلر',620000000,0,620000000],
+      ],
+      p3: [
+        ['2026-07-28','PI-2026-00007','فاکتور خرید','خرید قطعات SMD',0,720000000,-720000000],
+      ],
+      p4: [
+        ['2026-07-24','SI-2026-00011','فاکتور فروش','فروش خدمات طراحی PCB',950000000,0,950000000],
+        ['2026-07-25','RC-2026-00007','دریافت','تسویه کامل',0,950000000,0],
+      ],
+      p5: [
+        ['2026-07-20','SI-2026-00010','فاکتور فروش','فاکتور محصول کامل',430000000,0,430000000],
+      ],
+      p6: [
+        ['2026-07-27','EX-2026-00009','هزینه','هزینه مستقیم تولید',0,180000000,-180000000],
+      ]
+    };
+
+    let profits = [
+      { order:'ORD-2026-0042', customer:'شرکت آرمان نیرو', path:'تولید', revenue:1850000000, cost:980000000 },
+      { order:'ORD-2026-0035', customer:'پارس الکترونیک', path:'R&D', revenue:950000000, cost:360000000 },
+      { order:'ORD-2026-0032', customer:'رایان صنعت', path:'بازرگانی', revenue:430000000, cost:310000000 },
+      { order:'ORD-2026-0037', customer:'مشتری داخلی', path:'تولید', revenue:0, cost:180000000 },
+    ];
+
+    let referrals = [
+      { id:1, no:'REF-2026-00017', source:'sales', target:'accounting', type:'invoice', priority:1, status:'open', title:'صدور فاکتور رسمی برای سفارش ORD-2026-0042', due:'2026-08-03' },
+      { id:2, no:'REF-2026-00016', source:'accounting', target:'sales', type:'payment', priority:2, status:'in_progress', title:'پیگیری مانده حساب شرکت آرمان نیرو', due:'2026-08-08' },
+      { id:3, no:'REF-2026-00015', source:'warehouse', target:'accounting', type:'review', priority:2, status:'answered', title:'ثبت فاکتور خرید قطعات SMD', due:'2026-08-02' },
+      { id:4, no:'REF-2026-00014', source:'production', target:'accounting', type:'notice', priority:3, status:'done', title:'ثبت هزینه مستقیم تولید سفارش ORD-2026-0037', due:'2026-07-29' },
+    ];
+
+    let selectedPartyId = 'p1';
+
+    function money(value) { return toman.format(Math.round(Number(value || 0) / 10)) + ' تومان'; }
+    function num(value) { return toman.format(Number(value || 0)); }
+    function dateFa(value) { try { return dateFmt.format(new Date(value)); } catch { return value || '—'; } }
+    function balance(doc) { return (doc.total || 0) - (doc.paid || 0); }
+    function badge(status) {
+      const item = statusLabels[status] || [status, 'blue'];
+      return `<span class="badge ${item[1]}">${item[0]}</span>`;
+    }
+    function docType(type) { return docLabels[type] || type; }
+    function partyType(type) { return partyTypes[type] || type; }
+
+    function computeDashboard() {
+      const receivable = documents.filter(d => ['sales_invoice','debit_note'].includes(d.type) && !['draft','cancelled','void'].includes(d.status)).reduce((s,d)=>s+Math.max(balance(d),0),0);
+      const payable = documents.filter(d => ['purchase_invoice','expense_invoice','credit_note'].includes(d.type) && !['draft','cancelled','void'].includes(d.status)).reduce((s,d)=>s+Math.max(balance(d),0),0);
+      const today = new Date('2026-08-02');
+      const overdue = documents.filter(d => new Date(d.due) < today && balance(d) > 0 && !['paid','draft','cancelled','void'].includes(d.status)).reduce((s,d)=>s+balance(d),0);
+      const monthSales = documents.filter(d => d.type === 'sales_invoice' && d.date >= '2026-08-01').reduce((s,d)=>s+d.total,0);
+      const monthCosts = documents.filter(d => ['purchase_invoice','expense_invoice'].includes(d.type) && d.date >= '2026-08-01').reduce((s,d)=>s+d.total,0);
+      const totalSales = documents.filter(d => d.type === 'sales_invoice').reduce((s,d)=>s+d.total,0);
+      const totalCosts = documents.filter(d => ['purchase_invoice','expense_invoice'].includes(d.type)).reduce((s,d)=>s+d.total,0);
+      return { receivable, payable, overdue, monthSales, monthCosts, monthProfit: monthSales - monthCosts, totalProfit: totalSales - totalCosts, openRefs: referrals.filter(r => ['open','in_progress'].includes(r.status) && r.target === 'accounting').length };
+    }
+
+    function renderKPIs() {
+      const d = computeDashboard();
+      const rows = [
+        ['💰','دریافتنی‌ها', d.receivable, 'green'],
+        ['💸','پرداختنی‌ها', d.payable, 'red'],
+        ['⏰','سررسید گذشته', d.overdue, 'amber'],
+        ['📈','فروش ماه', d.monthSales, 'blue'],
+        ['🧾','هزینه / خرید ماه', d.monthCosts, 'copper'],
+        ['📘','سود ماه', d.monthProfit, d.monthProfit >= 0 ? 'green' : 'red'],
+        ['🔗','ارجاع باز مالی', d.openRefs, 'dark', true]
+      ];
+      document.getElementById('kpiGrid').innerHTML = rows.map(r => `
+        <div class="kpi ${r[3]}">
+          <div class="icon">${r[0]}</div>
+          <span>${r[1]}</span>
+          <strong>${r[4] ? num(r[2]) : money(r[2])}</strong>
+        </div>
+      `).join('');
+    }
+
+    function docsTableHTML(rows, compact=false) {
+      if (!rows.length) return '<div class="empty">موردی برای نمایش وجود ندارد.</div>';
+      return `
+        <thead><tr>
+          <th>شماره</th><th>نوع</th><th>وضعیت</th><th>شخص</th><th>سفارش</th><th>تاریخ</th><th>مبلغ</th><th>مانده</th><th>عملیات</th>
+        </tr></thead>
+        <tbody>
+          ${rows.map(d => {
+            const isOverdue = new Date(d.due) < new Date('2026-08-02') && balance(d) > 0 && !['paid','draft'].includes(d.status);
+            return `<tr class="${isOverdue ? 'overdue' : ''}">
+              <td class="ltr">${d.no}</td>
+              <td>${docType(d.type)}</td>
+              <td>${badge(d.status)}</td>
+              <td>${d.party || '—'}</td>
+              <td class="ltr">${d.order || '—'}</td>
+              <td>${dateFa(d.date)}</td>
+              <td class="money">${money(d.total)}</td>
+              <td class="money ${balance(d)>0 ? 'warning' : 'positive'}">${money(balance(d))}</td>
+              <td><button class="btn ghost small" onclick="demoToast('جزئیات ${d.no}: در نسخه واقعی صفحه جزئیات، چاپ و ثبت پرداخت باز می‌شود.')">باز کردن</button></td>
+            </tr>`;
+          }).join('')}
+        </tbody>`;
+    }
+
+    function renderDocuments() {
+      const q = (document.getElementById('docSearch')?.value || '').trim().toLowerCase();
+      const type = document.getElementById('docTypeFilter')?.value || 'all';
+      const status = document.getElementById('docStatusFilter')?.value || 'all';
+      let rows = documents.filter(d => {
+        const text = `${d.no} ${d.party} ${d.order} ${docType(d.type)} ${statusLabels[d.status]?.[0]}`.toLowerCase();
+        return (!q || text.includes(q)) && (type === 'all' || d.type === type) && (status === 'all' || d.status === status);
+      });
+      const docsEl = document.getElementById('docsTable');
+      if (docsEl) docsEl.innerHTML = docsTableHTML(rows);
+
+      const recent = document.getElementById('recentDocsTable');
+      if (recent) recent.innerHTML = docsTableHTML(documents.slice(0,5), true);
+    }
+
+    function renderProfit() {
+      const html = `
+        <thead><tr><th>سفارش</th><th>مشتری</th><th>مسیر</th><th>درآمد</th><th>هزینه</th><th>سود ناخالص</th><th>حاشیه سود</th><th>عملیات</th></tr></thead>
+        <tbody>
+          ${profits.map(p => {
+            const profit = p.revenue - p.cost;
+            const margin = p.revenue ? ((profit / p.revenue) * 100) : null;
+            return `<tr>
+              <td class="ltr">${p.order}</td><td>${p.customer}</td><td>${p.path}</td>
+              <td class="money">${money(p.revenue)}</td><td class="money">${money(p.cost)}</td>
+              <td class="money ${profit >= 0 ? 'positive' : 'negative'}">${money(profit)}</td>
+              <td>${margin === null ? '—' : num(margin.toFixed(1)) + '٪'}</td>
+              <td><button class="btn ghost small" onclick="demoToast('تحلیل کامل سفارش ${p.order}: نمایش فاکتور، خرید، هزینه تولید و پرداخت‌ها.')">تحلیل</button></td>
+            </tr>`;
+          }).join('')}
+        </tbody>`;
+      const full = document.getElementById('profitTable');
+      const mini = document.getElementById('profitMiniTable');
+      if (full) full.innerHTML = html;
+      if (mini) mini.innerHTML = html;
+    }
+
+    function renderParties() {
+      const q = (document.getElementById('partySearch')?.value || '').trim().toLowerCase();
+      const rows = parties.filter(p => !q || `${p.name} ${p.phone} ${partyType(p.type)}`.toLowerCase().includes(q));
+      document.getElementById('partyList').innerHTML = rows.map(p => `
+        <button class="party-row ${p.id === selectedPartyId ? 'active' : ''}" onclick="selectParty('${p.id}')">
+          <span><strong>${p.name}</strong><small>${partyType(p.type)} · ${p.phone || '—'}</small></span>
+          <b class="money ${p.balance >= 0 ? 'positive' : 'negative'}">${money(p.balance)}</b>
+        </button>
+      `).join('') || '<div class="empty">شخصی پیدا نشد.</div>';
+      renderStatement();
+    }
+
+    function selectParty(id) {
+      selectedPartyId = id;
+      renderParties();
+    }
+
+    function renderStatement() {
+      const party = parties.find(p => p.id === selectedPartyId);
+      const hint = document.getElementById('statementHint');
+      const wrap = document.getElementById('statementWrap');
+      const table = document.getElementById('statementTable');
+      const title = document.getElementById('statementTitle');
+      if (!party) {
+        title.textContent = 'صورت‌حساب شخص';
+        hint.style.display = 'block';
+        wrap.style.display = 'none';
+        return;
+      }
+      title.textContent = 'صورت‌حساب: ' + party.name;
+      hint.style.display = 'none';
+      wrap.style.display = 'block';
+      const rows = statements[party.id] || [];
+      table.innerHTML = `
+        <thead><tr><th>تاریخ</th><th>شماره</th><th>نوع</th><th>شرح</th><th>بدهکار</th><th>بستانکار</th><th>مانده جاری</th></tr></thead>
+        <tbody>
+          ${rows.map(r => `<tr>
+            <td>${dateFa(r[0])}</td><td class="ltr">${r[1]}</td><td>${r[2]}</td><td>${r[3]}</td>
+            <td class="money">${money(r[4])}</td><td class="money">${money(r[5])}</td>
+            <td class="money ${r[6] >= 0 ? 'positive' : 'negative'}">${money(r[6])}</td>
+          </tr>`).join('')}
+        </tbody>`;
+    }
+
+    function renderReferrals() {
+      document.getElementById('referralList').innerHTML = referrals.map(r => `
+        <article class="referral-card p${r.priority}">
+          <div>
+            <strong>${r.title}</strong>
+            <small>${r.no} · ${moduleLabels[r.source] || r.source} ← ${moduleLabels[r.target] || r.target} · ${r.type}</small>
+          </div>
+          <div class="referral-meta">
+            ${badge(r.status)}
+            <span>${dateFa(r.due)}</span>
+            <button class="btn ghost small" onclick="demoToast('ارجاع ${r.no} باز شد. در نسخه واقعی امکان پاسخ، پیوست و تغییر وضعیت دارد.')">باز کردن</button>
+          </div>
+        </article>
+      `).join('') || '<div class="empty">ارجاعی وجود ندارد.</div>';
+    }
+
+    function renderAll() {
+      renderKPIs();
+      renderDocuments();
+      renderProfit();
+      renderParties();
+      renderReferrals();
+    }
+
+    function showTab(id) {
+      document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === id));
+      document.querySelectorAll('.section').forEach(s => s.classList.toggle('active', s.id === id));
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    document.querySelectorAll('.tab').forEach(btn => btn.addEventListener('click', () => showTab(btn.dataset.tab)));
+
+    function openModal(type) {
+      const title = document.getElementById('modalTitle');
+      const body = document.getElementById('modalBody');
+      const footer = document.getElementById('modalFooter');
+      if (type === 'invoice') {
+        title.textContent = 'فاکتور / سند مالی جدید';
+        body.innerHTML = `
+          <div class="form-grid">
+            <div class="form-field"><label>نوع سند</label><select id="mDocType" class="select"><option value="sales_invoice">فاکتور فروش</option><option value="sales_proforma">پیش‌فاکتور فروش</option><option value="purchase_invoice">فاکتور خرید</option><option value="expense_invoice">هزینه</option></select></div>
+            <div class="form-field"><label>شخص</label><select id="mParty" class="select">${parties.map(p=>`<option>${p.name}</option>`).join('')}</select></div>
+            <div class="form-field"><label>سفارش مرتبط</label><input id="mOrder" class="input ltr" value="ORD-2026-0051"></div>
+            <div class="form-field"><label>مبلغ کل، ریال</label><input id="mAmount" class="input ltr" type="number" value="750000000"></div>
+            <div class="form-field full"><label>شرح</label><textarea id="mDesc" class="textarea">فاکتور نمونه برای بررسی عملکرد رابط کاربری</textarea></div>
+          </div>`;
+        footer.innerHTML = `<button class="btn ghost" onclick="closeModal()">انصراف</button><button class="btn primary" onclick="addInvoice()">ثبت نمونه</button>`;
+      }
+      if (type === 'payment') {
+        title.textContent = 'ثبت دریافت / پرداخت';
+        body.innerHTML = `
+          <div class="form-grid">
+            <div class="form-field"><label>نوع</label><select id="mPayDir" class="select"><option value="receipt">دریافت از مشتری</option><option value="payment">پرداخت به شخص</option></select></div>
+            <div class="form-field"><label>روش</label><select class="select"><option>حواله بانکی</option><option>نقد</option><option>کارت / پوز</option><option>چک</option><option>تهاتر</option></select></div>
+            <div class="form-field"><label>شخص</label><select id="mPayParty" class="select">${parties.map(p=>`<option value="${p.id}">${p.name}</option>`).join('')}</select></div>
+            <div class="form-field"><label>مبلغ، ریال</label><input id="mPayAmount" class="input ltr" type="number" value="250000000"></div>
+            <div class="form-field full"><label>توضیح</label><textarea id="mPayDesc" class="textarea">ثبت دریافت/پرداخت نمونه</textarea></div>
+          </div>`;
+        footer.innerHTML = `<button class="btn ghost" onclick="closeModal()">انصراف</button><button class="btn primary" onclick="addPayment()">ثبت نمونه</button>`;
+      }
+      if (type === 'referral') {
+        title.textContent = 'ارجاع مالی بین بخش‌ها';
+        body.innerHTML = `
+          <div class="form-grid">
+            <div class="form-field"><label>مبدأ</label><select id="mRefSource" class="select"><option value="sales">فروش</option><option value="warehouse">انبار</option><option value="production">تولید</option><option value="rnd">R&D</option><option value="accounting">مالی</option></select></div>
+            <div class="form-field"><label>مقصد</label><select id="mRefTarget" class="select"><option value="accounting">مالی</option><option value="sales">فروش</option><option value="warehouse">انبار</option><option value="production">تولید</option><option value="admin">مدیریت</option></select></div>
+            <div class="form-field"><label>اولویت</label><select id="mRefPriority" class="select"><option value="1">فوری</option><option value="2" selected>عادی</option><option value="3">کم‌اهمیت</option></select></div>
+            <div class="form-field"><label>موعد</label><input id="mRefDue" class="input ltr" type="date" value="2026-08-06"></div>
+            <div class="form-field full"><label>عنوان</label><input id="mRefTitle" class="input" value="بررسی و تأیید فاکتور سفارش جدید"></div>
+            <div class="form-field full"><label>شرح</label><textarea class="textarea">لطفاً سند مربوطه را بررسی و نتیجه را اعلام کنید.</textarea></div>
+          </div>`;
+        footer.innerHTML = `<button class="btn ghost" onclick="closeModal()">انصراف</button><button class="btn primary" onclick="addReferral()">ثبت ارجاع</button>`;
+      }
+      document.getElementById('modalBackdrop').classList.add('show');
+    }
+
+    function closeModal() { document.getElementById('modalBackdrop').classList.remove('show'); }
+    function backdropClose(e) { if (e.target.id === 'modalBackdrop') closeModal(); }
+
+    function addInvoice() {
+      const type = document.getElementById('mDocType').value;
+      const party = document.getElementById('mParty').value;
+      const amount = Number(document.getElementById('mAmount').value || 0);
+      const order = document.getElementById('mOrder').value || '—';
+      const prefix = type === 'sales_invoice' ? 'SI' : type === 'sales_proforma' ? 'PF' : type === 'purchase_invoice' ? 'PI' : 'EX';
+      documents.unshift({ id: Date.now(), no:`${prefix}-2026-${String(documents.length+20).padStart(5,'0')}`, type, status:'draft', party, order, date:'2026-08-02', due:'2026-08-09', total:amount, paid:0 });
+      demoToast('سند نمونه ثبت شد و در لیست فاکتورها و داشبورد نمایش داده شد.');
+      closeModal(); renderAll(); showTab('documents');
+    }
+
+    function addPayment() {
+      const dir = document.getElementById('mPayDir').value;
+      const partyId = document.getElementById('mPayParty').value;
+      const amount = Number(document.getElementById('mPayAmount').value || 0);
+      const party = parties.find(p => p.id === partyId);
+      const sign = dir === 'receipt' ? -1 : 1;
+      party.balance += sign * amount;
+      const current = statements[partyId]?.length ? statements[partyId][statements[partyId].length - 1][6] : 0;
+      const no = `${dir === 'receipt' ? 'RC' : 'PY'}-2026-${String(Date.now()).slice(-5)}`;
+      const debit = dir === 'payment' ? amount : 0;
+      const credit = dir === 'receipt' ? amount : 0;
+      statements[partyId] = statements[partyId] || [];
+      statements[partyId].push(['2026-08-02', no, dir === 'receipt' ? 'دریافت' : 'پرداخت', 'ثبت نمونه از فرم پیش‌نمایش', debit, credit, current + debit - credit]);
+      selectedPartyId = partyId;
+      demoToast('دریافت/پرداخت نمونه ثبت شد و صورت‌حساب شخص به‌روزرسانی شد.');
+      closeModal(); renderAll(); showTab('parties');
+    }
+
+    function addReferral() {
+      const source = document.getElementById('mRefSource').value;
+      const target = document.getElementById('mRefTarget').value;
+      const priority = Number(document.getElementById('mRefPriority').value);
+      const due = document.getElementById('mRefDue').value;
+      const title = document.getElementById('mRefTitle').value;
+      referrals.unshift({ id:Date.now(), no:`REF-2026-${String(referrals.length+20).padStart(5,'0')}`, source, target, type:'request', priority, status:'open', title, due });
+      demoToast('ارجاع نمونه ثبت شد و در لیست ارجاعات نمایش داده شد.');
+      closeModal(); renderAll(); showTab('referrals');
+    }
+
+    function demoToast(message) {
+      const t = document.getElementById('toast');
+      t.textContent = message;
+      t.classList.add('show');
+      clearTimeout(window.__toastTimer);
+      window.__toastTimer = setTimeout(() => t.classList.remove('show'), 3600);
+    }
+
+    renderAll();
+  </script>
+</body>
+</html>
