@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { CalendarClock, FileText, Link2, PackageCheck, RefreshCcw, Search, Settings, Users } from 'lucide-react';
+import { CalendarClock, FileText, Link2, ListChecks, PackageCheck, RefreshCcw, Search, Settings, Users } from 'lucide-react';
 import { useOrdersData, useOrderDetails } from '../../hooks/useOrdersData';
 import {
   createOrderReferral,
@@ -147,7 +147,7 @@ function CrmSection({ customers, followups, onNewFollowup }) {
 }
 
 function FlowSection({ orders, selectedOrder, details, busy, onSelect, onSetStage, onProforma, onInvoice, onReserve, onReferral }) {
-  return <div className="orders-grid two order-flow-workspace"><section className="orders-card"><CardTitle icon={ListIcon} title="مراحل خطی سفارش‌ها" />{orders.length === 0 ? <Empty /> : <div className="flow-list">{orders.map((o) => <article key={o.id} className="flow-card"><header><div><h3>{o.order_code} · {o.customer_name}</h3><small>{PATH_LABELS[o.sales_path]} · {o.current_stage_name_fa}</small></div><Status status={o.delivery_status} /></header><div className="progress"><span style={{ width: `${Number(o.progress_percent || 0)}%` }} /></div><div className="flow-meta"><b>{Number(o.progress_percent || 0)}٪</b><span>{daysText(o.days_to_delivery, o.delivery_status)}</span><span>{STOCK_LABELS[o.stock_status] || o.stock_status}</span><span>{FINANCE_LABELS[o.financial_status] || o.financial_status}</span></div><button onClick={() => onSelect(o.id)}>جزئیات و عملیات</button></article>)}</div>}</section><OrderDetailPanel order={selectedOrder} details={details} busy={busy} onSetStage={onSetStage} onProforma={onProforma} onInvoice={onInvoice} onReserve={onReserve} onReferral={onReferral} /></div>;
+  return <div className="orders-grid two order-flow-workspace"><section className="orders-card"><CardTitle icon={ListChecks} title="مراحل خطی سفارش‌ها" />{orders.length === 0 ? <Empty /> : <div className="flow-list">{orders.map((o) => <article key={o.id} className="flow-card"><header><div><h3>{o.order_code} · {o.customer_name}</h3><small>{PATH_LABELS[o.sales_path]} · {o.current_stage_name_fa}</small></div><Status status={o.delivery_status} /></header><div className="progress"><span style={{ width: `${Number(o.progress_percent || 0)}%` }} /></div><div className="flow-meta"><b>{Number(o.progress_percent || 0)}٪</b><span>{daysText(o.days_to_delivery, o.delivery_status)}</span><span>{STOCK_LABELS[o.stock_status] || o.stock_status}</span><span>{FINANCE_LABELS[o.financial_status] || o.financial_status}</span></div><button onClick={() => onSelect(o.id)}>جزئیات و عملیات</button></article>)}</div>}</section><OrderDetailPanel order={selectedOrder} details={details} busy={busy} onSetStage={onSetStage} onProforma={onProforma} onInvoice={onInvoice} onReserve={onReserve} onReferral={onReferral} /></div>;
 }
 
 function OrderDetailPanel({ order, details, busy, onSetStage, onProforma, onInvoice, onReserve, onReferral }) {
