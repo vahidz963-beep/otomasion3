@@ -55,28 +55,28 @@ create table if not exists public.production_stage_templates (
 );
 
 insert into public.production_stage_templates (product_category_id, stage_type, name_fa, name_en, order_index, requires_material_issue, requires_qc, is_final_stage)
-select id, 'material_prep', 'آماده‌سازی هسته و سیم', 'Core & Wire Prep', 1, true, false, false from public.product_categories where code='TRANSFORMER'
-union all select id, 'winding', 'سیم‌پیچی', 'Winding', 2, false, false, false from public.product_categories where code='TRANSFORMER'
-union all select id, 'qc', 'تست الکتریکی', 'Electrical Test', 3, false, true, false from public.product_categories where code='TRANSFORMER'
-union all select id, 'final_output', 'خروجی به انبار', 'Warehouse Output', 4, false, false, true from public.product_categories where code='TRANSFORMER'
+select id, 'material_prep'::public.production_stage_type, 'آماده‌سازی هسته و سیم', 'Core & Wire Prep', 1, true, false, false from public.product_categories where code='TRANSFORMER'
+union all select id, 'winding'::public.production_stage_type, 'سیم‌پیچی', 'Winding', 2, false, false, false from public.product_categories where code='TRANSFORMER'
+union all select id, 'qc'::public.production_stage_type, 'تست الکتریکی', 'Electrical Test', 3, false, true, false from public.product_categories where code='TRANSFORMER'
+union all select id, 'final_output'::public.production_stage_type, 'خروجی به انبار', 'Warehouse Output', 4, false, false, true from public.product_categories where code='TRANSFORMER'
 on conflict (product_category_id, order_index) do nothing;
 
 insert into public.production_stage_templates (product_category_id, stage_type, name_fa, name_en, order_index, requires_material_issue, requires_qc, is_final_stage)
-select id, 'material_prep', 'آماده‌سازی قطعات SMD/THT', 'Component Prep', 1, true, false, false from public.product_categories where code='PCB_ASSY'
-union all select id, 'assembly', 'چیدن قطعات', 'Pick & Place', 2, false, false, false from public.product_categories where code='PCB_ASSY'
-union all select id, 'soldering', 'ری‌فلو/ویو سولدر', 'Reflow/Wave Soldering', 3, false, false, false from public.product_categories where code='PCB_ASSY'
-union all select id, 'qc', 'بازرسی بصری', 'Visual Inspection', 4, false, true, false from public.product_categories where code='PCB_ASSY'
-union all select id, 'programming_test', 'برنامه‌ریزی و تست عملکردی', 'Programming & Functional Test', 5, false, false, false from public.product_categories where code='PCB_ASSY'
-union all select id, 'qc', 'کنترل کیفیت نهایی', 'Final QC', 6, false, true, false from public.product_categories where code='PCB_ASSY'
-union all select id, 'final_output', 'خروجی به انبار', 'Warehouse Output', 7, false, false, true from public.product_categories where code='PCB_ASSY'
+select id, 'material_prep'::public.production_stage_type, 'آماده‌سازی قطعات SMD/THT', 'Component Prep', 1, true, false, false from public.product_categories where code='PCB_ASSY'
+union all select id, 'assembly'::public.production_stage_type, 'چیدن قطعات', 'Pick & Place', 2, false, false, false from public.product_categories where code='PCB_ASSY'
+union all select id, 'soldering'::public.production_stage_type, 'ری‌فلو/ویو سولدر', 'Reflow/Wave Soldering', 3, false, false, false from public.product_categories where code='PCB_ASSY'
+union all select id, 'qc'::public.production_stage_type, 'بازرسی بصری', 'Visual Inspection', 4, false, true, false from public.product_categories where code='PCB_ASSY'
+union all select id, 'programming_test'::public.production_stage_type, 'برنامه‌ریزی و تست عملکردی', 'Programming & Functional Test', 5, false, false, false from public.product_categories where code='PCB_ASSY'
+union all select id, 'qc'::public.production_stage_type, 'کنترل کیفیت نهایی', 'Final QC', 6, false, true, false from public.product_categories where code='PCB_ASSY'
+union all select id, 'final_output'::public.production_stage_type, 'خروجی به انبار', 'Warehouse Output', 7, false, false, true from public.product_categories where code='PCB_ASSY'
 on conflict (product_category_id, order_index) do nothing;
 
 insert into public.production_stage_templates (product_category_id, stage_type, name_fa, name_en, order_index, requires_material_issue, requires_qc, is_final_stage)
-select id, 'material_prep', 'دریافت زیرمجموعه‌ها از انبار', 'Sub-assembly Retrieval', 1, true, false, false from public.product_categories where code='FULL_PRODUCT'
-union all select id, 'assembly_final', 'مونتاژ نهایی محصول', 'Final Assembly', 2, false, false, false from public.product_categories where code='FULL_PRODUCT'
-union all select id, 'qc', 'تست نهایی محصول', 'Final Product Test', 3, false, true, false from public.product_categories where code='FULL_PRODUCT'
-union all select id, 'packaging', 'بسته‌بندی', 'Packaging', 4, false, false, false from public.product_categories where code='FULL_PRODUCT'
-union all select id, 'final_output', 'خروجی به انبار', 'Warehouse Output', 5, false, false, true from public.product_categories where code='FULL_PRODUCT'
+select id, 'material_prep'::public.production_stage_type, 'دریافت زیرمجموعه‌ها از انبار', 'Sub-assembly Retrieval', 1, true, false, false from public.product_categories where code='FULL_PRODUCT'
+union all select id, 'assembly_final'::public.production_stage_type, 'مونتاژ نهایی محصول', 'Final Assembly', 2, false, false, false from public.product_categories where code='FULL_PRODUCT'
+union all select id, 'qc'::public.production_stage_type, 'تست نهایی محصول', 'Final Product Test', 3, false, true, false from public.product_categories where code='FULL_PRODUCT'
+union all select id, 'packaging'::public.production_stage_type, 'بسته‌بندی', 'Packaging', 4, false, false, false from public.product_categories where code='FULL_PRODUCT'
+union all select id, 'final_output'::public.production_stage_type, 'خروجی به انبار', 'Warehouse Output', 5, false, false, true from public.product_categories where code='FULL_PRODUCT'
 on conflict (product_category_id, order_index) do nothing;
 
 create table if not exists public.production_orders (

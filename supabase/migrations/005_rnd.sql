@@ -96,13 +96,13 @@ create table if not exists public.rnd_stage_templates (
 );
 
 insert into public.rnd_stage_templates (product_category_id, stage_type, name_fa, name_en, order_index)
-select id, 'requirement_analysis', 'تحلیل نیازمندی', 'Requirement Analysis', 1 from public.product_categories where code='PCB_ASSY'
-union all select id, 'schematic_design', 'طراحی شماتیک', 'Schematic Design', 2 from public.product_categories where code='PCB_ASSY'
-union all select id, 'pcb_layout', 'طراحی لایوت PCB', 'PCB Layout', 3 from public.product_categories where code='PCB_ASSY'
-union all select id, 'bom_finalization', 'نهایی‌سازی لیست قطعات', 'BOM Finalization', 4 from public.product_categories where code='PCB_ASSY'
-union all select id, 'prototype_build', 'ساخت نمونه اولیه', 'Prototype Build', 5 from public.product_categories where code='PCB_ASSY'
-union all select id, 'functional_test', 'تست عملکردی نمونه', 'Prototype Test', 6 from public.product_categories where code='PCB_ASSY'
-union all select id, 'design_freeze', 'تثبیت طراحی نهایی', 'Design Freeze', 7 from public.product_categories where code='PCB_ASSY'
+select id, 'requirement_analysis'::public.rnd_stage_type, 'تحلیل نیازمندی', 'Requirement Analysis', 1 from public.product_categories where code='PCB_ASSY'
+union all select id, 'schematic_design'::public.rnd_stage_type, 'طراحی شماتیک', 'Schematic Design', 2 from public.product_categories where code='PCB_ASSY'
+union all select id, 'pcb_layout'::public.rnd_stage_type, 'طراحی لایوت PCB', 'PCB Layout', 3 from public.product_categories where code='PCB_ASSY'
+union all select id, 'bom_finalization'::public.rnd_stage_type, 'نهایی‌سازی لیست قطعات', 'BOM Finalization', 4 from public.product_categories where code='PCB_ASSY'
+union all select id, 'prototype_build'::public.rnd_stage_type, 'ساخت نمونه اولیه', 'Prototype Build', 5 from public.product_categories where code='PCB_ASSY'
+union all select id, 'functional_test'::public.rnd_stage_type, 'تست عملکردی نمونه', 'Prototype Test', 6 from public.product_categories where code='PCB_ASSY'
+union all select id, 'design_freeze'::public.rnd_stage_type, 'تثبیت طراحی نهایی', 'Design Freeze', 7 from public.product_categories where code='PCB_ASSY'
 on conflict (product_category_id, order_index) do nothing;
 
 create table if not exists public.rnd_project_stages (
