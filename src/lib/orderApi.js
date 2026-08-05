@@ -39,37 +39,12 @@ export async function createOrUpdateCustomer(input) {
   return res.data.id;
 }
 
-export async function createOrderWithItems({ order, items }) {
-  const userId = await currentUserId();
-  const customerId = order.customer_id || await createOrUpdateCustomer(order.customer || {});
+export async function createOrderWithItems({ order, items, options = {} }) {
+  await currentUserId();
 
-  const orderPayload = {
-    order_code: null,
-    customer_id: customerId,
-    sales_path: order.sales_path,
-    current_stage: null,
-    workflow_template_id: order.workflow_template_id || null,
-    registered_at: order.registered_at || new Date().toISOString().slice(0, 10),
-    title_fa: order.title_fa,
-    title_en: order.title_en || null,
-    description_fa: order.description_fa || null,
-    priority: Number(order.priority || 2),
-    expected_delivery_date: order.expected_delivery_date || null,
-    contact_channel: order.contact_channel || null,
-    customer_phone_snapshot: order.customer_phone_snapshot || order.customer?.contact_phone || null,
-    customer_city_snapshot: order.customer_city_snapshot || order.customer?.city || null,
-    sales_officer_id: userId,
-    created_by: userId,
-  };
-
-  const orderRes = await supabase.from('orders').insert(orderPayload).select('id, order_code').single();
-  assertNoError(orderRes, 'خطا در ثبت سفارش');
-
-  const orderId = orderRes.data.id;
   const cleanItems = (items || [])
     .filter((item) => item.item_name_fa && Number(item.quantity) > 0)
     .map((item) => ({
-      order_id: orderId,
       item_name_fa: item.item_name_fa,
       item_name_en: item.item_name_en || null,
       warehouse_item_code: item.warehouse_item_code || null,
@@ -79,12 +54,17 @@ export async function createOrderWithItems({ order, items }) {
       notes: item.notes || null,
     }));
 
-  if (cleanItems.length > 0) {
-    const itemsRes = await supabase.from('order_items').insert(cleanItems);
-    assertNoError(itemsRes, 'خطا در ثبت اقلام سفارش');
-  }
-
-  return orderRes.data;
+  const res = await supabase.rpc('fn_app_create_order', {
+    p_customer: order.customer || {},
+    p_order: order || {},
+    p_items: cleanItems,
+    p_create_proforma: !!options.createProforma,
+    p_ref_finance: !!options.refFinance,
+    p_ref_warehouse: !!options.refWarehouse,
+    p_ref_path: !!options.refPath,
+  });
+  assertNoError(res, 'خطا در ثبت سفارش');
+  return res.data;
 }
 
 export async function setOrderStage(orderId, stageKey, note = '') {

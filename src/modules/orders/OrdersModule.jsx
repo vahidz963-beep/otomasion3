@@ -85,7 +85,7 @@ export default function OrdersModule({ lang = 'fa' }) {
     <div className="orders-page" dir="rtl" lang={lang}>
       <header className="orders-hero">
         <div>
-          <div className="eyebrow">Order Lifecycle</div>
+          <div className="eyebrow">Order Lifecycle · React Sync v2.1</div>
           <h1>سفارش‌ها و CRM فروش</h1>
           <p>پیگیری سفارش از ثبت تا تحویل و تسویه، همراه با مراحل خطی، موجودی انبار، وضعیت مالی و پیگیری مشتری.</p>
         </div>
@@ -169,17 +169,83 @@ function TemplateSection({ templates, steps }) {
 
 function OrderModal({ templates, customers, stock, busy, onClose, onSubmit }) {
   const [customerMode, setCustomerMode] = useState('existing');
-  const [form, setForm] = useState({ customer_id: customers[0]?.id || '', company_name: '', contact_phone: '', city: '', preferred_contact_channel: 'phone', sales_path: 'trading', workflow_template_id: '', registered_at: new Date().toISOString().slice(0, 10), expected_delivery_date: '', title_fa: '', description_fa: '', priority: 2 });
+  const [form, setForm] = useState({
+    customer_id: customers[0]?.id || '',
+    company_name: '',
+    contact_phone: '',
+    city: '',
+    preferred_contact_channel: 'phone',
+    sales_path: 'trading',
+    workflow_template_id: '',
+    registered_at: new Date().toISOString().slice(0, 10),
+    expected_delivery_date: '',
+    title_fa: '',
+    description_fa: '',
+    priority: 2,
+  });
+  const [options, setOptions] = useState({ createProforma: true, refFinance: true, refWarehouse: false, refPath: true });
   const availableTemplates = templates.filter((t) => t.is_active && (!t.sales_path || t.sales_path === form.sales_path));
+  const selectedTemplate = availableTemplates.find((t) => t.id === form.workflow_template_id) || availableTemplates[0];
   const [items, setItems] = useState([{ item_name_fa: 'قلم سفارش', warehouse_item_code: '', quantity: 1, unit: 'عدد', unit_price: 0 }]);
 
   function submit(e) {
     e.preventDefault();
-    const customer = customerMode === 'new' ? { company_name: form.company_name, contact_phone: form.contact_phone, city: form.city, preferred_contact_channel: form.preferred_contact_channel, crm_status: 'lead', acquisition_source: 'ثبت سفارش' } : null;
-    onSubmit({ order: { ...form, customer_id: customerMode === 'existing' ? form.customer_id : null, customer, customer_phone_snapshot: form.contact_phone, customer_city_snapshot: form.city, contact_channel: form.preferred_contact_channel }, items });
+    const customer = customerMode === 'new'
+      ? {
+          company_name: form.company_name,
+          contact_phone: form.contact_phone,
+          city: form.city,
+          preferred_contact_channel: form.preferred_contact_channel,
+          crm_status: 'lead',
+          acquisition_source: 'ثبت سفارش',
+        }
+      : null;
+
+    onSubmit({
+      order: {
+        ...form,
+        workflow_template_id: form.workflow_template_id || selectedTemplate?.id || '',
+        customer_id: customerMode === 'existing' ? form.customer_id : null,
+        customer,
+        customer_phone_snapshot: form.contact_phone,
+        customer_city_snapshot: form.city,
+        contact_channel: form.preferred_contact_channel,
+      },
+      items,
+      options,
+    });
   }
 
-  return <Modal title="ثبت سفارش جدید" onClose={onClose}><form onSubmit={submit}><div className="form-grid"><label><span>نوع مشتری</span><select value={customerMode} onChange={(e) => setCustomerMode(e.target.value)}><option value="existing">مشتری موجود</option><option value="new">مشتری/سرنخ جدید</option></select></label>{customerMode === 'existing' ? <label><span>مشتری</span><select value={form.customer_id} onChange={(e) => setForm({ ...form, customer_id: e.target.value })}>{customers.map((c) => <option key={c.id} value={c.id}>{c.company_name}</option>)}</select></label> : <label><span>نام مشتری</span><input value={form.company_name} onChange={(e) => setForm({ ...form, company_name: e.target.value })} required /></label>}<label><span>تلفن</span><input value={form.contact_phone} onChange={(e) => setForm({ ...form, contact_phone: e.target.value })} /></label><label><span>شهر</span><input value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} /></label><label><span>روش ارتباط</span><select value={form.preferred_contact_channel} onChange={(e) => setForm({ ...form, preferred_contact_channel: e.target.value })}>{Object.entries(CHANNEL_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label><label><span>مسیر</span><select value={form.sales_path} onChange={(e) => setForm({ ...form, sales_path: e.target.value, workflow_template_id: '' })}>{Object.entries(PATH_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label><label><span>قالب مراحل</span><select value={form.workflow_template_id} onChange={(e) => setForm({ ...form, workflow_template_id: e.target.value })}><option value="">پیش‌فرض مسیر</option>{availableTemplates.map((t) => <option key={t.id} value={t.id}>{t.name_fa}</option>)}</select></label><label><span>تاریخ ثبت</span><input type="date" value={form.registered_at} onChange={(e) => setForm({ ...form, registered_at: e.target.value })} /></label><label><span>موعد تحویل</span><input type="date" value={form.expected_delivery_date} onChange={(e) => setForm({ ...form, expected_delivery_date: e.target.value })} /></label><label className="full"><span>عنوان</span><input value={form.title_fa} onChange={(e) => setForm({ ...form, title_fa: e.target.value })} required /></label><label className="full"><span>شرح</span><textarea value={form.description_fa} onChange={(e) => setForm({ ...form, description_fa: e.target.value })} /></label></div><ItemEditor items={items} setItems={setItems} stock={stock} /><div className="modal-actions"><button type="button" onClick={onClose}>انصراف</button><button type="submit" disabled={busy}>{busy ? 'در حال ثبت...' : 'ثبت سفارش'}</button></div></form></Modal>;
+  return <Modal title="ثبت سفارش جدید" onClose={onClose}>
+    <form onSubmit={submit}>
+      <div className="form-grid">
+        <label><span>نوع مشتری</span><select value={customerMode} onChange={(e) => setCustomerMode(e.target.value)}><option value="existing">مشتری موجود</option><option value="new">مشتری/سرنخ جدید</option></select></label>
+        {customerMode === 'existing'
+          ? <label><span>مشتری</span><select value={form.customer_id} onChange={(e) => setForm({ ...form, customer_id: e.target.value })}>{customers.map((c) => <option key={c.id} value={c.id}>{c.company_name}</option>)}</select></label>
+          : <label><span>نام مشتری</span><input value={form.company_name} onChange={(e) => setForm({ ...form, company_name: e.target.value })} required /></label>}
+        <label><span>تلفن</span><input value={form.contact_phone} onChange={(e) => setForm({ ...form, contact_phone: e.target.value })} /></label>
+        <label><span>شهر</span><input value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} /></label>
+        <label><span>روش ارتباط</span><select value={form.preferred_contact_channel} onChange={(e) => setForm({ ...form, preferred_contact_channel: e.target.value })}>{Object.entries(CHANNEL_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label>
+        <label><span>مسیر</span><select value={form.sales_path} onChange={(e) => setForm({ ...form, sales_path: e.target.value, workflow_template_id: '' })}>{Object.entries(PATH_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label>
+        <label><span>قالب مراحل</span><select value={form.workflow_template_id} onChange={(e) => setForm({ ...form, workflow_template_id: e.target.value })}><option value="">پیش‌فرض مسیر</option>{availableTemplates.map((t) => <option key={t.id} value={t.id}>{t.name_fa}</option>)}</select></label>
+        <label><span>تاریخ ثبت</span><input type="date" value={form.registered_at} onChange={(e) => setForm({ ...form, registered_at: e.target.value })} /></label>
+        <label><span>موعد تحویل</span><input type="date" value={form.expected_delivery_date} onChange={(e) => setForm({ ...form, expected_delivery_date: e.target.value })} /></label>
+        <label><span>اولویت</span><select value={form.priority} onChange={(e) => setForm({ ...form, priority: Number(e.target.value) })}><option value={1}>فوری</option><option value={2}>عادی</option><option value={3}>کم‌اهمیت</option></select></label>
+        <label className="full"><span>عنوان</span><input value={form.title_fa} onChange={(e) => setForm({ ...form, title_fa: e.target.value })} required /></label>
+        <label className="full"><span>شرح</span><textarea value={form.description_fa} onChange={(e) => setForm({ ...form, description_fa: e.target.value })} /></label>
+      </div>
+
+      <div className="order-options">
+        <label><input type="checkbox" checked={options.createProforma} onChange={(e) => setOptions({ ...options, createProforma: e.target.checked })} /> ساخت پیش‌فاکتور بعد از ثبت</label>
+        <label><input type="checkbox" checked={options.refFinance} onChange={(e) => setOptions({ ...options, refFinance: e.target.checked })} /> ارجاع به مالی</label>
+        <label><input type="checkbox" checked={options.refWarehouse} onChange={(e) => setOptions({ ...options, refWarehouse: e.target.checked })} /> ارجاع به انبار</label>
+        <label><input type="checkbox" checked={options.refPath} onChange={(e) => setOptions({ ...options, refPath: e.target.checked })} /> ارجاع به تولید/R&D بر اساس مسیر</label>
+      </div>
+
+      <ItemEditor items={items} setItems={setItems} stock={stock} />
+      <div className="modal-actions"><button type="button" onClick={onClose}>انصراف</button><button type="submit" disabled={busy}>{busy ? 'در حال ثبت...' : 'ثبت سفارش'}</button></div>
+    </form>
+  </Modal>;
 }
 
 function ItemEditor({ items, setItems, stock }) {

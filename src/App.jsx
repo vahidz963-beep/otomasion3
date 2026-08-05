@@ -5,6 +5,7 @@ import ResetPasswordPage from './auth/ResetPasswordPage';
 import Dashboard from './modules/dashboard/Dashboard';
 import RnDModule from './modules/rnd/RnDModule';
 import OrdersModule from './modules/orders/OrdersModule';
+import WarehouseModule from './modules/warehouse/WarehouseModule';
 import AdminUserPanel from './components/admin/AdminUserPanel';
 import AuditLogPanel from './components/admin/AuditLogPanel';
 import PlaceholderModule from './modules/placeholder/PlaceholderModule';
@@ -23,7 +24,7 @@ function AppShell() {
     { key: 'orders', labelFa: 'سفارش‌ها', labelEn: 'Orders', roles: ['admin', 'sales', 'rnd', 'production', 'warehouse', 'accountant'], Component: OrdersModule },
     { key: 'rnd', labelFa: 'R&D', labelEn: 'R&D', roles: ['admin', 'rnd', 'sales', 'accountant'], Component: RnDModule },
     { key: 'production', labelFa: 'تولید', labelEn: 'Production', roles: ['admin', 'production', 'warehouse', 'accountant'], Component: (props) => <PlaceholderModule title={props.lang === 'fa' ? 'تولید' : 'Production'} {...props} /> },
-    { key: 'warehouse', labelFa: 'انبار', labelEn: 'Warehouse', roles: ['admin', 'warehouse', 'production', 'sales', 'accountant'], Component: (props) => <PlaceholderModule title={props.lang === 'fa' ? 'انبار' : 'Warehouse'} {...props} /> },
+    { key: 'warehouse', labelFa: 'انبار', labelEn: 'Warehouse', roles: ['admin', 'warehouse', 'production', 'sales', 'accountant'], Component: WarehouseModule },
     { key: 'accounting', labelFa: 'مالی/حسابداری', labelEn: 'Accounting', roles: ['admin', 'accountant'], Component: AccountingModule },
     { key: 'admin_users', labelFa: 'کاربران', labelEn: 'Users', roles: ['admin'], Component: AdminUserPanel },
     { key: 'audit', labelFa: 'تاریخچه', labelEn: 'Audit', roles: ['admin'], Component: AuditLogPanel },

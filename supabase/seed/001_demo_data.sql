@@ -49,6 +49,15 @@ begin
     raise exception 'No active admin profile found. Create the first admin before running demo seed.';
   end if;
 
+  -- The SQL editor is not an authenticated app session. Several SECURITY DEFINER
+  -- functions intentionally check auth.uid()/auth.role(). For demo seeding only,
+  -- we impersonate the first active admin inside this transaction so SECURITY DEFINER
+  -- functions that use auth.uid()/auth.role() behave like an admin user action.
+  -- Important: do NOT SET ROLE to authenticated here; SQL Editor should remain postgres
+  -- so demo inserts are allowed while auth.uid() still returns the admin UUID.
+  perform set_config('request.jwt.claim.sub', v_admin::text, true);
+  perform set_config('request.jwt.claim.role', 'authenticated', true);
+
   -- -------------------------------------------------------------------
   -- Customers / CRM
   -- -------------------------------------------------------------------
@@ -306,9 +315,9 @@ begin
   -- -------------------------------------------------------------------
   -- Referrals
   -- -------------------------------------------------------------------
-  perform public.fn_create_order_referral(v_o_arman, 'accounting', 'پیگیری تسویه باقیمانده سفارش', 'Demo referral to finance', 'accountant', 1, current_date + 6);
-  perform public.fn_create_order_referral(v_o_behin, 'rnd', 'بررسی امکان‌سنجی برد کنترلر', 'Demo referral to R&D', 'rnd', 2, current_date + 8);
-  perform public.fn_create_order_referral(v_o_niroo, 'warehouse', 'بررسی موجودی محصول کامل', 'Demo referral to warehouse', 'warehouse', 1, current_date + 3);
+  perform public.fn_create_order_referral(v_o_arman, 'accounting'::text, 'پیگیری تسویه باقیمانده سفارش'::text, 'Demo referral to finance'::text, 'accountant'::public.user_role, 1::smallint, (current_date + 6)::date);
+  perform public.fn_create_order_referral(v_o_behin, 'rnd'::text, 'بررسی امکان‌سنجی برد کنترلر'::text, 'Demo referral to R&D'::text, 'rnd'::public.user_role, 2::smallint, (current_date + 8)::date);
+  perform public.fn_create_order_referral(v_o_niroo, 'warehouse'::text, 'بررسی موجودی محصول کامل'::text, 'Demo referral to warehouse'::text, 'warehouse'::public.user_role, 1::smallint, (current_date + 3)::date);
 
   raise notice 'Demo data inserted/updated successfully.';
 end $$;

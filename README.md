@@ -54,6 +54,8 @@ supabase/migrations/
   008_finance_backend_workflow.sql
   009_orders_backend_workflow.sql
   010_deploy_readiness_hardening.sql
+  013_app_order_finance_sync_fix.sql
+  014_warehouse_documents_kardex_backend.sql
 ```
 
 ## اجرای محلی
@@ -104,6 +106,8 @@ SUPABASE_SERVICE_ROLE_KEY=...
 8. `supabase/migrations/008_finance_backend_workflow.sql`
 9. `supabase/migrations/009_orders_backend_workflow.sql`
 10. `supabase/migrations/010_deploy_readiness_hardening.sql`
+11. `supabase/migrations/013_app_order_finance_sync_fix.sql`
+12. `supabase/migrations/014_warehouse_documents_kardex_backend.sql`
 
 ## ساخت اولین مدیر کل
 
