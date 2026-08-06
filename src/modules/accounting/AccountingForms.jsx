@@ -36,7 +36,7 @@ function addDays(days) {
   return d.toISOString().slice(0, 10);
 }
 
-export function FinanceDocumentForm({ parties, orders = [], initialDocument, initialItems, onCancel, onSubmit, busy }) {
+export function FinanceDocumentForm({ parties, orders = [], stock = [], initialDocument, initialItems, onCancel, onSubmit, busy }) {
   const [document, setDocument] = useState({
     document_type: initialDocument?.document_type || 'sales_invoice',
     party_id: initialDocument?.party_id || parties[0]?.party_id || '',
@@ -75,6 +75,18 @@ export function FinanceDocumentForm({ parties, orders = [], initialDocument, ini
     setItems((rows) => rows.map((row, i) => (i === index ? { ...row, ...patch } : row)));
   }
 
+  function selectStockItem(index, itemCode) {
+    const item = stock.find((s) => s.item_code === itemCode);
+    updateItem(index, {
+      warehouse_item_code: itemCode,
+      warehouse_item_id: item?.item_id || null,
+      description_fa: item?.item_name_fa || items[index]?.description_fa || '',
+      description_en: item?.item_name_en || items[index]?.description_en || '',
+      unit: item?.unit || items[index]?.unit || 'عدد',
+      unit_price: item?.unit_price_estimate ?? items[index]?.unit_price ?? 0,
+    });
+  }
+
   function submit(e) {
     e.preventDefault();
     onSubmit({ documentId: initialDocument?.id || null, document: { ...document, party_id: document.party_id || null, related_order_id: document.related_order_id || null }, items });
@@ -91,10 +103,14 @@ export function FinanceDocumentForm({ parties, orders = [], initialDocument, ini
       <Field label="شرح" full><textarea value={document.description} onChange={(e) => setDocument({ ...document, description: e.target.value })} /></Field>
     </div>
 
+    <datalist id="finance-stock-items">
+      {stock.map((s) => <option key={s.item_id} value={s.item_code}>{s.item_name_fa} · قابل فروش {s.available_for_sale_qty}</option>)}
+    </datalist>
     <div className="line-editor">
       <table>
-        <thead><tr><th>شرح</th><th>تعداد</th><th>واحد</th><th>فی ریال</th><th>تخفیف</th><th>مالیات٪</th><th></th></tr></thead>
+        <thead><tr><th>کد کالا</th><th>شرح</th><th>تعداد</th><th>واحد</th><th>فی ریال</th><th>تخفیف</th><th>مالیات٪</th><th></th></tr></thead>
         <tbody>{items.map((item, index) => <tr key={index}>
+          <td><input list="finance-stock-items" value={item.warehouse_item_code || ''} onChange={(e) => selectStockItem(index, e.target.value)} placeholder="جست‌وجوی کالا" /></td>
           <td><input value={item.description_fa} onChange={(e) => updateItem(index, { description_fa: e.target.value })} /></td>
           <td><input type="number" value={item.quantity} onChange={(e) => updateItem(index, { quantity: e.target.value })} /></td>
           <td><input value={item.unit} onChange={(e) => updateItem(index, { unit: e.target.value })} /></td>
@@ -105,7 +121,7 @@ export function FinanceDocumentForm({ parties, orders = [], initialDocument, ini
         </tr>)}</tbody>
       </table>
     </div>
-    <button className="mini-btn" type="button" onClick={() => setItems((rows) => [...rows, { description_fa: 'ردیف جدید', quantity: 1, unit: 'عدد', unit_price: 0, discount_amount: 0, tax_rate: 10, item_type: 'service' }])}>＋ افزودن ردیف</button>
+    <button className="mini-btn" type="button" onClick={() => setItems((rows) => [...rows, { warehouse_item_code: '', description_fa: 'ردیف جدید', quantity: 1, unit: 'عدد', unit_price: 0, discount_amount: 0, tax_rate: 10, item_type: 'service' }])}>＋ افزودن ردیف</button>
     <div className="form-summary"><span>جمع قبل مالیات: {Math.round(totals.subtotal).toLocaleString('fa-IR')} ریال</span><span>مالیات: {Math.round(totals.tax).toLocaleString('fa-IR')} ریال</span><b>جمع کل: {Math.round(totals.total).toLocaleString('fa-IR')} ریال</b></div>
     <HiddenSubmit busy={busy} onCancel={onCancel} />
   </form>;

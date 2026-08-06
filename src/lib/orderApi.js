@@ -101,6 +101,28 @@ export async function createSalesInvoiceFromOrder(orderId) {
   return res.data;
 }
 
+export async function cancelOrder(orderId, reason = 'لغو توسط کاربر') {
+  const res = await supabase
+    .from('orders')
+    .update({ is_cancelled: true, cancelled_reason: reason, updated_at: new Date().toISOString() })
+    .eq('id', orderId)
+    .select('id')
+    .single();
+  assertNoError(res, 'خطا در لغو سفارش');
+  return res.data;
+}
+
+export async function deactivateCustomer(customerId) {
+  const res = await supabase
+    .from('customers')
+    .update({ is_active: false, updated_at: new Date().toISOString() })
+    .eq('id', customerId)
+    .select('id')
+    .single();
+  assertNoError(res, 'خطا در غیرفعال‌سازی مشتری');
+  return res.data;
+}
+
 export async function createOrderReferral({ orderId, targetModule, targetRole, title, description, priority = 2, dueDate }) {
   const res = await supabase.rpc('fn_create_order_referral', {
     p_order_id: orderId,

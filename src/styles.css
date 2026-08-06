@@ -22,6 +22,27 @@ button:disabled { cursor: not-allowed; opacity: 0.65; }
   z-index: 10;
 }
 
+.app-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #fff;
+  font-weight: 800;
+  white-space: nowrap;
+  margin-inline-end: 6px;
+}
+
+.app-brand img {
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
+  border-radius: 8px;
+  background: #05070a;
+  padding: 2px;
+}
+
+.app-brand span { font-size: 13px; color: #f8d348; }
+
 .nav-button {
   padding: 8px 14px;
   border-radius: 8px;
@@ -32,7 +53,7 @@ button:disabled { cursor: not-allowed; opacity: 0.65; }
   font-size: 13px;
 }
 
-.nav-button.active { background: #a8672e; }
+.nav-button.active { background: linear-gradient(135deg, #a8672e, #f6c915); color: #14181c; font-weight: 800; }
 
 .nav-profile {
   margin-inline-start: auto;

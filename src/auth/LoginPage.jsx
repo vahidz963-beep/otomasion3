@@ -74,7 +74,7 @@ export default function LoginPage() {
 
       <div className="login-card">
         <div className="login-brand">
-          <div className="login-logo"><Cpu size={18} /></div>
+          <div className="login-logo"><img src="/assets/aryaman-logo.png" alt="Aryaman" /></div>
           <div>
             <div className="login-title-small">{t.company}</div>
             <div className="login-subtitle-small">{t.subtitle}</div>

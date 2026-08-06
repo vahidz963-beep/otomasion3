@@ -27,6 +27,7 @@ const initialState = {
   fiscalPeriods: [],
   ioDocuments: [],
   orders: [],
+  stock: [],
 };
 
 function softError(results) {
@@ -53,6 +54,7 @@ export function useAccountingData() {
       fiscalPeriodsRes,
       ioDocsRes,
       ordersRes,
+      stockRes,
     ] = await Promise.all([
       supabase.from('v_finance_dashboard').select('*').maybeSingle(),
       supabase
@@ -113,6 +115,11 @@ export function useAccountingData() {
         .select('id, order_code, customer_name, sales_path, current_stage, stage_name_fa, priority, expected_delivery_date, is_cancelled, created_at')
         .order('created_at', { ascending: false })
         .limit(150),
+      supabase
+        .from('v_sales_stock_overview')
+        .select('item_id, item_code, item_name_fa, item_name_en, unit, available_for_sale_qty, unit_price_estimate')
+        .order('item_name_fa', { ascending: true })
+        .limit(300),
     ]);
 
     const firstError = softError([
@@ -129,6 +136,7 @@ export function useAccountingData() {
       fiscalPeriodsRes,
       ioDocsRes,
       ordersRes,
+      stockRes,
     ]);
 
     setState({
@@ -147,6 +155,7 @@ export function useAccountingData() {
       fiscalPeriods: fiscalPeriodsRes.data || [],
       ioDocuments: ioDocsRes.data || [],
       orders: ordersRes.data || [],
+      stock: stockRes.data || [],
     });
   }, []);
 

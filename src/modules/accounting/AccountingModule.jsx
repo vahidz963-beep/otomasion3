@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { useAccountingData, useFinanceDocumentBundle, usePartyStatement } from '../../hooks/useAccountingData';
 import ReferralPanel from '../../components/referrals/ReferralPanel';
+import { formatJalaliDate, formatToman } from '../../lib/formatters';
 import {
   closeFiscalPeriod,
   closeFiscalYear,
@@ -224,7 +225,7 @@ export default function AccountingModule({ lang = 'fa' }) {
         const modalDocumentId = typeof modal === 'object' ? modal.documentId : null;
         return (
           <FinanceModal title={modalTitle(modalType)} onClose={() => setModal(null)}>
-            {modalType === 'document' && <FinanceDocumentForm parties={data.parties} orders={data.orders} initialDocument={modalDocumentId ? documentBundle.document : null} initialItems={modalDocumentId ? documentBundle.items : []} busy={busy} onCancel={() => setModal(null)} onSubmit={submitDocument} />}
+            {modalType === 'document' && <FinanceDocumentForm parties={data.parties} orders={data.orders} stock={data.stock} initialDocument={modalDocumentId ? documentBundle.document : null} initialItems={modalDocumentId ? documentBundle.items : []} busy={busy} onCancel={() => setModal(null)} onSubmit={submitDocument} />}
             {modalType === 'orderInvoice' && <OrderInvoiceForm orders={data.orders} busy={busy} onCancel={() => setModal(null)} onSubmit={submitOrderInvoice} />}
             {modalType === 'payment' && <FinancePaymentForm parties={data.parties} documents={data.documents} accounts={data.bankAccounts} initialDocumentId={modalDocumentId} busy={busy} onCancel={() => setModal(null)} onSubmit={submitPayment} />}
             {modalType === 'check' && <FinanceCheckForm parties={data.parties} busy={busy} onCancel={() => setModal(null)} onSubmit={submitCheck} />}
@@ -369,8 +370,8 @@ function partyTypeLabel(type, lang) { return ({ customer: { fa: 'مشتری', en
 function eventLabel(type, lang) { return ({ created: { fa: 'ایجاد', en: 'Created' }, status_changed: { fa: 'تغییر وضعیت', en: 'Status changed' }, converted_to_invoice: { fa: 'تبدیل به فاکتور', en: 'Converted' }, voided: { fa: 'ابطال', en: 'Voided' }, return_created: { fa: 'برگشتی', en: 'Return' } }[type]?.[lang] || type); }
 function moduleLabel(module, lang) { return ({ orders: { fa: 'سفارش', en: 'Orders' }, sales: { fa: 'فروش', en: 'Sales' }, rnd: { fa: 'R&D', en: 'R&D' }, production: { fa: 'تولید', en: 'Production' }, warehouse: { fa: 'انبار', en: 'Warehouse' }, accounting: { fa: 'مالی', en: 'Finance' }, admin: { fa: 'مدیریت', en: 'Admin' }, manual: { fa: 'دستی', en: 'Manual' } }[module]?.[lang] || module); }
 function formatNumber(value, lang) { return new Intl.NumberFormat(lang === 'fa' ? 'fa-IR' : 'en-US', { maximumFractionDigits: 2 }).format(Number(value || 0)); }
-function formatMoney(value, lang) { return `${formatNumber(Math.round(Number(value || 0) / 10), lang)} ${lang === 'fa' ? 'تومان' : 'Toman'}`; }
-function formatDate(value, lang) { if (!value) return '—'; return new Date(value).toLocaleDateString(lang === 'fa' ? 'fa-IR' : 'en-US'); }
+function formatMoney(value, lang) { return formatToman(value, lang); }
+function formatDate(value) { return formatJalaliDate(value); }
 function modalTitle(type) {
   return ({ document: 'فاکتور / سند مالی جدید', orderInvoice: 'ساخت فاکتور از سفارش', payment: 'ثبت دریافت / پرداخت', check: 'ثبت چک', referral: 'ارجاع مالی' }[type] || 'فرم مالی');
 }

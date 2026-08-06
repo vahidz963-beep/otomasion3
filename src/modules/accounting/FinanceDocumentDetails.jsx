@@ -1,5 +1,6 @@
 import { Banknote, FileText, History, Link2, Printer, ReceiptText } from 'lucide-react';
 import { openPrintableDocument } from '../../lib/financeApi';
+import { formatJalaliDate, formatToman } from '../../lib/formatters';
 
 const DOC_LABELS = {
   sales_proforma: 'پیش‌فاکتور فروش',
@@ -25,12 +26,11 @@ const STATUS_LABELS = {
 };
 
 function money(value) {
-  return `${new Intl.NumberFormat('fa-IR').format(Math.round(Number(value || 0) / 10))} تومان`;
+  return formatToman(value, 'fa');
 }
 
 function date(value) {
-  if (!value) return '—';
-  return new Date(value).toLocaleDateString('fa-IR');
+  return formatJalaliDate(value);
 }
 
 function printDocument(bundle) {
