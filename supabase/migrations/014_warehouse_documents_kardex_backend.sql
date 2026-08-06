@@ -30,6 +30,7 @@ end $$;
 -- 2) Extend existing items/transactions
 -- ---------------------------------------------------------------------
 alter table public.warehouse_items
+  add column if not exists location text,
   add column if not exists unit_price_estimate numeric not null default 0,
   add column if not exists price_currency text not null default 'IRR';
 
@@ -119,27 +120,29 @@ with latest_snapshot as (
   group by wt.item_id
 )
 select
+  -- Keep the original 003 view columns in the same order so CREATE OR REPLACE is safe.
   wi.id as item_id,
   wi.item_code,
   wi.item_name_fa,
   wi.item_name_en,
   wi.unit,
   wi.category,
-  wi.category as item_group,
-  wi.location,
   wi.min_stock_threshold,
-  wi.min_stock_threshold as reorder_point,
-  wi.unit_price_estimate,
-  wi.price_currency,
   ls.snapshot_qty,
   ls.snapshot_imported_at as last_synced_at,
   coalesce(tx.net_qty, 0) as net_transactions_since_sync,
   (coalesce(ls.snapshot_qty, 0) + coalesce(tx.net_qty, 0)) as current_qty,
+  ((coalesce(ls.snapshot_qty, 0) + coalesce(tx.net_qty, 0)) < wi.min_stock_threshold) as is_low_stock,
+  (ls.snapshot_imported_at is null) as never_synced,
+  -- Extra columns for the upgraded warehouse module.
+  wi.category as item_group,
+  wi.location,
+  wi.min_stock_threshold as reorder_point,
+  wi.unit_price_estimate,
+  wi.price_currency,
   coalesce(tt.total_in, 0) as total_in,
   coalesce(tt.total_out, 0) as total_out,
   tt.last_movement_at,
-  ((coalesce(ls.snapshot_qty, 0) + coalesce(tx.net_qty, 0)) < wi.min_stock_threshold) as is_low_stock,
-  (ls.snapshot_imported_at is null) as never_synced,
   ((coalesce(ls.snapshot_qty, 0) + coalesce(tx.net_qty, 0)) * wi.unit_price_estimate) as stock_value_estimate
 from public.warehouse_items wi
 left join latest_snapshot ls on ls.item_id = wi.id
@@ -151,23 +154,25 @@ create or replace view public.v_sales_stock_overview
 with (security_invoker = true)
 as
 select
+  -- Keep the original 009 view columns in the same order.
   s.item_id,
   s.item_code,
   s.item_name_fa,
   s.item_name_en,
   s.unit,
   s.category,
-  s.item_group,
-  s.location,
   s.current_qty,
   s.min_stock_threshold,
-  s.reorder_point,
-  s.unit_price_estimate,
-  s.stock_value_estimate,
   coalesce(r.reserved_qty, 0) as reserved_qty,
   (s.current_qty - coalesce(r.reserved_qty, 0)) as available_for_sale_qty,
   ((s.current_qty - coalesce(r.reserved_qty, 0)) < s.min_stock_threshold) as is_low_stock,
   s.last_synced_at,
+  -- Extra columns for sales/warehouse UI.
+  s.item_group,
+  s.location,
+  s.reorder_point,
+  s.unit_price_estimate,
+  s.stock_value_estimate,
   s.last_movement_at
 from public.v_warehouse_current_stock s
 left join (
@@ -176,6 +181,18 @@ left join (
   where status = 'reserved'
   group by warehouse_item_id
 ) r on r.warehouse_item_id = s.item_id;
+
+create or replace view public.v_warehouse_stock_readonly
+with (security_invoker = true)
+as
+select
+  item_code,
+  item_name_fa,
+  item_name_en,
+  available_for_sale_qty as available_qty,
+  unit,
+  last_synced_at as updated_at
+from public.v_sales_stock_overview;
 
 create or replace view public.v_warehouse_kardex
 with (security_invoker = true)

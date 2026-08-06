@@ -18,6 +18,7 @@ import {
   WalletCards,
 } from 'lucide-react';
 import { useAccountingData, useFinanceDocumentBundle, usePartyStatement } from '../../hooks/useAccountingData';
+import ReferralPanel from '../../components/referrals/ReferralPanel';
 import {
   closeFiscalPeriod,
   closeFiscalYear,
@@ -246,7 +247,7 @@ export default function AccountingModule({ lang = 'fa' }) {
       {!data.loading && tab === 'profitability' && <ProfitCard rows={data.profitability} lang={lang} t={t} full />}
       {!data.loading && tab === 'treasury' && <TreasurySection payments={data.payments} checks={data.checks} accounts={accounts} lang={lang} t={t} busy={busy} onChangeCheckStatus={(id, status) => runAction(() => updateFinanceCheckStatus(id, status), 'وضعیت چک تغییر کرد.')} />}
       {!data.loading && tab === 'fiscal' && <FiscalSection fiscalYears={data.fiscalYears} fiscalPeriods={data.fiscalPeriods} lang={lang} busy={busy} onClosePeriod={(id) => runAction(() => closeFiscalPeriod(id), 'ماه مالی بسته شد.')} onReopenPeriod={(id) => runAction(() => reopenFiscalPeriod(id), 'ماه مالی بازگشایی شد.')} onCloseYear={(id) => runAction(() => closeFiscalYear(id), 'سال مالی بسته شد.')} onReopenYear={(id) => runAction(() => reopenFiscalYear(id), 'سال مالی بازگشایی شد.')} />}
-      {!data.loading && tab === 'referrals' && <ReferralsCard rows={data.referrals} lang={lang} t={t} />}
+      {!data.loading && tab === 'referrals' && <div className="accounting-grid"><ReferralPanel sourceModule="accounting" title="ارجاعات مالی" defaultTarget="sales" /></div>}
       {!data.loading && tab === 'settings' && <SettingsSection numbering={data.numbering} ioDocuments={data.ioDocuments} lang={lang} busy={busy} onUpdateNumbering={(ruleKey, patch) => runAction(() => updateNumberingRule(ruleKey, patch), 'تنظیمات شماره‌گذاری ذخیره شد.')} onAddIo={(type) => runAction(() => createIoDocument({ io_type: type, title_fa: type === 'incoming' ? 'سند ورودی نمونه' : 'سند خروجی نمونه', source_module: 'accounting', status: 'registered' }), 'سند ورودی/خروجی ثبت شد.')} />}
     </div>
   );

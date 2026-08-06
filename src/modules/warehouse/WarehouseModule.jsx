@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { AlertTriangle, BarChart3, ClipboardList, FileText, Package, RefreshCw, Settings, Upload } from 'lucide-react';
 import { useWarehouseData, useWarehouseDocumentLines, useWarehouseKardex } from '../../hooks/useWarehouseData';
+import ReferralPanel from '../../components/referrals/ReferralPanel';
 import {
   cancelDraftWarehouseDocument,
   createWarehouseItem,
@@ -94,7 +95,7 @@ export default function WarehouseModule() {
     {!data.loading && tab === 'docs' && <DocumentsSection docs={data.documents} draft={data.draftDocument} draftLines={data.draftLines} selectedDocument={selectedDocument} lines={documentLines.rows} busy={busy} onSelect={setSelectedDocumentId} onFinalize={(id)=>runAction(()=>finalizeWarehouseDocument(id),'سند خروج ثبت نهایی شد.')} onCancel={(id)=>runAction(()=>cancelDraftWarehouseDocument(id),'سند موقت لغو شد.')} onUpdateLine={(id,q)=>runAction(()=>updateWarehouseDocumentLine(id,q),'ردیف سند اصلاح شد.')} onRemoveLine={(id)=>runAction(()=>removeWarehouseDocumentLine(id),'ردیف سند حذف/اصلاح شد.')} />}
     {!data.loading && tab === 'kardex' && <KardexSection stock={data.stock} selectedItemId={selectedItemId} setSelectedItemId={setSelectedItemId} rows={kardex.rows} />}
     {!data.loading && tab === 'sync' && <SyncSection snapshots={data.snapshots} unmatched={data.unmatched} onImport={()=>setModal({type:'import'})} />}
-    {!data.loading && tab === 'refs' && <RefsSection refs={data.referrals} onNew={()=>setModal({type:'referral'})} />}
+    {!data.loading && tab === 'refs' && <div className="warehouse-grid"><ReferralPanel sourceModule="warehouse" title="ارجاعات انبار" defaultTarget="accounting" /></div>}
     {!data.loading && tab === 'reports' && <ReportsSection report={report} setReport={setReport} stock={data.stock} docs={data.documents} />}
     {!data.loading && tab === 'settings' && <SettingsSection />}
 
