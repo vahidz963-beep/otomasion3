@@ -113,17 +113,49 @@ export async function createWarehouseReferral({ title, description, relatedOrder
 }
 
 export async function createWarehouseSnapshot({ fileName, rows, notes }) {
+  const normalized = (rows || [])
+    .map((r) => ({
+      item_code: String(r.item_code || r.code || '').trim(),
+      item_name_fa: String(r.item_name_fa || r.name || r.item_name || '').trim(),
+      category: String(r.item_group || r.category || '').trim() || null,
+      unit: String(r.unit || 'عدد').trim(),
+      location: String(r.location || '').trim() || null,
+      quantity: Number(r.quantity || r.qty || 0),
+      min_stock_threshold: Number(r.reorder_point || r.min_stock_threshold || 0),
+      unit_price_estimate: Number(r.unit_price_estimate || r.price || 0),
+    }))
+    .filter((r) => r.item_code && Number.isFinite(r.quantity));
+
+  const itemUpserts = normalized
+    .filter((r) => r.item_name_fa)
+    .map((r) => ({
+      item_code: r.item_code,
+      item_name_fa: r.item_name_fa,
+      category: r.category,
+      unit: r.unit,
+      location: r.location,
+      min_stock_threshold: r.min_stock_threshold,
+      unit_price_estimate: r.unit_price_estimate,
+      price_currency: 'IRR',
+      is_active: true,
+    }));
+
+  if (itemUpserts.length > 0) {
+    const upsertRes = await supabase.from('warehouse_items').upsert(itemUpserts, { onConflict: 'item_code' });
+    assertNoError(upsertRes, 'خطا در ثبت/به‌روزرسانی کالاهای فایل اکسل');
+  }
+
   const snap = await supabase
     .from('warehouse_snapshots')
-    .insert({ file_name: fileName || 'manual-import.csv', row_count: rows.length, notes: notes || null })
+    .insert({ file_name: fileName || 'manual-import.csv', row_count: normalized.length, notes: notes || null })
     .select('id')
     .single();
   assertNoError(snap, 'خطا در ثبت Snapshot');
 
-  const items = rows.map((r) => ({
+  const items = normalized.map((r) => ({
     snapshot_id: snap.data.id,
     item_code: r.item_code,
-    quantity: Number(r.quantity || 0),
+    quantity: r.quantity,
     unit: r.unit || null,
   }));
   if (items.length) {
