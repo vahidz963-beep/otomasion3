@@ -53,7 +53,7 @@ function AppShell() {
       <nav className="app-nav">
         <div className="app-brand">
           <img src="/assets/aryaman-logo.png" alt="Aryaman" />
-          <span>{lang === 'fa' ? 'اتوماسیون آریامان' : 'Aryaman Automation'}</span>
+          <span>{lang === 'fa' ? 'اتوماسیون آریامن' : 'Aryaman Automation'}</span>
         </div>
         {visibleModules.map((m) => (
           <button key={m.key} onClick={() => setActiveModule(m.key)} className={`nav-button ${current?.key === m.key ? 'active' : ''}`}>
