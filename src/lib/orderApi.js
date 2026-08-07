@@ -1,5 +1,5 @@
 import { supabase } from './supabaseClient';
-import { ARYAMAN_BRAND_FA, ARYAMAN_LOGO_DATA_URI } from './reporting';
+import { ARYAMAN_BRAND_FA, ARYAMAN_LOGO_DATA_URI, brandedExcelTableHtml } from './reporting';
 
 function assertNoError({ error }, fallbackMessage) {
   if (error) throw new Error(error.message || fallbackMessage);
@@ -254,6 +254,56 @@ export async function createWorkflowStep(payload) {
   return res.data;
 }
 
+export async function createWorkflowTemplateWithSteps({ nameFa, salesPath, stageCount = 5, stages = [] }) {
+  const userId = await currentUserId();
+  const cleanName = String(nameFa || '').trim();
+  if (!cleanName) throw new Error('نام قالب مراحل الزامی است.');
+  const count = Math.min(12, Math.max(4, Number(stageCount || stages.length || 5)));
+  const templateKey = `custom_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+
+  const templateRes = await supabase
+    .from('order_workflow_templates')
+    .insert({
+      template_key: templateKey,
+      name_fa: cleanName,
+      name_en: templateKey,
+      sales_path: salesPath && salesPath !== 'all' ? salesPath : null,
+      is_default: false,
+      is_active: true,
+      created_by: userId,
+    })
+    .select('id')
+    .single();
+  assertNoError(templateRes, 'خطا در ثبت قالب مراحل');
+
+  const templateId = templateRes.data.id;
+  const defaultStages = [
+    'ثبت سفارش', 'تایید مشتری', 'پیش‌فاکتور / مالی', 'بررسی موجودی', 'تامین / خرید',
+    'برنامه‌ریزی', 'اجرا / تولید', 'کنترل کیفیت', 'بسته‌بندی', 'تحویل به مشتری', 'تسویه', 'بسته‌شده'
+  ];
+  const rows = Array.from({ length: count }).map((_, index) => {
+    const customName = stages[index]?.stage_name_fa || stages[index]?.name || '';
+    const name = customName.trim() || defaultStages[index] || `مرحله ${index + 1}`;
+    const key = stages[index]?.stage_key || `custom_stage_${index + 1}`;
+    return {
+      template_id: templateId,
+      stage_key: key,
+      stage_order: index + 1,
+      stage_name_fa: name,
+      stage_name_en: key,
+      responsible_role: stages[index]?.responsible_role || (index === 2 ? 'accountant' : index === 3 ? 'warehouse' : null),
+      notify_role_on_enter: stages[index]?.responsible_role || null,
+      is_required: index === 0 || index === count - 1,
+      is_terminal: index === count - 1,
+      is_active: true,
+    };
+  });
+
+  const stepsRes = await supabase.from('order_workflow_template_steps').insert(rows);
+  assertNoError(stepsRes, 'خطا در ثبت مراحل قالب');
+  return templateId;
+}
+
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
 }
@@ -277,8 +327,7 @@ export function downloadCsv(filename, rows) {
 }
 
 export function downloadExcelHtml(filename, headers, rows, title = 'گزارش') {
-  const table = `<table><thead><tr>${headers.map((h) => `<th>${escapeHtml(h)}</th>`).join('')}</tr></thead><tbody>${rows.map((r) => `<tr>${r.map((c) => `<td>${escapeHtml(c)}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
-  const html = brandedReportShell(title, `<h1>${escapeHtml(title)}</h1>${table}`);
+  const html = brandedExcelTableHtml(title, headers, rows);
   const blob = new Blob([`\ufeff${html}`], { type: 'application/vnd.ms-excel;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');

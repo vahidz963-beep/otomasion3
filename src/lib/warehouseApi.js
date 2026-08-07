@@ -1,5 +1,5 @@
 import { supabase } from './supabaseClient';
-import { ARYAMAN_BRAND_FA, ARYAMAN_LOGO_DATA_URI } from './reporting';
+import { ARYAMAN_BRAND_FA, ARYAMAN_LOGO_DATA_URI, brandedExcelTableHtml } from './reporting';
 
 function assertNoError({ error }, fallbackMessage) {
   if (error) throw new Error(error.message || fallbackMessage);
@@ -196,9 +196,8 @@ export function downloadCsv(filename, rows) {
   URL.revokeObjectURL(url);
 }
 
-export function downloadExcelHtml(filename, headers, rows, title = 'گزارش انبار') {
-  const table = `<table><thead><tr>${headers.map((h) => `<th>${escapeHtml(h)}</th>`).join('')}</tr></thead><tbody>${rows.map((r) => `<tr>${r.map((c) => `<td>${escapeHtml(c)}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
-  const html = brandedReportShell(title, `<h1>${escapeHtml(title)}</h1>${table}`);
+export function downloadExcelHtml(filename, headers, rows, title = 'گزارش') {
+  const html = brandedExcelTableHtml(title, headers, rows);
   const blob = new Blob([`\ufeff${html}`], { type: 'application/vnd.ms-excel;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');

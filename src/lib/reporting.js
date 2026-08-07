@@ -39,3 +39,20 @@ export function brandedTableHtml(title, headers, rows) {
   const table = `<table><thead><tr>${headers.map((h) => `<th>${escapeHtml(h)}</th>`).join('')}</tr></thead><tbody>${rows.map((r) => `<tr>${r.map((c) => `<td>${escapeHtml(c)}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
   return brandedReportShell({ title, body: `<h1>${escapeHtml(title)}</h1>${table}` });
 }
+
+export function brandedExcelTableHtml(title, headers, rows, subtitle = 'خروجی اکسل اتوماسیون') {
+  const safeTitle = escapeHtml(title);
+  const headerStyle = 'background:#10243d;color:#ffffff;font-weight:700;border:1px solid #10243d;padding:8px;text-align:right;';
+  const cellStyle = 'border:1px solid #d8dee3;padding:7px;text-align:right;mso-number-format:\\@;';
+  const metaStyle = 'border:1px solid #d8dee3;background:#f8fafb;padding:8px;text-align:right;font-weight:700;color:#10243d;';
+  return `<!doctype html><html dir="rtl" lang="fa"><head><meta charset="utf-8"><style>body{font-family:Tahoma,Arial,sans-serif;direction:rtl}table{border-collapse:collapse;width:100%}.money{mso-number-format:\\@}</style></head><body>
+    <table style="border-collapse:collapse;width:100%;direction:rtl">
+      <tr>
+        <td style="${metaStyle};width:88px"><img src="${ARYAMAN_LOGO_DATA_URI}" width="64" height="64" style="background:#fff;border:1px solid #d8dee3;padding:4px" alt="logo"></td>
+        <td colspan="${Math.max(headers.length - 1, 1)}" style="${metaStyle};font-size:18px">${safeTitle}<br><span style="font-size:12px;color:#a8672e">${ARYAMAN_BRAND_FA} · ${escapeHtml(subtitle)}</span></td>
+      </tr>
+      <tr>${headers.map((h) => `<th style="${headerStyle}">${escapeHtml(h)}</th>`).join('')}</tr>
+      ${rows.map((r) => `<tr>${r.map((c) => `<td style="${cellStyle}">${escapeHtml(c)}</td>`).join('')}</tr>`).join('')}
+    </table>
+  </body></html>`;
+}

@@ -38,6 +38,7 @@ import {
   updateWorkflowTemplate,
   updateWorkflowStep,
   createWorkflowStep,
+  createWorkflowTemplateWithSteps,
 } from '../../lib/orderApi';
 import './OrdersModule.css';
 
@@ -192,7 +193,7 @@ export default function OrdersModule({ lang = 'fa' }) {
       {!data.loading && tab === 'list' && <ListSection orders={filteredOrders} query={query} setQuery={setQuery} pathFilter={pathFilter} setPathFilter={setPathFilter} deliveryFilter={deliveryFilter} setDeliveryFilter={setDeliveryFilter} onSelect={(id) => { setSelectedOrderId(id); setTab('flow'); }} onCancel={confirmCancelOrder} onExcel={() => exportOrders('excel')} onPrint={printOrders} />}
       {!data.loading && tab === 'stock' && <StockSection stock={data.stock} />}
       {!data.loading && tab === 'referrals' && <div className="orders-grid"><ReferralPanel sourceModule="orders" title="ارجاعات سفارش‌ها" defaultTarget="accounting" /></div>}
-      {!data.loading && tab === 'settings' && <TemplateSection templates={data.templates} steps={data.templateSteps} busy={busy} onUpdateTemplate={(id, patch) => runAction(() => updateWorkflowTemplate(id, patch), 'قالب مراحل ذخیره شد.')} onUpdateStep={(id, patch) => runAction(() => updateWorkflowStep(id, patch), 'مرحله ذخیره شد.')} onCreateStep={(payload) => runAction(() => createWorkflowStep(payload), 'مرحله جدید اضافه شد.')} />}
+      {!data.loading && tab === 'settings' && <TemplateSection templates={data.templates} steps={data.templateSteps} busy={busy} onUpdateTemplate={(id, patch) => runAction(() => updateWorkflowTemplate(id, patch), 'قالب مراحل ذخیره شد.')} onUpdateStep={(id, patch) => runAction(() => updateWorkflowStep(id, patch), 'مرحله ذخیره شد.')} onCreateStep={(payload) => runAction(() => createWorkflowStep(payload), 'مرحله جدید اضافه شد.')} onCreateTemplate={(payload) => runAction(() => createWorkflowTemplateWithSteps(payload), 'قالب جدید ساخته شد و در ثبت سفارش قابل انتخاب است.')} />}
     </div>
   );
 }
@@ -268,7 +269,7 @@ function CrmSection({ customers, followups, interactions, opportunities, orders,
             {Object.entries(CHANNEL_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
           </select>
         </div>
-        <div className="orders-table-wrap crm-table-wrap compact-crm-table"><table><thead><tr><th>نام</th><th>نوع</th><th>تلفن</th><th>امتیاز</th><th>سفارش</th><th>فروش کل</th><th>عملیات</th></tr></thead><tbody>{filteredCustomers.map((c) => <tr key={c.id} className={selectedCustomer?.id === c.id ? 'selected-row' : ''}><td><button className="link-button" onClick={() => setSelectedCustomerId(c.id)}>{c.company_name}</button></td><td><Badge>{CRM_STATUS_LABELS[c.crm_status] || c.crm_status || '—'}</Badge></td><td dir="ltr">{c.contact_phone || '—'}</td><td>{formatNumber(c.lead_score)}</td><td>{formatNumber(c.total_orders)}</td><td>{formatMoney(c.total_sales_amount)}</td><td><div className="row-actions crm-row-actions"><button onClick={() => setSelectedCustomerId(c.id)}><Eye size={14} /> پرونده</button><button onClick={() => onEditCustomer(c)}><Edit3 size={14} /> ویرایش</button><button onClick={() => onNewFollowup({ customerId: c.id })}><PhoneCall size={14} /> پیگیری</button><button onClick={() => onQuickOrder(c)}>سفارش</button><button className="danger" onClick={() => onDeactivateCustomer(c)}><Ban size={14} /> غیرفعال</button></div></td></tr>)}</tbody></table></div>
+        <div className="orders-table-wrap crm-table-wrap compact-crm-table"><table><thead><tr><th>نام</th><th>نوع</th><th>تلفن</th><th>امتیاز</th><th>سفارش</th><th>فروش کل</th><th>عملیات</th></tr></thead><tbody>{filteredCustomers.map((c) => <tr key={c.id} className={selectedCustomer?.id === c.id ? 'selected-row' : ''}><td><button className="link-button" onClick={() => setSelectedCustomerId(c.id)}>{c.company_name}</button></td><td><Badge>{CRM_STATUS_LABELS[c.crm_status] || c.crm_status || '—'}</Badge></td><td dir="ltr">{c.contact_phone || '—'}</td><td>{formatNumber(c.lead_score)}</td><td>{formatNumber(c.total_orders)}</td><td>{formatMoney(c.total_sales_amount)}</td><td><div className="row-actions crm-row-actions"><button onClick={() => setSelectedCustomerId(c.id)}><Eye size={14} /> پرونده</button><button onClick={() => onEditCustomer(c)}><Edit3 size={14} /> ویرایش</button><button className="danger" onClick={() => onDeactivateCustomer(c)}><Ban size={14} /> غیرفعال</button></div></td></tr>)}</tbody></table></div>
         {filteredCustomers.length === 0 && <Empty text="مشتری یا سرنخی با این فیلتر پیدا نشد." />}
       </section>
 
@@ -359,12 +360,12 @@ function FlowSection({ orders, templateSteps = [], selectedOrder, details, busy,
           </div>)}
         </div>
         <div className="advanced-flow-footer">
-          <button onClick={() => onSelect(o.id)}>جزئیات و عملیات</button>
           <div className="miniDueBox advancedDueBox">
             <span>{daysText(o.days_to_delivery, o.delivery_status)}</span>
             <b>تا تحویل نهایی</b>
             <small>{formatDate(o.expected_delivery_date)}</small>
           </div>
+          <button onClick={() => onSelect(o.id)}>جزئیات و عملیات</button>
         </div>
       </article>;
     })}</div>}
@@ -408,7 +409,7 @@ function StockSection({ stock }) {
   return <section className="orders-card"><div className="section-head"><CardTitle icon={PackageCheck} title="موجودی قابل مشاهده برای فروش" /></div><div className="filters"><input value={stockQuery} onChange={(e) => setStockQuery(e.target.value)} placeholder="جست‌وجوی کد، نام کالا، گروه..." /></div>{filtered.length === 0 ? <Empty text="کالایی با این جست‌وجو پیدا نشد." /> : <div className="orders-table-wrap"><table><thead><tr><th>کد</th><th>کالا</th><th>موجودی</th><th>رزروشده</th><th>قابل فروش</th><th>حداقل</th><th>وضعیت</th></tr></thead><tbody>{filtered.map((s) => <tr key={s.item_id}><td dir="ltr">{s.item_code}</td><td>{s.item_name_fa}</td><td>{formatNumber(s.current_qty)} {s.unit}</td><td>{formatNumber(s.reserved_qty)}</td><td>{formatNumber(s.available_for_sale_qty)}</td><td>{formatNumber(s.min_stock_threshold)}</td><td>{s.is_low_stock ? 'کمبود' : 'قابل فروش'}</td></tr>)}</tbody></table></div>}</section>;
 }
 
-function TemplateSection({ templates, steps, busy, onUpdateTemplate, onUpdateStep, onCreateStep }) {
+function TemplateSection({ templates, steps, busy, onUpdateTemplate, onUpdateStep, onCreateStep, onCreateTemplate }) {
   const activeTemplates = templates.filter((t) => t.is_active !== false);
   const [selectedTemplateId, setSelectedTemplateId] = useState(activeTemplates[0]?.id || templates[0]?.id || '');
   const selected = templates.find((t) => t.id === selectedTemplateId) || templates[0];
@@ -417,6 +418,7 @@ function TemplateSection({ templates, steps, busy, onUpdateTemplate, onUpdateSte
     .sort((a, b) => Number(a.stage_order || 0) - Number(b.stage_order || 0)), [steps, selected?.id]);
   const [draftRows, setDraftRows] = useState({});
   const [newStep, setNewStep] = useState({ stage_key: '', stage_name_fa: '', stage_order: 1, responsible_role: '' });
+  const [newTemplate, setNewTemplate] = useState({ nameFa: '', salesPath: 'all', stageCount: 5 });
 
   if (!selected) return <section className="orders-card"><CardTitle icon={Settings} title="قالب‌های مراحل سفارش" /><Empty text="قالبی برای مراحل سفارش ثبت نشده است." /></section>;
 
@@ -457,9 +459,26 @@ function TemplateSection({ templates, steps, busy, onUpdateTemplate, onUpdateSte
     setNewStep({ stage_key: '', stage_name_fa: '', stage_order: selectedSteps.length + 2, responsible_role: '' });
   }
 
+  function addTemplate(e) {
+    e.preventDefault();
+    if (!newTemplate.nameFa.trim()) return;
+    onCreateTemplate({
+      nameFa: newTemplate.nameFa,
+      salesPath: newTemplate.salesPath,
+      stageCount: Number(newTemplate.stageCount || 5),
+    });
+    setNewTemplate({ nameFa: '', salesPath: 'all', stageCount: 5 });
+  }
+
   return <section className="orders-card configurable-stages">
     <CardTitle icon={Settings} title="قالب‌ها و مراحل قابل تنظیم سفارش" />
     <p className="muted">هر قالبی که اینجا فعال باشد، در فرم «ثبت سفارش» در قسمت «قالب مراحل» قابل انتخاب است. ترتیب، نام مرحله، مسئول و فعال/غیرفعال بودن مراحل از همین بخش تغییر می‌کند.</p>
+    <form className="new-template-form" onSubmit={addTemplate}>
+      <input value={newTemplate.nameFa} onChange={(e) => setNewTemplate({ ...newTemplate, nameFa: e.target.value })} placeholder="نام قالب جدید فروشنده، مثلاً سفارش ویژه ۸ مرحله‌ای" />
+      <select value={newTemplate.salesPath} onChange={(e) => setNewTemplate({ ...newTemplate, salesPath: e.target.value })}><option value="all">همه مسیرها</option><option value="trading">بازرگانی</option><option value="rnd">R&D</option><option value="production">تولید مستقیم</option></select>
+      <select value={newTemplate.stageCount} onChange={(e) => setNewTemplate({ ...newTemplate, stageCount: Number(e.target.value) })}>{Array.from({ length: 9 }).map((_, i) => <option key={i + 4} value={i + 4}>{i + 4} مرحله</option>)}</select>
+      <button disabled={busy} type="submit">＋ ساخت قالب</button>
+    </form>
     <div className="template-settings-grid">
       <aside className="template-list-panel">
         <h3>قالب مراحل</h3>
