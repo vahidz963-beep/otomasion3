@@ -143,15 +143,15 @@ export default function OrdersModule({ lang = 'fa' }) {
   }
 
   function exportCrm(kind = 'excel') {
-    const headers = ['نام', 'نوع', 'تلفن', 'ایمیل', 'روش ارتباط', 'امتیاز', 'آخرین تماس', 'پیگیری بعدی', 'تعداد سفارش', 'فروش کل'];
-    const rows = data.customers.map((c) => [c.company_name, CRM_STATUS_LABELS[c.crm_status] || c.crm_status, c.contact_phone, c.contact_email, CHANNEL_LABELS[c.preferred_contact_channel] || c.preferred_contact_channel, c.lead_score, formatDate(c.last_contacted_at), formatDate(c.next_follow_up_at), c.total_orders, formatMoney(c.total_sales_amount)]);
+    const headers = ['نام', 'نوع', 'تلفن', 'امتیاز', 'تعداد سفارش', 'فروش کل'];
+    const rows = data.customers.map((c) => [c.company_name, CRM_STATUS_LABELS[c.crm_status] || c.crm_status, c.contact_phone, c.lead_score, c.total_orders, formatMoney(c.total_sales_amount)]);
     if (kind === 'excel') downloadExcelHtml('crm-customers.xls', headers, rows, 'گزارش CRM مشتریان');
     else downloadCsv('crm-customers.csv', [headers, ...rows]);
   }
 
   function printCrm() {
-    const rows = data.customers.map((c) => `<tr><td>${safe(c.company_name)}</td><td>${CRM_STATUS_LABELS[c.crm_status] || c.crm_status || '—'}</td><td>${safe(c.contact_phone || '—')}</td><td>${safe(c.contact_email || '—')}</td><td>${CHANNEL_LABELS[c.preferred_contact_channel] || c.preferred_contact_channel || '—'}</td><td>${formatNumber(c.lead_score)}</td><td>${formatDate(c.next_follow_up_at)}</td><td>${formatMoney(c.total_sales_amount)}</td></tr>`).join('');
-    openPrintable('CRM مشتریان', `<h1>CRM مشتریان</h1><table><thead><tr><th>نام</th><th>نوع</th><th>تلفن</th><th>ایمیل</th><th>روش ارتباط</th><th>امتیاز</th><th>پیگیری بعدی</th><th>فروش کل</th></tr></thead><tbody>${rows}</tbody></table>`);
+    const rows = data.customers.map((c) => `<tr><td>${safe(c.company_name)}</td><td>${CRM_STATUS_LABELS[c.crm_status] || c.crm_status || '—'}</td><td>${safe(c.contact_phone || '—')}</td><td>${formatNumber(c.lead_score)}</td><td>${formatNumber(c.total_orders)}</td><td>${formatMoney(c.total_sales_amount)}</td></tr>`).join('');
+    openPrintable('CRM مشتریان', `<h1>CRM مشتریان</h1><table><thead><tr><th>نام</th><th>نوع</th><th>تلفن</th><th>امتیاز</th><th>تعداد سفارش</th><th>فروش کل</th></tr></thead><tbody>${rows}</tbody></table>`);
   }
 
   return (
@@ -188,7 +188,7 @@ export default function OrdersModule({ lang = 'fa' }) {
 
       {!data.loading && tab === 'overview' && <Overview kpis={kpis} followups={activeDueFollowups} orders={activeOrders} onOpenOrder={setSelectedOrderId} onNewFollowup={openFollowup} setTab={setTab} />}
       {!data.loading && tab === 'crm' && <CrmSection customers={data.customers} followups={activeDueFollowups} interactions={data.crmInteractions} opportunities={data.crmOpportunities} orders={activeOrders} busy={busy} onNewFollowup={openFollowup} onNewCustomer={() => openCustomerModal()} onQuickOrder={(customer) => openOrderModal({ customerId: customer.id })} onEditCustomer={(customer) => openCustomerModal(customer)} onDeactivateCustomer={(customer) => { if (window.confirm(`مشتری «${customer.company_name}» غیرفعال شود؟`)) runAction(() => deactivateCustomer(customer.id), 'مشتری غیرفعال شد.'); }} onMarkDone={(followup) => runAction(() => markCrmFollowupDone(followup.id), 'پیگیری انجام شد و از فهرست باز حذف شد.')} onExport={() => exportCrm('excel')} onPrint={printCrm} />}
-      {!data.loading && tab === 'flow' && <FlowSection orders={filteredOrders} templateSteps={data.templateSteps} details={details} selectedOrder={selectedOrder} busy={busy} onSelect={setSelectedOrderId} onSetStage={(stage) => selectedOrder && runAction(() => setOrderStage(selectedOrder.id, stage, 'تغییر مرحله از ماژول سفارش'), 'مرحله سفارش تغییر کرد.')} onProforma={(id) => runAction(() => createSalesProformaFromOrder(id), 'پیش‌فاکتور سفارش ساخته شد.')} onInvoice={(id) => runAction(() => createSalesInvoiceFromOrder(id), 'فاکتور سفارش ساخته شد.')} onReserve={(id) => runAction(() => reserveOrderInventory(id), 'موجودی سفارش رزرو شد.')} onReferral={(id, targetModule, targetRole, label) => runAction(() => createOrderReferral({ orderId: id, targetModule, targetRole, title: `ارجاع سفارش به ${label}`, priority: 2 }), `ارجاع به ${label} ثبت شد.`)} onCancelOrder={(id) => confirmCancelOrder(activeOrders.find((o) => o.id === id) || id)} />}
+      {!data.loading && tab === 'flow' && <FlowSection orders={filteredOrders} templateSteps={data.templateSteps} details={details} selectedOrder={selectedOrder} busy={busy} onSelect={setSelectedOrderId} onSetStage={(stage) => selectedOrder && runAction(() => setOrderStage(selectedOrder.id, stage, 'تغییر مرحله از ماژول سفارش'), 'مرحله سفارش تغییر کرد.')} onProforma={(id) => runAction(() => createSalesProformaFromOrder(id), 'پیش‌فاکتور سفارش ساخته شد.')} onInvoice={(id) => runAction(() => createSalesInvoiceFromOrder(id), 'فاکتور سفارش ساخته شد.')} onReserve={(id) => runAction(() => reserveOrderInventory(id), 'موجودی سفارش رزرو شد.')} onReferral={(id, targetModule, targetRole, label) => runAction(() => createOrderReferral({ orderId: id, targetModule, targetRole, title: `ارجاع سفارش به ${label}`, priority: 2 }), `ارجاع به ${label} ثبت شد.`)} onCancelOrder={(id) => confirmCancelOrder(activeOrders.find((o) => o.id === id) || id)} onCloseDetails={() => setSelectedOrderId(null)} />}
       {!data.loading && tab === 'list' && <ListSection orders={filteredOrders} query={query} setQuery={setQuery} pathFilter={pathFilter} setPathFilter={setPathFilter} deliveryFilter={deliveryFilter} setDeliveryFilter={setDeliveryFilter} onSelect={(id) => { setSelectedOrderId(id); setTab('flow'); }} onCancel={confirmCancelOrder} onExcel={() => exportOrders('excel')} onPrint={printOrders} />}
       {!data.loading && tab === 'stock' && <StockSection stock={data.stock} />}
       {!data.loading && tab === 'referrals' && <div className="orders-grid"><ReferralPanel sourceModule="orders" title="ارجاعات سفارش‌ها" defaultTarget="accounting" /></div>}
@@ -268,7 +268,7 @@ function CrmSection({ customers, followups, interactions, opportunities, orders,
             {Object.entries(CHANNEL_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
           </select>
         </div>
-        <div className="orders-table-wrap crm-table-wrap compact-crm-table"><table><thead><tr><th>نام</th><th>نوع</th><th>تلفن</th><th>ایمیل</th><th>روش ارتباط</th><th>امتیاز</th><th>پیگیری بعدی</th><th>فروش کل</th><th>عملیات</th></tr></thead><tbody>{filteredCustomers.map((c) => <tr key={c.id} className={selectedCustomer?.id === c.id ? 'selected-row' : ''}><td><button className="link-button" onClick={() => setSelectedCustomerId(c.id)}>{c.company_name}</button></td><td><Badge>{CRM_STATUS_LABELS[c.crm_status] || c.crm_status || '—'}</Badge></td><td dir="ltr">{c.contact_phone || '—'}</td><td dir="ltr">{c.contact_email || '—'}</td><td>{CHANNEL_LABELS[c.preferred_contact_channel] || c.preferred_contact_channel || '—'}</td><td>{formatNumber(c.lead_score)}</td><td>{formatDate(c.next_follow_up_at)}</td><td>{formatMoney(c.total_sales_amount)}</td><td><div className="row-actions crm-row-actions"><button onClick={() => setSelectedCustomerId(c.id)}><Eye size={14} /> پرونده</button><button onClick={() => onEditCustomer(c)}><Edit3 size={14} /> ویرایش</button><button onClick={() => onNewFollowup({ customerId: c.id })}><PhoneCall size={14} /> پیگیری</button><button onClick={() => onQuickOrder(c)}>سفارش</button><button className="danger" onClick={() => onDeactivateCustomer(c)}><Ban size={14} /> غیرفعال</button></div></td></tr>)}</tbody></table></div>
+        <div className="orders-table-wrap crm-table-wrap compact-crm-table"><table><thead><tr><th>نام</th><th>نوع</th><th>تلفن</th><th>امتیاز</th><th>سفارش</th><th>فروش کل</th><th>عملیات</th></tr></thead><tbody>{filteredCustomers.map((c) => <tr key={c.id} className={selectedCustomer?.id === c.id ? 'selected-row' : ''}><td><button className="link-button" onClick={() => setSelectedCustomerId(c.id)}>{c.company_name}</button></td><td><Badge>{CRM_STATUS_LABELS[c.crm_status] || c.crm_status || '—'}</Badge></td><td dir="ltr">{c.contact_phone || '—'}</td><td>{formatNumber(c.lead_score)}</td><td>{formatNumber(c.total_orders)}</td><td>{formatMoney(c.total_sales_amount)}</td><td><div className="row-actions crm-row-actions"><button onClick={() => setSelectedCustomerId(c.id)}><Eye size={14} /> پرونده</button><button onClick={() => onEditCustomer(c)}><Edit3 size={14} /> ویرایش</button><button onClick={() => onNewFollowup({ customerId: c.id })}><PhoneCall size={14} /> پیگیری</button><button onClick={() => onQuickOrder(c)}>سفارش</button><button className="danger" onClick={() => onDeactivateCustomer(c)}><Ban size={14} /> غیرفعال</button></div></td></tr>)}</tbody></table></div>
         {filteredCustomers.length === 0 && <Empty text="مشتری یا سرنخی با این فیلتر پیدا نشد." />}
       </section>
 
@@ -313,45 +313,68 @@ function Pipeline({ opportunities, customers }) {
   return <div className="crm-pipeline">{stages.map((s) => <div key={s.key} className="pipeline-stage"><span>{s.label}</span><b>{formatNumber(s.count)}</b><small>{formatMoney(s.amount)}</small></div>)}</div>;
 }
 
-function FlowSection({ orders, templateSteps = [], selectedOrder, details, busy, onSelect, onSetStage, onProforma, onInvoice, onReserve, onReferral, onCancelOrder }) {
-  return <div className="orders-grid two order-flow-workspace">
-    <section className="orders-card">
-      <CardTitle icon={ListChecks} title="مراحل خطی سفارش‌ها" />
-      {orders.length === 0 ? <Empty /> : <div className="flow-list">{orders.map((o) => {
-        const steps = stageStepsForOrder(o, templateSteps);
-        return <article key={o.id} className="flow-card html-flow-card compact-flow-card">
-          <div className="flowTop compact-flow-top">
-            <div>
-              <h3>{o.order_code} · {o.customer_name}</h3>
-              <small>{formatDate(o.registered_at)} · {PATH_LABELS[o.sales_path]} · {o.current_stage_name_fa}</small>
-            </div>
-            <Status status={o.delivery_status} />
+function FlowSection({ orders, templateSteps = [], selectedOrder, details, busy, onSelect, onCloseDetails, onSetStage, onProforma, onInvoice, onReserve, onReferral, onCancelOrder }) {
+  const [flowPath, setFlowPath] = useState('all');
+  const [flowStatus, setFlowStatus] = useState('all');
+  const flowOrders = useMemo(() => orders.filter((o) => (
+    (flowPath === 'all' || o.sales_path === flowPath)
+    && (flowStatus === 'all'
+      || (flowStatus === 'late' && o.delivery_status === 'late')
+      || (flowStatus === 'due_soon' && o.delivery_status === 'due_soon')
+      || (flowStatus === 'waitingFinance' && ['none', 'proforma'].includes(o.financial_status))
+      || (flowStatus === 'stockIssue' && o.stock_status !== 'available'))
+  )), [orders, flowPath, flowStatus]);
+
+  return <section className="orders-card flow-workspace-card">
+    <div className="flow-section-head">
+      <div>
+        <CardTitle icon={ListChecks} title="مراحل سفارش" />
+        <p className="muted">نمای خطی هر سفارش: مسیر، مرحله فعلی، درصد پیشرفت و زمان باقی‌مانده تا تحویل.</p>
+      </div>
+      <div className="filters flow-filters">
+        <select value={flowPath} onChange={(e) => setFlowPath(e.target.value)}><option value="all">همه مسیرها</option><option value="trading">بازرگانی</option><option value="rnd">R&D</option><option value="production">تولید مستقیم</option></select>
+        <select value={flowStatus} onChange={(e) => setFlowStatus(e.target.value)}><option value="all">همه وضعیت‌ها</option><option value="late">فقط عقب‌افتاده</option><option value="due_soon">تحویل نزدیک</option><option value="waitingFinance">در انتظار مالی</option><option value="stockIssue">نیاز به بررسی انبار</option></select>
+      </div>
+    </div>
+    {flowOrders.length === 0 ? <Empty /> : <div className="flow-list advanced-flow-list">{flowOrders.map((o) => {
+      const steps = stageStepsForOrder(o, templateSteps);
+      return <article key={o.id} className="flow-card advanced-flow-card">
+        <div className="flow-card-top">
+          <div className="flow-title-block">
+            <h3>{o.order_code} · {o.customer_name}</h3>
+            <small>{o.customer_name} · مسیر: {PATH_LABELS[o.sales_path]} · مرحله فعلی: {o.current_stage_name_fa}</small>
           </div>
-          <div className="bar"><span style={{ width: `${Number(o.progress_percent || 0)}%` }} /></div>
-          <div className="stage-stepper compact-stepper">
-            {steps.map((s, index) => <div key={`${o.id}-${s.stage_key}-${index}`} className={`stage-step ${s.state}`}>
-              <div className="stage-dot">{index + 1}</div>
-              <small>{s.stage_name_fa}</small>
-            </div>)}
+          <div className="flow-badges">
+            <span className={o.delivery_status === 'late' ? 'flow-badge red' : o.delivery_status === 'due_soon' ? 'flow-badge amber' : 'flow-badge'}>{daysText(o.days_to_delivery, o.delivery_status)}</span>
+            <span className={o.stock_status === 'available' ? 'flow-badge green' : 'flow-badge amber'}>انبار: {STOCK_LABELS[o.stock_status] || o.stock_status}</span>
+            <span className="flow-badge blue">{FINANCE_LABELS[o.financial_status] || o.financial_status}</span>
           </div>
-          <div className="flow-footer-row">
-            <button onClick={() => onSelect(o.id)}>جزئیات و عملیات</button>
-            <div className="flow-meta compact-flow-meta">
-              <b>{formatNumber(o.progress_percent || 0)}٪</b>
-              <span>{STOCK_LABELS[o.stock_status] || o.stock_status}</span>
-              <span>{FINANCE_LABELS[o.financial_status] || o.financial_status}</span>
-            </div>
-            <div className="daysBox miniDueBox">
-              <span>موعد</span>
-              <b>{daysText(o.days_to_delivery, o.delivery_status)}</b>
-              <small>{formatDate(o.expected_delivery_date)}</small>
-            </div>
+        </div>
+        <div className="advanced-progress"><span style={{ width: `${Number(o.progress_percent || 0)}%` }} /></div>
+        <div className="flow-progress-note">پیشرفت مرحله‌ای: {formatNumber(o.progress_percent || 0)}٪ · مرحله فعلی: {o.current_stage_name_fa}</div>
+        <div className="stage-stepper advanced-stepper">
+          {steps.map((s, index) => <div key={`${o.id}-${s.stage_key}-${index}`} className={`stage-step ${s.state}`}>
+            <div className="stage-dot">{s.state === 'done' ? '✓' : index + 1}</div>
+            <small>{s.stage_name_fa}</small>
+          </div>)}
+        </div>
+        <div className="advanced-flow-footer">
+          <button onClick={() => onSelect(o.id)}>جزئیات و عملیات</button>
+          <div className="miniDueBox advancedDueBox">
+            <span>{daysText(o.days_to_delivery, o.delivery_status)}</span>
+            <b>تا تحویل نهایی</b>
+            <small>{formatDate(o.expected_delivery_date)}</small>
           </div>
-        </article>;
-      })}</div>}
-    </section>
-    <OrderDetailPanel order={selectedOrder} details={details} busy={busy} onSetStage={onSetStage} onProforma={onProforma} onInvoice={onInvoice} onReserve={onReserve} onReferral={onReferral} onCancelOrder={onCancelOrder} />
-  </div>;
+        </div>
+      </article>;
+    })}</div>}
+
+    {selectedOrder && <div className="order-drawer-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onCloseDetails?.()}>
+      <aside className="order-detail-drawer-left">
+        <OrderDetailPanel order={selectedOrder} details={details} busy={busy} onClose={onCloseDetails} onSetStage={onSetStage} onProforma={onProforma} onInvoice={onInvoice} onReserve={onReserve} onReferral={onReferral} onCancelOrder={onCancelOrder} />
+      </aside>
+    </div>}
+  </section>;
 }
 
 function stageStepsForOrder(order, templateSteps) {
@@ -367,9 +390,9 @@ function stageStepsForOrder(order, templateSteps) {
 }
 
 
-function OrderDetailPanel({ order, details, busy, onSetStage, onProforma, onInvoice, onReserve, onReferral, onCancelOrder }) {
+function OrderDetailPanel({ order, details, busy, onClose, onSetStage, onProforma, onInvoice, onReserve, onReferral, onCancelOrder }) {
   if (!order) return <section className="orders-card"><div className="orders-empty">یک سفارش را انتخاب کنید.</div></section>;
-  return <section className="orders-card detail-card"><CardTitle icon={FileText} title={`جزئیات ${order.order_code}`} /><div className="detail-mini-grid"><Info label="مشتری" value={order.customer_name} /><Info label="مرحله" value={order.current_stage_name_fa} /><Info label="تاریخ ثبت" value={formatDate(order.registered_at)} /><Info label="پیشرفت" value={`${formatNumber(order.progress_percent || 0)}٪`} /><Info label="تحویل" value={daysText(order.days_to_delivery, order.delivery_status)} /><Info label="مالی" value={FINANCE_LABELS[order.financial_status] || order.financial_status} /><Info label="انبار" value={STOCK_LABELS[order.stock_status] || order.stock_status} /><Info label="مانده" value={formatMoney(order.balance_amount)} /></div><div className="detail-actions"><button disabled={busy} onClick={() => onProforma(order.id)}>پیش‌فاکتور</button><button disabled={busy} onClick={() => onInvoice(order.id)}>فاکتور</button><button disabled={busy} onClick={() => onReserve(order.id)}>رزرو انبار</button><button disabled={busy} onClick={() => onReferral(order.id, 'accounting', 'accountant', 'مالی')}>ارجاع مالی</button><button disabled={busy} onClick={() => onReferral(order.id, 'warehouse', 'warehouse', 'انبار')}>ارجاع انبار</button><button disabled={busy} onClick={() => onReferral(order.id, 'admin', 'admin', 'مدیر کل')}>ارجاع مدیر کل</button><button className="danger" disabled={busy || order.delivery_status === 'cancelled'} onClick={() => onCancelOrder(order.id)}>لغو سفارش</button></div><section className="detail-block"><h3>تغییر مرحله</h3>{details.stages.length === 0 ? <p className="muted">مرحله‌ای ثبت نشده است.</p> : <div className="stage-buttons">{details.stages.map((s) => <button key={s.id} disabled={busy || s.status === 'current' || order.delivery_status === 'cancelled'} className={s.status} onClick={() => onSetStage(s.stage_key)}>{s.stage_order}. {s.stage_name_fa}</button>)}</div>}</section><section className="detail-block"><h3>وضعیت موجودی اقلام</h3>{details.stock.length === 0 ? <p className="muted">قلم انباری ندارد.</p> : <div className="orders-table-wrap"><table><thead><tr><th>قلم</th><th>کد</th><th>درخواست</th><th>قابل فروش</th><th>وضعیت</th></tr></thead><tbody>{details.stock.map((s) => <tr key={s.order_item_id}><td>{s.item_name_fa}</td><td dir="ltr">{s.warehouse_item_code || '—'}</td><td>{formatNumber(s.requested_qty)}</td><td>{formatNumber(s.available_for_sale_qty)}</td><td>{s.stock_status}</td></tr>)}</tbody></table></div>}</section><section className="detail-block"><h3>تاریخچه</h3>{details.events.length === 0 ? <p className="muted">رویدادی ثبت نشده است.</p> : <div className="orders-timeline order-history-scroll">{details.events.map((e) => <article key={e.id}><strong>{e.title}</strong><small>{formatDateTime(e.created_at)} · {e.description || ''}</small></article>)}</div>}</section><ReferralPanel compact sourceModule="orders" relatedOrderId={order.id} title="ارجاعات همین سفارش" defaultTarget="accounting" /></section>;
+  return <section className="orders-card detail-card"><CardTitle icon={FileText} title={`جزئیات ${order.order_code}`} action={onClose ? <button onClick={onClose}>بستن ×</button> : null} /><div className="detail-mini-grid"><Info label="مشتری" value={order.customer_name} /><Info label="مرحله" value={order.current_stage_name_fa} /><Info label="تاریخ ثبت" value={formatDate(order.registered_at)} /><Info label="پیشرفت" value={`${formatNumber(order.progress_percent || 0)}٪`} /><Info label="تحویل" value={daysText(order.days_to_delivery, order.delivery_status)} /><Info label="مالی" value={FINANCE_LABELS[order.financial_status] || order.financial_status} /><Info label="انبار" value={STOCK_LABELS[order.stock_status] || order.stock_status} /><Info label="مانده" value={formatMoney(order.balance_amount)} /></div><div className="detail-actions"><button disabled={busy} onClick={() => onProforma(order.id)}>پیش‌فاکتور</button><button disabled={busy} onClick={() => onInvoice(order.id)}>فاکتور</button><button disabled={busy} onClick={() => onReserve(order.id)}>رزرو انبار</button><button disabled={busy} onClick={() => onReferral(order.id, 'accounting', 'accountant', 'مالی')}>ارجاع مالی</button><button disabled={busy} onClick={() => onReferral(order.id, 'warehouse', 'warehouse', 'انبار')}>ارجاع انبار</button><button disabled={busy} onClick={() => onReferral(order.id, 'admin', 'admin', 'مدیر کل')}>ارجاع مدیر کل</button><button className="danger" disabled={busy || order.delivery_status === 'cancelled'} onClick={() => onCancelOrder(order.id)}>لغو سفارش</button></div><section className="detail-block"><h3>تغییر مرحله</h3>{details.stages.length === 0 ? <p className="muted">مرحله‌ای ثبت نشده است.</p> : <div className="stage-buttons">{details.stages.map((s) => <button key={s.id} disabled={busy || s.status === 'current' || order.delivery_status === 'cancelled'} className={s.status} onClick={() => onSetStage(s.stage_key)}>{s.stage_order}. {s.stage_name_fa}</button>)}</div>}</section><section className="detail-block"><h3>وضعیت موجودی اقلام</h3>{details.stock.length === 0 ? <p className="muted">قلم انباری ندارد.</p> : <div className="orders-table-wrap"><table><thead><tr><th>قلم</th><th>کد</th><th>درخواست</th><th>قابل فروش</th><th>وضعیت</th></tr></thead><tbody>{details.stock.map((s) => <tr key={s.order_item_id}><td>{s.item_name_fa}</td><td dir="ltr">{s.warehouse_item_code || '—'}</td><td>{formatNumber(s.requested_qty)}</td><td>{formatNumber(s.available_for_sale_qty)}</td><td>{s.stock_status}</td></tr>)}</tbody></table></div>}</section><section className="detail-block"><h3>تاریخچه</h3>{details.events.length === 0 ? <p className="muted">رویدادی ثبت نشده است.</p> : <div className="orders-timeline order-history-scroll">{details.events.map((e) => <article key={e.id}><strong>{e.title}</strong><small>{formatDateTime(e.created_at)} · {e.description || ''}</small></article>)}</div>}</section><ReferralPanel compact sourceModule="orders" relatedOrderId={order.id} title="ارجاعات همین سفارش" defaultTarget="accounting" /></section>;
 }
 
 function ListSection({ orders, query, setQuery, pathFilter, setPathFilter, deliveryFilter, setDeliveryFilter, onSelect, onCancel, onExcel, onPrint }) {

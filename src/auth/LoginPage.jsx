@@ -6,7 +6,7 @@ import './LoginPage.css';
 
 const COPY = {
   fa: {
-    company: 'اتوماسیون آریامان',
+    company: 'اتوماسیون آریامن',
     subtitle: 'ورود کاربران',
     email: 'ایمیل',
     password: 'رمز عبور',
