@@ -164,10 +164,10 @@ export default function OrdersModule({ lang = 'fa' }) {
           <p>پیگیری سفارش از ثبت تا تحویل و تسویه، همراه با پرونده مشتری، پیگیری واقعی CRM، موجودی انبار و وضعیت مالی.</p>
         </div>
         <div className="orders-actions">
-          <button onClick={data.refetch}><RefreshCcw size={16} /> به‌روزرسانی</button>
-          <button onClick={() => openOrderModal()} className="primary">＋ سفارش جدید</button>
-          <button onClick={() => openFollowup()}>＋ پیگیری CRM</button>
-          <button onClick={() => openCustomerModal()}>＋ مشتری/سرنخ</button>
+          <button onClick={() => openOrderModal()} className="primary">۱. سفارش جدید ＋</button>
+          <button onClick={() => openFollowup()}>۲. پیگیری CRM ＋</button>
+          <button onClick={() => openCustomerModal()}>۳. مشتری/سرنخ ＋</button>
+          <button onClick={data.refetch}><RefreshCcw size={16} /> ۴. به‌روزرسانی</button>
           <button onClick={() => exportOrders('excel')}>خروجی Excel</button>
           <button onClick={printOrders}>چاپ/PDF</button>
         </div>
