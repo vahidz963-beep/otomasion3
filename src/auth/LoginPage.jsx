@@ -6,7 +6,7 @@ import './LoginPage.css';
 
 const COPY = {
   fa: {
-    company: 'سامانه اتوماسیون شرکت',
+    company: 'اتوماسیون آریامان',
     subtitle: 'ورود کاربران',
     email: 'ایمیل',
     password: 'رمز عبور',
@@ -17,7 +17,7 @@ const COPY = {
     resetSent: 'اگر ایمیل معتبر باشد، لینک بازیابی رمز ارسال می‌شود.',
   },
   en: {
-    company: 'Company Automation System',
+    company: 'Aryaman Automation System',
     subtitle: 'Sign in',
     email: 'Email',
     password: 'Password',

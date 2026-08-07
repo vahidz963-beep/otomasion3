@@ -11,6 +11,8 @@ const initialState = {
   templates: [],
   templateSteps: [],
   referrals: [],
+  crmInteractions: [],
+  crmOpportunities: [],
 };
 
 function firstError(results) {
@@ -23,7 +25,7 @@ export function useOrdersData() {
   const fetchData = useCallback(async () => {
     setState((s) => ({ ...s, loading: true, error: null }));
 
-    const [ordersRes, customersRes, followupsRes, stockRes, templatesRes, stepsRes, referralsRes] = await Promise.all([
+    const [ordersRes, customersRes, followupsRes, interactionsRes, opportunitiesRes, stockRes, templatesRes, stepsRes, referralsRes] = await Promise.all([
       supabase
         .from('v_order_lifecycle_overview')
         .select('id, order_code, customer_id, customer_name, contact_phone, customer_city, preferred_contact_channel, acquisition_source, sales_path, current_stage, current_stage_name_fa, workflow_template_id, workflow_template_name, total_stages, done_stages, progress_percent, registered_at, expected_delivery_date, days_to_delivery, delivery_status, stock_short_items, stock_unknown_items, stock_status, proforma_count, invoice_count, invoiced_amount, paid_amount, balance_amount, financial_status')
@@ -39,6 +41,16 @@ export function useOrdersData() {
         .select('id, customer_id, company_name, contact_phone, preferred_contact_channel, related_order_id, order_code, title, due_at, is_done, assigned_to, assigned_to_name, is_overdue')
         .order('due_at', { ascending: true })
         .limit(80),
+      supabase
+        .from('crm_interactions')
+        .select('id, customer_id, related_order_id, activity_type, contact_channel, title, description, activity_at, created_at, created_by')
+        .order('activity_at', { ascending: false })
+        .limit(100),
+      supabase
+        .from('crm_opportunities')
+        .select('id, customer_id, related_order_id, title, stage, estimated_amount, probability_percent, expected_close_date, assigned_to, source, lost_reason, created_at, updated_at')
+        .order('updated_at', { ascending: false })
+        .limit(100),
       supabase
         .from('v_sales_stock_overview')
         .select('item_id, item_code, item_name_fa, item_name_en, unit, category, current_qty, min_stock_threshold, reserved_qty, available_for_sale_qty, is_low_stock, last_synced_at')
@@ -63,10 +75,12 @@ export function useOrdersData() {
 
     setState({
       loading: false,
-      error: firstError([ordersRes, customersRes, followupsRes, stockRes, templatesRes, stepsRes, referralsRes]),
+      error: firstError([ordersRes, customersRes, followupsRes, interactionsRes, opportunitiesRes, stockRes, templatesRes, stepsRes, referralsRes]),
       orders: ordersRes.data || [],
       customers: customersRes.data || [],
       dueFollowups: followupsRes.data || [],
+      crmInteractions: interactionsRes.data || [],
+      crmOpportunities: opportunitiesRes.data || [],
       stock: stockRes.data || [],
       templates: templatesRes.data || [],
       templateSteps: stepsRes.data || [],

@@ -10,6 +10,11 @@ async function currentUserId() {
   return data.user.id;
 }
 
+function isMissingRpc(error) {
+  const msg = String(error?.message || '').toLowerCase();
+  return error?.code === 'PGRST202' || msg.includes('could not find the function') || msg.includes('does not exist');
+}
+
 export async function createOrUpdateCustomer(input) {
   const userId = await currentUserId();
   const payload = {
@@ -150,22 +155,84 @@ export async function logCrmInteraction({ customerId, title, description, activi
   return res.data;
 }
 
-export async function createCrmFollowup({ customerId, orderId, title, dueAt, assignedTo }) {
+export async function createCrmFollowup({
+  customerId,
+  orderId,
+  title,
+  dueAt,
+  description,
+  activityType = 'follow_up',
+  contactChannel,
+  assignedTo,
+}) {
+  if (!customerId) throw new Error('برای ثبت پیگیری CRM باید مشتری انتخاب شود.');
+  if (!title?.trim()) throw new Error('عنوان پیگیری CRM الزامی است.');
+  if (!dueAt) throw new Error('تاریخ/زمان پیگیری CRM الزامی است.');
+
   const userId = await currentUserId();
-  const res = await supabase.from('crm_followups').insert({
+
+  const rpcRes = await supabase.rpc('fn_create_crm_followup', {
+    p_customer_id: customerId,
+    p_title: title.trim(),
+    p_due_at: dueAt,
+    p_description: description || null,
+    p_activity_type: activityType || 'follow_up',
+    p_contact_channel: contactChannel || null,
+    p_related_order_id: orderId || null,
+    p_assigned_to: assignedTo || userId,
+  });
+
+  if (!rpcRes.error) return rpcRes.data;
+  if (!isMissingRpc(rpcRes.error)) assertNoError(rpcRes, 'خطا در ثبت پیگیری CRM');
+
+  // Fallback for databases that have not run migration 018 yet.
+  const insertRes = await supabase.from('crm_followups').insert({
     customer_id: customerId,
     related_order_id: orderId || null,
-    title,
+    title: title.trim(),
     due_at: dueAt,
     assigned_to: assignedTo || userId,
     created_by: userId,
   }).select('id').single();
-  assertNoError(res, 'خطا در ثبت پیگیری CRM');
-  return res.data;
+  assertNoError(insertRes, 'خطا در ثبت پیگیری CRM');
+
+  const customerPatch = {
+    next_follow_up_at: dueAt,
+    updated_at: new Date().toISOString(),
+  };
+  if (contactChannel) customerPatch.preferred_contact_channel = contactChannel;
+  await supabase.from('customers').update(customerPatch).eq('id', customerId);
+
+  try {
+    await logCrmInteraction({
+      customerId,
+      orderId,
+      title: `برنامه‌ریزی پیگیری: ${title.trim()}`,
+      description,
+      activityType,
+      contactChannel,
+    });
+  } catch (_) {
+    // The follow-up itself is already saved; do not fail the UI just because interaction logging failed.
+  }
+
+  return insertRes.data;
 }
 
-export async function markCrmFollowupDone(followupId) {
-  const res = await supabase.from('crm_followups').update({ is_done: true, done_at: new Date().toISOString() }).eq('id', followupId).select('id').single();
+export async function markCrmFollowupDone(followupId, note = '') {
+  const rpcRes = await supabase.rpc('fn_complete_crm_followup', {
+    p_followup_id: followupId,
+    p_note: note || null,
+  });
+  if (!rpcRes.error) return rpcRes.data;
+  if (!isMissingRpc(rpcRes.error)) assertNoError(rpcRes, 'خطا در بستن پیگیری');
+
+  const res = await supabase
+    .from('crm_followups')
+    .update({ is_done: true, done_at: new Date().toISOString() })
+    .eq('id', followupId)
+    .select('id')
+    .single();
   assertNoError(res, 'خطا در بستن پیگیری');
   return res.data;
 }

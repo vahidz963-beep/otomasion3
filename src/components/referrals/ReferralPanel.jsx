@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link2, RefreshCw } from 'lucide-react';
 import { createReferral, fetchModuleReferrals, MODULE_LABELS_FA, updateReferralStatus } from '../../lib/referralApi';
+import { formatJalaliDate } from '../../lib/formatters';
 import './ReferralPanel.css';
 
 const STATUS_LABELS = {
@@ -100,7 +101,7 @@ export default function ReferralPanel({
           <p>{activeCount} ارجاع فعال</p>
         </div>
         <div className="referral-actions">
-          <button type="button" onClick={load}><RefreshCw size={14} /> بروزرسانی</button>
+          <button type="button" onClick={load}><RefreshCw size={14} /> به‌روزرسانی</button>
           <button type="button" className="primary" onClick={() => setShowForm((v) => !v)}>＋ ارجاع جدید</button>
         </div>
       </header>
@@ -118,7 +119,7 @@ export default function ReferralPanel({
         <form className="referral-form" onSubmit={submit}>
           <label><span>مقصد</span><select value={form.targetModule} onChange={(e) => setForm({ ...form, targetModule: e.target.value })}>{Object.entries(MODULE_LABELS_FA).filter(([k]) => k !== sourceModule).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label>
           <label><span>اولویت</span><select value={form.priority} onChange={(e) => setForm({ ...form, priority: Number(e.target.value) })}><option value={1}>فوری</option><option value={2}>عادی</option><option value={3}>کم‌اهمیت</option></select></label>
-          <label><span>موعد</span><input type="date" value={form.dueDate} onChange={(e) => setForm({ ...form, dueDate: e.target.value })} /></label>
+          <label><span>موعد</span><input type="date" value={form.dueDate} onChange={(e) => setForm({ ...form, dueDate: e.target.value })} /><small className="date-hint">شمسی: {formatJalaliDate(form.dueDate)}</small></label>
           <label className="wide"><span>عنوان</span><input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} required /></label>
           <label className="wide"><span>شرح</span><textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></label>
           <div className="wide referral-submit"><button disabled={busy} type="submit">ثبت ارجاع</button></div>
@@ -134,7 +135,7 @@ export default function ReferralPanel({
                 <strong>{row.title_fa}</strong>
                 <small>
                   {row.referral_number || '—'} · {MODULE_LABELS_FA[row.source_module] || row.source_module} ← {MODULE_LABELS_FA[row.target_module] || row.target_module} · {PRIORITY_LABELS[row.priority] || row.priority}
-                  {row.due_date ? ` · موعد ${new Date(row.due_date).toLocaleDateString('fa-IR')}` : ''}
+                  {row.due_date ? ` · موعد ${formatJalaliDate(row.due_date)}` : ''}
                 </small>
                 {row.response_fa && <p>{row.response_fa}</p>}
               </div>

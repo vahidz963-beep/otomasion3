@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { supabase, roleLabel } from '../../lib/supabaseClient';
+import { formatJalaliDateTime } from '../../lib/formatters';
 import './AdminUserPanel.css';
 
 const COPY = {
@@ -52,7 +53,7 @@ export default function AuditLogPanel({ lang = 'fa' }) {
             <tbody>
               {rows.map((r) => (
                 <tr key={r.id}>
-                  <td>{new Date(r.created_at).toLocaleString(lang === 'fa' ? 'fa-IR' : 'en-US')}</td>
+                  <td>{lang === 'fa' ? formatJalaliDateTime(r.created_at) : new Date(r.created_at).toLocaleString('en-US')}</td>
                   <td>{t.actions[r.action] || r.action} — {names[r.target_user_id] || r.target_user_id}</td>
                   <td>{fmtValue(r, r.old_value)}</td>
                   <td>{fmtValue(r, r.new_value)}</td>
