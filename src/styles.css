@@ -80,3 +80,5 @@ button:disabled { cursor: not-allowed; opacity: 0.65; }
   .app-nav { overflow-x: auto; align-items: stretch; }
   .nav-profile { margin-inline-start: 0; }
 }
+
+.jalali-date-input{direction:ltr!important;text-align:left!important}.jalali-date-input.invalid{border-color:#a5453f!important;box-shadow:0 0 0 3px rgba(165,69,63,.12)!important}.date-hint{display:block;color:#889199;font-size:11px;margin-top:5px}.date-hint.invalid{color:#a5453f;font-weight:700}

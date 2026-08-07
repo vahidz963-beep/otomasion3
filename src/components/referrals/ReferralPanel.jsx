@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link2, RefreshCw } from 'lucide-react';
 import { createReferral, fetchModuleReferrals, MODULE_LABELS_FA, updateReferralStatus } from '../../lib/referralApi';
 import { formatJalaliDate } from '../../lib/formatters';
+import JalaliDateInput from '../JalaliDateInput';
 import './ReferralPanel.css';
 
 const STATUS_LABELS = {
@@ -119,7 +120,7 @@ export default function ReferralPanel({
         <form className="referral-form" onSubmit={submit}>
           <label><span>مقصد</span><select value={form.targetModule} onChange={(e) => setForm({ ...form, targetModule: e.target.value })}>{Object.entries(MODULE_LABELS_FA).filter(([k]) => k !== sourceModule).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label>
           <label><span>اولویت</span><select value={form.priority} onChange={(e) => setForm({ ...form, priority: Number(e.target.value) })}><option value={1}>فوری</option><option value={2}>عادی</option><option value={3}>کم‌اهمیت</option></select></label>
-          <label><span>موعد</span><input type="date" value={form.dueDate} onChange={(e) => setForm({ ...form, dueDate: e.target.value })} /><small className="date-hint">شمسی: {formatJalaliDate(form.dueDate)}</small></label>
+          <label><span>موعد شمسی</span><JalaliDateInput value={form.dueDate} onChange={(value) => setForm({ ...form, dueDate: value })} /></label>
           <label className="wide"><span>عنوان</span><input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} required /></label>
           <label className="wide"><span>شرح</span><textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></label>
           <div className="wide referral-submit"><button disabled={busy} type="submit">ثبت ارجاع</button></div>

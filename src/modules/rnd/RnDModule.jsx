@@ -4,6 +4,7 @@ import {
   LayoutGrid, List as ListIcon, Cpu, Factory, CheckCircle2,
   ChevronDown, Paperclip, DollarSign, Globe, Search, Upload,
 } from "lucide-react";
+import JalaliDateInput from "../../components/JalaliDateInput";
 
 /* ------------------------------------------------------------------ */
 /*  Tokens                                                             */
@@ -680,6 +681,15 @@ function FormModal({ onClose, onSubmit, isFa, T }) {
 }
 
 function LabeledInput({ label, onChange, type = "text" }) {
+  const [dateValue, setDateValue] = useState("");
+  if (type === "date") {
+    return (
+      <div>
+        <label style={labelStyle}>{label}</label>
+        <JalaliDateInput value={dateValue} onChange={(value) => { setDateValue(value); onChange(value); }} style={selectStyle} />
+      </div>
+    );
+  }
   return (
     <div>
       <label style={labelStyle}>{label}</label>

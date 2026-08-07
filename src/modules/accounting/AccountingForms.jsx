@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import JalaliDateInput from '../../components/JalaliDateInput';
 
 const DOC_TYPES = [
   ['sales_proforma', 'پیش‌فاکتور فروش'],
@@ -97,8 +98,8 @@ export function FinanceDocumentForm({ parties, orders = [], stock = [], initialD
       <Field label="نوع سند"><select value={document.document_type} onChange={(e) => setDocument({ ...document, document_type: e.target.value })}>{DOC_TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></Field>
       <Field label="شخص"><select value={document.party_id} onChange={(e) => setDocument({ ...document, party_id: e.target.value })}><option value="">بدون شخص</option>{parties.map((p) => <option key={p.party_id} value={p.party_id}>{p.display_name}</option>)}</select></Field>
       <Field label="سفارش مرتبط"><select value={document.related_order_id} onChange={(e) => setDocument({ ...document, related_order_id: e.target.value })}><option value="">بدون سفارش</option>{orders.map((o) => <option key={o.id} value={o.id}>{o.order_code} · {o.customer_name || '—'}</option>)}</select></Field>
-      <Field label="تاریخ صدور"><input type="date" value={document.issue_date} onChange={(e) => setDocument({ ...document, issue_date: e.target.value })} /></Field>
-      <Field label="سررسید"><input type="date" value={document.due_date} onChange={(e) => setDocument({ ...document, due_date: e.target.value })} /></Field>
+      <Field label="تاریخ صدور شمسی"><JalaliDateInput value={document.issue_date} onChange={(value) => setDocument({ ...document, issue_date: value })} /></Field>
+      <Field label="سررسید شمسی"><JalaliDateInput value={document.due_date} onChange={(value) => setDocument({ ...document, due_date: value })} /></Field>
       <Field label="نوع رسمی/غیررسمی"><select value={document.is_official ? 'true' : 'false'} onChange={(e) => setDocument({ ...document, is_official: e.target.value === 'true' })}><option value="true">رسمی</option><option value="false">غیررسمی</option></select></Field>
       <Field label="شرح" full><textarea value={document.description} onChange={(e) => setDocument({ ...document, description: e.target.value })} /></Field>
     </div>
@@ -170,7 +171,7 @@ export function FinancePaymentForm({ parties, documents, accounts, initialDocume
       <Field label="حساب"><select value={payment.bank_account_id} onChange={(e) => setPayment({ ...payment, bank_account_id: e.target.value })}><option value="">بدون حساب</option>{accounts.map((a) => <option key={a.id} value={a.id}>{a.account_name} - {a.bank_name}</option>)}</select></Field>
       <Field label="شخص"><select value={payment.party_id} onChange={(e) => setPayment({ ...payment, party_id: e.target.value })}><option value="">بدون شخص</option>{parties.map((p) => <option key={p.party_id} value={p.party_id}>{p.display_name}</option>)}</select></Field>
       <Field label="فاکتور مرتبط"><select value={payment.document_id} onChange={(e) => selectDocument(e.target.value)}><option value="">بدون فاکتور</option>{payableDocs.map((d) => <option key={d.id} value={d.id}>{d.doc_number} · {d.party_name} · مانده {Number(d.balance_amount).toLocaleString('fa-IR')}</option>)}</select></Field>
-      <Field label="تاریخ"><input type="date" value={payment.payment_date} onChange={(e) => setPayment({ ...payment, payment_date: e.target.value })} /></Field>
+      <Field label="تاریخ شمسی"><JalaliDateInput value={payment.payment_date} onChange={(value) => setPayment({ ...payment, payment_date: value })} /></Field>
       <Field label="مبلغ ریال"><input type="number" value={payment.amount} onChange={(e) => setPayment({ ...payment, amount: e.target.value })} required /></Field>
       <Field label="شرح" full><textarea value={payment.description} onChange={(e) => setPayment({ ...payment, description: e.target.value })} /></Field>
     </div>
@@ -189,7 +190,7 @@ export function FinanceCheckForm({ parties, onCancel, onSubmit, busy }) {
     <Field label="شخص"><select value={check.party_id} onChange={(e) => setCheck({ ...check, party_id: e.target.value })}><option value="">بدون شخص</option>{parties.map((p) => <option key={p.party_id} value={p.party_id}>{p.display_name}</option>)}</select></Field>
     <Field label="شماره چک"><input value={check.check_number} onChange={(e) => setCheck({ ...check, check_number: e.target.value })} required /></Field>
     <Field label="بانک"><input value={check.bank_name} onChange={(e) => setCheck({ ...check, bank_name: e.target.value })} /></Field>
-    <Field label="سررسید"><input type="date" value={check.due_date} onChange={(e) => setCheck({ ...check, due_date: e.target.value })} /></Field>
+    <Field label="سررسید شمسی"><JalaliDateInput value={check.due_date} onChange={(value) => setCheck({ ...check, due_date: value })} /></Field>
     <Field label="مبلغ ریال"><input type="number" value={check.amount} onChange={(e) => setCheck({ ...check, amount: e.target.value })} required /></Field>
     <Field label="شرح" full><textarea value={check.description} onChange={(e) => setCheck({ ...check, description: e.target.value })} /></Field>
   </div><HiddenSubmit busy={busy} onCancel={onCancel} /></form>;
@@ -214,7 +215,7 @@ export function FinanceReferralForm({ documents, initialDocumentId, onCancel, on
     <Field label="مبدأ"><select value={form.source_module} onChange={(e) => setForm({ ...form, source_module: e.target.value })}><option value="accounting">مالی</option><option value="sales">فروش</option><option value="warehouse">انبار</option><option value="production">تولید</option><option value="rnd">R&D</option></select></Field>
     <Field label="مقصد"><select value={form.target_module} onChange={(e) => setForm({ ...form, target_module: e.target.value })}><option value="sales">فروش</option><option value="accounting">مالی</option><option value="warehouse">انبار</option><option value="production">تولید</option><option value="admin">مدیریت</option></select></Field>
     <Field label="اولویت"><select value={form.priority} onChange={(e) => setForm({ ...form, priority: e.target.value })}><option value={1}>فوری</option><option value={2}>عادی</option><option value={3}>کم‌اهمیت</option></select></Field>
-    <Field label="موعد"><input type="date" value={form.due_date} onChange={(e) => setForm({ ...form, due_date: e.target.value })} /></Field>
+    <Field label="موعد شمسی"><JalaliDateInput value={form.due_date} onChange={(value) => setForm({ ...form, due_date: value })} /></Field>
     <Field label="سند مرتبط"><select value={form.related_document_id} onChange={(e) => setForm({ ...form, related_document_id: e.target.value })}><option value="">بدون سند</option>{documents.map((d) => <option key={d.id} value={d.id}>{d.doc_number} · {d.party_name || '—'}</option>)}</select></Field>
     <Field label="عنوان" full><input value={form.title_fa} onChange={(e) => setForm({ ...form, title_fa: e.target.value })} required /></Field>
   </div><HiddenSubmit busy={busy} onCancel={onCancel} /></form>;
