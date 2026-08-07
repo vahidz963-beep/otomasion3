@@ -15,7 +15,7 @@ button:disabled { cursor: not-allowed; opacity: 0.65; }
   display: flex;
   gap: 8px;
   padding: 12px;
-  background: #14181c;
+  background: #10243d;
   align-items: center;
   position: sticky;
   top: 0;
@@ -37,7 +37,7 @@ button:disabled { cursor: not-allowed; opacity: 0.65; }
   height: 32px;
   object-fit: contain;
   border-radius: 8px;
-  background: #05070a;
+  background: #ffffff;
   padding: 2px;
 }
 
@@ -53,7 +53,7 @@ button:disabled { cursor: not-allowed; opacity: 0.65; }
   font-size: 13px;
 }
 
-.nav-button.active { background: linear-gradient(135deg, #a8672e, #f6c915); color: #14181c; font-weight: 800; }
+.nav-button.active { background: linear-gradient(135deg, #a8672e, #f6c915); color: #10243d; font-weight: 800; }
 
 .nav-profile {
   margin-inline-start: auto;
