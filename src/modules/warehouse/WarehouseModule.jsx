@@ -71,7 +71,7 @@ export default function WarehouseModule() {
   function exportStock(kind = 'csv') {
     const headers = ['کد', 'نام', 'گروه', 'واحد', 'مکان', 'قیمت مرجع', 'جمع ورود', 'جمع خروج', 'موجودی', 'نقطه سفارش', 'ارزش', 'وضعیت'];
     const rows = filteredStock.map((i) => [i.item_code, i.item_name_fa, i.item_group || i.category, i.unit, i.location, i.unit_price_estimate, i.total_in, i.total_out, i.current_qty, i.reorder_point || i.min_stock_threshold, i.stock_value_estimate, i.is_low_stock ? 'کم موجود' : 'موجود']);
-    if (kind === 'excel') downloadExcelHtml('warehouse-stock.xls', headers, rows);
+    if (kind === 'excel') downloadExcelHtml('warehouse-stock.xls', headers, rows, 'گزارش موجودی انبار');
     else downloadCsv('warehouse-stock.csv', [headers, ...rows]);
   }
   function printStock() {

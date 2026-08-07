@@ -23,15 +23,13 @@ export async function createOrUpdateCustomer(input) {
     contact_phone: input.contact_phone || null,
     contact_email: input.contact_email || null,
     city: input.city || null,
-    address: input.address || null,
     preferred_contact_channel: input.preferred_contact_channel || null,
     acquisition_source: input.acquisition_source || null,
     crm_status: input.crm_status || 'lead',
     lead_score: Number(input.lead_score || 50),
     next_follow_up_at: input.next_follow_up_at || null,
-    created_by: userId,
-    assigned_sales_id: userId,
   };
+  if (Object.prototype.hasOwnProperty.call(input, 'address')) payload.address = input.address || null;
 
   if (input.id) {
     const res = await supabase.from('customers').update(payload).eq('id', input.id).select('id').single();
@@ -39,7 +37,7 @@ export async function createOrUpdateCustomer(input) {
     return res.data.id;
   }
 
-  const res = await supabase.from('customers').insert(payload).select('id').single();
+  const res = await supabase.from('customers').insert({ ...payload, created_by: userId, assigned_sales_id: userId }).select('id').single();
   assertNoError(res, 'خطا در ثبت مشتری');
   return res.data.id;
 }
@@ -255,6 +253,17 @@ export async function createWorkflowStep(payload) {
   return res.data;
 }
 
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
+}
+
+function brandedReportShell(title, body) {
+  const css = `
+    @page{size:A4;margin:12mm}*{box-sizing:border-box}body{margin:0;background:#f3f5f6;color:#1b2126;direction:rtl;font-family:Vazirmatn,Tahoma,Arial,sans-serif;padding:22px}.report{background:#fff;border-radius:18px;overflow:hidden;border:1px solid #e7eaec;box-shadow:0 8px 28px rgba(16,36,61,.10)}.brand-head{background:linear-gradient(135deg,#10243d,#1b365d);color:#fff;padding:18px 22px;display:flex;align-items:center;justify-content:space-between;gap:16px}.brand-title{display:flex;align-items:center;gap:12px}.brand-title img{width:54px;height:54px;object-fit:contain;border-radius:14px;background:#fff;padding:5px}.brand-title h1{margin:0;font-size:20px}.brand-title span{display:block;color:#f8d348;font-size:12px;margin-top:4px}.report-date{color:#d8dee3;font-size:12px}.report-body{padding:20px}.report-body h1{margin:0 0 14px;color:#10243d;font-size:20px}.meta{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin:14px 0}.meta div{border:1px solid #edf0f2;background:#f8fafb;border-radius:12px;padding:10px}table{width:100%;border-collapse:separate;border-spacing:0;margin-top:12px;overflow:hidden;border:1px solid #e7eaec;border-radius:14px}th{background:#10243d;color:#fff;font-weight:800}td,th{padding:10px;border-bottom:1px solid #edf0f2;text-align:right;font-size:12px}tr:nth-child(even) td{background:#fafafa}.money{direction:ltr}.footer{margin-top:38px;display:flex;justify-content:space-between;gap:16px}.footer span{flex:1;border-top:1px solid #ccd3da;padding-top:10px;text-align:center;color:#5b6670}.print-btn{margin:0 0 12px;background:#a8672e;color:#fff;border:0;border-radius:12px;padding:10px 14px;font-weight:800;cursor:pointer}@media print{body{background:#fff;padding:0}.print-btn{display:none}.report{box-shadow:none;border-radius:0}}
+  `;
+  return `<!doctype html><html dir="rtl" lang="fa"><head><meta charset="utf-8"><title>${escapeHtml(title)}</title><style>${css}</style></head><body><button class="print-btn" onclick="window.print()">چاپ / ذخیره PDF</button><main class="report"><header class="brand-head"><div class="brand-title"><img src="/assets/aryaman-logo.png" alt="Aryaman"><div><h1>${escapeHtml(title)}</h1><span>اتوماسیون آریامان</span></div></div><div class="report-date">گزارش رسمی سیستم</div></header><section class="report-body">${body}</section></main></body></html>`;
+}
+
 export function downloadCsv(filename, rows) {
   const csv = `\ufeff${rows.map((row) => row.map((cell) => `"${String(cell ?? '').replaceAll('"', '""')}"`).join(',')).join('\n')}`;
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
@@ -266,8 +275,9 @@ export function downloadCsv(filename, rows) {
   URL.revokeObjectURL(url);
 }
 
-export function downloadExcelHtml(filename, headers, rows) {
-  const html = `<!doctype html><html dir="rtl"><head><meta charset="utf-8"></head><body><table><thead><tr>${headers.map((h) => `<th>${h}</th>`).join('')}</tr></thead><tbody>${rows.map((r) => `<tr>${r.map((c) => `<td>${c ?? ''}</td>`).join('')}</tr>`).join('')}</tbody></table></body></html>`;
+export function downloadExcelHtml(filename, headers, rows, title = 'گزارش') {
+  const table = `<table><thead><tr>${headers.map((h) => `<th>${escapeHtml(h)}</th>`).join('')}</tr></thead><tbody>${rows.map((r) => `<tr>${r.map((c) => `<td>${escapeHtml(c)}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+  const html = brandedReportShell(title, `<h1>${escapeHtml(title)}</h1>${table}`);
   const blob = new Blob([`\ufeff${html}`], { type: 'application/vnd.ms-excel;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -278,8 +288,7 @@ export function downloadExcelHtml(filename, headers, rows) {
 }
 
 export function openPrintable(title, html) {
-  const css = `body{font-family:Tahoma,sans-serif;padding:24px;direction:rtl;color:#111}table{width:100%;border-collapse:collapse}td,th{border:1px solid #ddd;padding:8px;text-align:right;font-size:12px}@media print{button{display:none}}`;
-  const doc = `<!doctype html><html dir="rtl"><head><meta charset="utf-8"><title>${title}</title><style>${css}</style></head><body><button onclick="print()">چاپ / ذخیره PDF</button>${html}</body></html>`;
+  const doc = brandedReportShell(title, html);
   const blob = new Blob([doc], { type: 'text/html;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const win = window.open(url, '_blank');

@@ -32,6 +32,7 @@ import {
   createIoDocument,
   createSalesReturnFromInvoice,
   downloadCsv,
+  downloadExcelHtml,
   openPrintableDocument,
   postFinanceDocument,
   reopenFiscalPeriod,
@@ -87,7 +88,7 @@ const COPY = {
     debitOnly: 'فقط بدهکار',
     creditOnly: 'فقط بستانکار',
     printPdf: 'چاپ / PDF',
-    exportCsv: 'خروجی CSV',
+    exportCsv: 'خروجی Excel',
   },
   en: {
     title: 'Accounting & Finance',
@@ -98,7 +99,7 @@ const COPY = {
     error: 'Finance data failed to load. Finance migrations may not be applied yet.',
     noData: 'No data yet.',
     receivable: 'Receivables', payable: 'Payables', overdue: 'Overdue', monthSales: 'Month sales', monthCosts: 'Month costs', monthProfit: 'Month profit', openReferrals: 'Open referrals',
-    selectParty: 'Select a party to view statement.', official: 'Official account', unofficial: 'Unofficial account', all: 'All', debtors: 'Debtors', creditors: 'Creditors', settled: 'Settled', debitOnly: 'Debit only', creditOnly: 'Credit only', printPdf: 'Print / PDF', exportCsv: 'Export CSV',
+    selectParty: 'Select a party to view statement.', official: 'Official account', unofficial: 'Unofficial account', all: 'All', debtors: 'Debtors', creditors: 'Creditors', settled: 'Settled', debitOnly: 'Debit only', creditOnly: 'Credit only', printPdf: 'Print / PDF', exportCsv: 'Export Excel',
   },
 };
 
@@ -377,14 +378,13 @@ function modalTitle(type) {
 }
 
 function exportDocuments(docs, lang) {
-  downloadCsv(`finance-documents-${new Date().toISOString().slice(0, 10)}.csv`, [
-    ['شماره', 'نوع', 'وضعیت', 'شخص', 'سفارش', 'مبلغ', 'پرداخت', 'مانده'],
-    ...docs.map((d) => [d.doc_number, docLabel(d.document_type, lang), STATUS_LABELS[d.status]?.[lang] || d.status, d.party_name, d.order_code, d.total_amount, d.paid_amount, d.balance_amount]),
-  ]);
+  const headers = ['شماره', 'نوع', 'وضعیت', 'شخص', 'سفارش', 'مبلغ', 'پرداخت', 'مانده'];
+  const rows = docs.map((d) => [d.doc_number, docLabel(d.document_type, lang), STATUS_LABELS[d.status]?.[lang] || d.status, d.party_name, d.order_code, d.total_amount, d.paid_amount, d.balance_amount]);
+  downloadExcelHtml(`finance-documents-${new Date().toISOString().slice(0, 10)}.xls`, headers, rows, 'گزارش اسناد مالی');
 }
 function exportBalances(parties, filter, lang) {
   const rows = parties.filter((p) => filter === 'all' || (filter === 'debtors' && Number(p.balance) > 0) || (filter === 'creditors' && Number(p.balance) < 0) || (filter === 'settled' && Number(p.balance) === 0));
-  downloadCsv(`party-balances-${new Date().toISOString().slice(0, 10)}.csv`, [['شخص', 'نوع', 'مانده'], ...rows.map((p) => [p.display_name, partyTypeLabel(p.party_type, lang), p.balance])]);
+  downloadExcelHtml(`party-balances-${new Date().toISOString().slice(0, 10)}.xls`, ['شخص', 'نوع', 'مانده'], rows.map((p) => [p.display_name, partyTypeLabel(p.party_type, lang), p.balance]), 'گزارش بدهکاران و بستانکاران');
 }
 function printSimpleDocument(d, lang) {
   openPrintableDocument(d.doc_number, `<h1>${docLabel(d.document_type, lang)} ${d.doc_number}</h1><div class="meta"><div><b>شخص:</b> ${d.party_name || '—'}</div><div><b>سفارش:</b> ${d.order_code || '—'}</div><div><b>مبلغ:</b> <span class="money">${formatMoney(d.total_amount, lang)}</span></div><div><b>مانده:</b> <span class="money">${formatMoney(d.balance_amount, lang)}</span></div></div><div class="footer"><span>امضای فروش</span><span>امضای مالی</span><span>مهر شرکت</span></div>`);
