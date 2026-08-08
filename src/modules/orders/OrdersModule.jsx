@@ -247,7 +247,7 @@ function CrmSection({ customers, followups, interactions, opportunities, orders,
       <div className="crm-stat success"><span>تعامل ثبت‌شده</span><b>{formatNumber(interactions.length)}</b><small>تماس، پیام، جلسه و یادداشت</small></div>
     </section>
 
-    <div className="orders-grid two crm-layout">
+    <div className="orders-grid two crm-layout crm-main-layout">
       <section className="orders-card crm-card-main">
         <div className="section-head crm-head">
           <CardTitle icon={Users} title="لیست مشتریان و سرنخ‌ها" />
@@ -525,7 +525,7 @@ function OrderModal({ templates, templateSteps = [], customers, stock, busy, ini
     priority: 2,
   });
   const [options, setOptions] = useState({ createProforma: true, refFinance: true, refWarehouse: false, refPath: true });
-  const availableTemplates = templates.filter((t) => t.is_active && (!t.sales_path || t.sales_path === form.sales_path));
+  const availableTemplates = templates.filter((t) => t.is_active !== false);
   const selectedTemplate = availableTemplates.find((t) => t.id === form.workflow_template_id) || availableTemplates[0];
   const [items, setItems] = useState([{ item_name_fa: 'قلم سفارش', warehouse_item_code: '', quantity: 1, unit: 'عدد', unit_price: 0 }]);
 
@@ -572,8 +572,8 @@ function OrderModal({ templates, templateSteps = [], customers, stock, busy, ini
         <label><span>تلفن</span><input value={form.contact_phone} onChange={(e) => setForm({ ...form, contact_phone: e.target.value })} /></label>
         <label><span>شهر</span><input value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} /></label>
         <label><span>روش ارتباط</span><select value={form.preferred_contact_channel} onChange={(e) => setForm({ ...form, preferred_contact_channel: e.target.value })}>{Object.entries(CHANNEL_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label>
-        <label><span>مسیر</span><select value={form.sales_path} onChange={(e) => setForm({ ...form, sales_path: e.target.value, workflow_template_id: '' })}>{Object.entries(PATH_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label>
-        <label><span>قالب مراحل</span><select value={form.workflow_template_id} onChange={(e) => setForm({ ...form, workflow_template_id: e.target.value })}><option value="">پیش‌فرض مسیر</option>{availableTemplates.map((t) => <option key={t.id} value={t.id}>{t.name_fa}</option>)}</select></label>
+        <label><span>مسیر</span><select value={form.sales_path} onChange={(e) => setForm({ ...form, sales_path: e.target.value })}>{Object.entries(PATH_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label>
+        <label><span>قالب مراحل</span><select value={form.workflow_template_id} onChange={(e) => setForm({ ...form, workflow_template_id: e.target.value })}><option value="">پیش‌فرض سیستم</option>{availableTemplates.map((t) => { const count = templateSteps.filter((s) => s.template_id === t.id && s.is_active !== false).length; return <option key={t.id} value={t.id}>{t.name_fa} · {t.sales_path ? PATH_LABELS[t.sales_path] : 'همه مسیرها'} · {formatNumber(count)} مرحله</option>; })}</select></label>
         <label><span>تاریخ ثبت شمسی</span><JalaliDateInput value={form.registered_at} onChange={(value) => setForm({ ...form, registered_at: value })} /></label>
         <label><span>موعد تحویل شمسی</span><JalaliDateInput value={form.expected_delivery_date} onChange={(value) => setForm({ ...form, expected_delivery_date: value })} /></label>
         <label><span>اولویت</span><select value={form.priority} onChange={(e) => setForm({ ...form, priority: Number(e.target.value) })}><option value={1}>فوری</option><option value={2}>عادی</option><option value={3}>کم‌اهمیت</option></select></label>
