@@ -51,7 +51,7 @@ export function useWarehouseData() {
         .limit(100),
     ]);
 
-    const draft = (docsRes.data || []).find((d) => d.type === 'out' && d.status === 'draft') || null;
+    const draft = (docsRes.data || []).find((d) => d.status === 'draft') || null;
     let draftLines = [];
     let draftLinesError = null;
     if (draft) {
