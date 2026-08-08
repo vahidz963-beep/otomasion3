@@ -7,9 +7,13 @@ const initialState = {
   stock: [],
   documents: [],
   draftDocument: null,
+  draftDocuments: [],
   draftLines: [],
+  draftLinesByDocument: {},
   snapshots: [],
+  matched: [],
   unmatched: [],
+  inactiveItems: [],
   referrals: [],
 };
 
@@ -23,16 +27,16 @@ export function useWarehouseData() {
   const fetchData = useCallback(async () => {
     setState((s) => ({ ...s, loading: true, error: null }));
 
-    const [stockRes, docsRes, snapshotsRes, unmatchedRes, referralsRes] = await Promise.all([
+    const [stockRes, docsRes, snapshotsRes, matchedRes, unmatchedRes, inactiveRes, referralsRes] = await Promise.all([
       supabase
         .from('v_warehouse_current_stock')
         .select('item_id, item_code, item_name_fa, item_name_en, item_group, category, unit, location, reorder_point, min_stock_threshold, unit_price_estimate, price_currency, current_qty, total_in, total_out, last_movement_at, last_synced_at, is_low_stock, stock_value_estimate')
         .order('item_code', { ascending: true }),
       supabase
         .from('v_warehouse_documents_summary')
-        .select('id, doc_number, type, status, created_by, created_by_name, created_at, finalized_at, line_count, total_quantity, note')
+        .select('id, doc_number, type, status, created_by, created_by_name, customer_name, created_at, finalized_at, line_count, total_quantity, note')
         .order('created_at', { ascending: false })
-        .limit(100),
+        .limit(120),
       supabase
         .from('warehouse_snapshots')
         .select('id, file_name, imported_by, imported_at, row_count, notes')
@@ -41,7 +45,18 @@ export function useWarehouseData() {
       supabase
         .from('warehouse_snapshot_items')
         .select('id, snapshot_id, item_code, quantity, unit, matched')
+        .eq('matched', true)
+        .limit(100),
+      supabase
+        .from('warehouse_snapshot_items')
+        .select('id, snapshot_id, item_code, quantity, unit, matched')
         .eq('matched', false)
+        .limit(100),
+      supabase
+        .from('warehouse_items')
+        .select('id, item_code, item_name_fa, category, unit, location, updated_at, is_active')
+        .eq('is_active', false)
+        .order('updated_at', { ascending: false })
         .limit(100),
       supabase
         .from('automation_referrals')
@@ -51,29 +66,41 @@ export function useWarehouseData() {
         .limit(100),
     ]);
 
-    const draft = (docsRes.data || []).find((d) => d.status === 'draft') || null;
+    const draftDocuments = (docsRes.data || []).filter((d) => d.status === 'draft');
     let draftLines = [];
     let draftLinesError = null;
-    if (draft) {
+    if (draftDocuments.length) {
       const linesRes = await supabase
         .from('warehouse_document_lines')
         .select('id, document_id, item_id, quantity, reason, note, tx_id, removed_at, created_at, warehouse_items:item_id(item_code,item_name_fa,unit)')
-        .eq('document_id', draft.id)
+        .in('document_id', draftDocuments.map((d) => d.id))
         .is('removed_at', null)
         .order('created_at', { ascending: true });
       draftLines = linesRes.data || [];
       draftLinesError = linesRes.error;
     }
 
+    const draftLinesByDocument = draftLines.reduce((acc, line) => {
+      if (!acc[line.document_id]) acc[line.document_id] = [];
+      acc[line.document_id].push(line);
+      return acc;
+    }, {});
+
+    const firstDraftWithLines = draftDocuments.find((d) => (draftLinesByDocument[d.id] || []).length > 0) || draftDocuments[0] || null;
+
     setState({
       loading: false,
-      error: firstError([stockRes, docsRes, snapshotsRes, unmatchedRes, referralsRes, { error: draftLinesError }]),
+      error: firstError([stockRes, docsRes, snapshotsRes, matchedRes, unmatchedRes, inactiveRes, referralsRes, { error: draftLinesError }]),
       stock: stockRes.data || [],
       documents: docsRes.data || [],
-      draftDocument: draft,
-      draftLines,
+      draftDocument: firstDraftWithLines,
+      draftDocuments,
+      draftLines: firstDraftWithLines ? (draftLinesByDocument[firstDraftWithLines.id] || []) : [],
+      draftLinesByDocument,
       snapshots: snapshotsRes.data || [],
+      matched: matchedRes.data || [],
       unmatched: unmatchedRes.data || [],
+      inactiveItems: inactiveRes.data || [],
       referrals: referralsRes.data || [],
     });
   }, []);

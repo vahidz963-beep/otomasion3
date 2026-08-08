@@ -23,6 +23,17 @@ export async function createWarehouseItem(payload) {
     .select('id')
     .single();
   assertNoError(res, 'خطا در ثبت کالا');
+
+  const initialQty = Number(payload.stock_quantity || payload.initial_quantity || 0);
+  if (initialQty > 0) {
+    await recordStockMovement({
+      itemId: res.data.id,
+      direction: 'in',
+      quantity: initialQty,
+      reason: 'count_correction',
+      note: 'موجودی اولیه هنگام ثبت کالا',
+    });
+  }
   return res.data;
 }
 
@@ -43,6 +54,22 @@ export async function updateWarehouseItem(itemId, payload) {
     .select('id')
     .single();
   assertNoError(res, 'خطا در ویرایش کالا');
+
+  if (payload.stock_quantity !== undefined && payload.stock_quantity !== '') {
+    const current = Number(payload.current_qty_snapshot || 0);
+    const target = Number(payload.stock_quantity || 0);
+    const diff = target - current;
+    if (Number.isFinite(diff) && diff !== 0) {
+      await recordStockMovement({
+        itemId,
+        direction: diff > 0 ? 'in' : 'out',
+        quantity: Math.abs(diff),
+        reason: 'count_correction',
+        note: 'اصلاح موجودی از فرم ویرایش کالا',
+      });
+    }
+  }
+
   return res.data;
 }
 
@@ -67,6 +94,24 @@ export async function finalizeWarehouseDocument(documentId) {
 export async function cancelDraftWarehouseDocument(documentId) {
   const res = await supabase.rpc('fn_cancel_draft_document', { p_document_id: documentId });
   assertNoError(res, 'خطا در لغو سند موقت');
+  return res.data;
+}
+
+export async function updateWarehouseDocumentMeta(documentId, { customerName, note }) {
+  const rpcRes = await supabase.rpc('fn_update_warehouse_document_meta', {
+    p_document_id: documentId,
+    p_customer_name: customerName || null,
+    p_note: note || null,
+  });
+  if (!rpcRes.error) return rpcRes.data;
+
+  const res = await supabase
+    .from('warehouse_documents')
+    .update({ customer_name: customerName || null, note: note || null })
+    .eq('id', documentId)
+    .select('id')
+    .single();
+  assertNoError(res, 'خطا در ذخیره اطلاعات سند');
   return res.data;
 }
 
@@ -199,6 +244,17 @@ export function downloadCsv(filename, rows) {
 export function downloadExcelHtml(filename, headers, rows, title = 'گزارش') {
   const html = brandedExcelTableHtml(title, headers, rows);
   const blob = new Blob([`\ufeff${html}`], { type: 'application/vnd.ms-excel;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+export function downloadWordHtml(filename, title, html) {
+  const doc = brandedReportShell(title, html);
+  const blob = new Blob([`\ufeff${doc}`], { type: 'application/msword;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
