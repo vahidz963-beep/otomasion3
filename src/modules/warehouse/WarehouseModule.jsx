@@ -17,7 +17,7 @@ import {
 import { useWarehouseData, useWarehouseDocumentLines, useWarehouseKardex } from '../../hooks/useWarehouseData';
 import ReferralPanel from '../../components/referrals/ReferralPanel';
 import JalaliDateInput from '../../components/JalaliDateInput';
-import { formatJalaliDate } from '../../lib/formatters';
+import { formatJalaliDate, formatNumber } from '../../lib/formatters';
 import {
   cancelDraftWarehouseDocument,
   cancelWarehouseDocument,

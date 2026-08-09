@@ -28,7 +28,7 @@ function moduleFolder(module = 'manual') {
 export async function fetchSharedFiles({ module, relatedOrderId, relatedRecordId } = {}) {
   let query = supabase
     .from('shared_files')
-    .select('id, file_number, title_fa, file_name, mime_type, file_size, data_url, storage_bucket, storage_path, public_url, source_module, related_order_id, related_record_id, visibility, description_fa, uploaded_by, uploaded_at')
+    .select('*')
     .is('deleted_at', null)
     .order('uploaded_at', { ascending: false })
     .limit(200);

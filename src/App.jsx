@@ -13,6 +13,28 @@ import ProductionModule from './modules/production/ProductionModule';
 import AccountingModule from './modules/accounting/AccountingModule';
 import { roleLabel } from './lib/supabaseClient';
 
+
+class ModuleErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { error: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { error };
+  }
+  componentDidUpdate(prevProps) {
+    if (prevProps.resetKey !== this.props.resetKey && this.state.error) {
+      this.setState({ error: null });
+    }
+  }
+  render() {
+    if (this.state.error) {
+      return <div style={{ padding: 24, direction: 'rtl', fontFamily: 'Vazirmatn, sans-serif' }}><div style={{ background: '#fff8f7', border: '1px solid #f1c5c0', color: '#a5453f', borderRadius: 16, padding: 16 }}>خطای نمایش ماژول: {this.state.error.message || 'خطای نامشخص'}<br />صفحه را به‌روزرسانی کنید یا از منوی بالا وارد بخش دیگری شوید.</div></div>;
+    }
+    return this.props.children;
+  }
+}
+
 function AppShell() {
   const { user, profile, loading, signOut } = useAuth();
   const [activeModule, setActiveModule] = useState('dashboard');
@@ -67,7 +89,7 @@ function AppShell() {
         </div>
       </nav>
       <main className="page-shell">
-        {CurrentComponent ? <CurrentComponent lang={lang} /> : <div style={{ padding: 40 }}>هیچ ماژولی برای نقش شما فعال نیست.</div>}
+        {CurrentComponent ? <ModuleErrorBoundary resetKey={current?.key}><CurrentComponent lang={lang} /></ModuleErrorBoundary> : <div style={{ padding: 40 }}>هیچ ماژولی برای نقش شما فعال نیست.</div>}
       </main>
     </div>
   );

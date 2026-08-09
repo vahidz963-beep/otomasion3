@@ -34,7 +34,7 @@ export function useWarehouseData() {
         .order('item_code', { ascending: true }),
       supabase
         .from('v_warehouse_documents_summary')
-        .select('id, doc_number, type, status, created_by, created_by_name, customer_name, customer_city, created_at, finalized_at, line_count, total_quantity, note, cancelled_at')
+        .select('*')
         .order('created_at', { ascending: false })
         .limit(120),
       supabase
