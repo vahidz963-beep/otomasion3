@@ -97,17 +97,27 @@ export async function cancelDraftWarehouseDocument(documentId) {
   return res.data;
 }
 
-export async function updateWarehouseDocumentMeta(documentId, { customerName, note }) {
+export async function cancelWarehouseDocument(documentId, reason = 'حذف/لغو توسط کاربر') {
+  const res = await supabase.rpc('fn_cancel_warehouse_document', {
+    p_document_id: documentId,
+    p_reason: reason || null,
+  });
+  assertNoError(res, 'خطا در حذف/لغو سند انبار');
+  return res.data;
+}
+
+export async function updateWarehouseDocumentMeta(documentId, { customerName, customerCity, note }) {
   const rpcRes = await supabase.rpc('fn_update_warehouse_document_meta', {
     p_document_id: documentId,
     p_customer_name: customerName || null,
+    p_customer_city: customerCity || null,
     p_note: note || null,
   });
   if (!rpcRes.error) return rpcRes.data;
 
   const res = await supabase
     .from('warehouse_documents')
-    .update({ customer_name: customerName || null, note: note || null })
+    .update({ customer_name: customerName || null, customer_city: customerCity || null, note: note || null })
     .eq('id', documentId)
     .select('id')
     .single();
@@ -133,6 +143,12 @@ export async function removeWarehouseDocumentLine(lineId) {
 export async function deactivateWarehouseItem(itemId) {
   const res = await supabase.rpc('fn_deactivate_item', { p_item_id: itemId });
   assertNoError(res, 'خطا در غیرفعال‌سازی کالا');
+  return res.data;
+}
+
+export async function reactivateWarehouseItem(itemId) {
+  const res = await supabase.rpc('fn_reactivate_item', { p_item_id: itemId });
+  assertNoError(res, 'خطا در فعال‌سازی مجدد کالا');
   return res.data;
 }
 

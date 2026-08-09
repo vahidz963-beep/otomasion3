@@ -2,7 +2,6 @@ import { useMemo, useState } from 'react';
 import { BarChart3, CheckCircle2, ClipboardList, Cpu, DollarSign, FileText, FlaskConical, ListChecks, Plus, RefreshCw, Search, Settings, TestTube2, X } from 'lucide-react';
 import JalaliDateInput from '../../components/JalaliDateInput';
 import ReferralPanel from '../../components/referrals/ReferralPanel';
-import SharedFilesPanel from '../../components/shared/SharedFilesPanel';
 import { formatJalaliDate, formatJalaliDateTime, formatNumber, formatToman } from '../../lib/formatters';
 import { useRndData } from '../../hooks/useRndData';
 import { acceptRndOrder, createInternalRndProject, createRndStep, createRndTemplate, deleteRndCost, downloadRndExcel, openRndPrintable, rndSafe, saveRndCost, saveRndTest, setRndStage, updateRndStep, updateRndTemplate } from '../../lib/rndApi';
@@ -65,7 +64,7 @@ export default function RnDModule({ lang = 'fa' }) {
   return <div className="rnd-page" dir="rtl" lang={lang}>
     <header className="rnd-hero"><div><div className="eyebrow">R&D · Projects · Tests · Costs</div><h1>R&D</h1><p>دریافت پروژه از سفارش یا پروژه داخلی، مدیریت مراحل، هزینه‌ها، تست‌ها و فایل‌های اشتراکی برای همه واحدها.</p></div><div className="rnd-actions"><button className="primary" onClick={() => setModal({ type:'internal' })}><Plus size={16}/> پروژه R&D</button><button onClick={() => setTab('flow')}><ListChecks size={16}/> مراحل پروژه</button><button onClick={data.refetch}><RefreshCw size={16}/> به‌روزرسانی</button></div></header>
     {notice && <div className="rnd-message">{notice}</div>}{data.loading && <div className="rnd-message">در حال دریافت اطلاعات R&D...</div>}{data.error && <div className="rnd-message error">{data.error.message}</div>}
-    <nav className="rnd-tabs">{[['overview','نمای کلی'],['flow','مراحل پروژه'],['incoming','تأیید سفارش‌ها'],['projects','پروژه‌ها'],['costs','هزینه‌ها'],['tests','تست‌ها'],['refs','ارجاعات و فایل‌ها'],['settings','تنظیم مراحل']].map(([k,l])=><button key={k} className={tab===k?'active':''} onClick={()=>setTab(k)}>{l}</button>)}</nav>
+    <nav className="rnd-tabs">{[['overview','نمای کلی'],['flow','مراحل پروژه'],['incoming','تأیید سفارش‌ها'],['projects','پروژه‌ها'],['costs','هزینه‌ها'],['tests','تست‌ها'],['refs','ارجاع و اسناد'],['settings','تنظیم مراحل']].map(([k,l])=><button key={k} className={tab===k?'active':''} onClick={()=>setTab(k)}>{l}</button>)}</nav>
 
     {!data.loading && tab==='overview' && <Overview kpis={kpis} projects={data.projects} incoming={data.incomingOrders} setTab={setTab} onSelect={setSelectedId}/>} 
     {!data.loading && tab==='incoming' && <IncomingOrders orders={data.incomingOrders} templates={data.templates} busy={busy} onAccept={(order)=>setModal({type:'accept',order})}/>} 
@@ -73,7 +72,7 @@ export default function RnDModule({ lang = 'fa' }) {
     {!data.loading && tab==='projects' && <ProjectsList projects={filteredProjects} query={query} setQuery={setQuery} onSelect={setSelectedId} onExport={exportProjects} onPrint={printProjects}/>} 
     {!data.loading && tab==='costs' && <CostsSection projects={data.projects} costs={data.costs} summary={data.costSummary} stock={data.stock} busy={busy} onAdd={(project)=>setModal({type:'cost',project})} onDelete={(cost)=>runAction(()=>deleteRndCost(cost.id,cost.rnd_project_id),'هزینه حذف شد.')}/>} 
     {!data.loading && tab==='tests' && <TestsSection tests={data.tests} projects={data.projects} stages={data.stages} onNew={(project)=>setModal({type:'test',project})}/>} 
-    {!data.loading && tab==='refs' && <div className="rnd-grid"><ReferralPanel sourceModule="rnd" title="ارجاعات R&D" defaultTarget="production" /><SharedFilesPanel sourceModule="rnd" /></div>} 
+    {!data.loading && tab==='refs' && <div className="rnd-grid"><ReferralPanel sourceModule="rnd" title="ارجاع و اسناد R&D" defaultTarget="production" /></div>} 
     {!data.loading && tab==='settings' && <SettingsSection templates={data.templates} steps={data.templateSteps} busy={busy} onCreateTemplate={(payload)=>runAction(()=>createRndTemplate(payload),'قالب R&D ساخته شد.')} onUpdateTemplate={(id,patch)=>runAction(()=>updateRndTemplate(id,patch),'قالب R&D ذخیره شد.')} onCreateStep={(payload)=>runAction(()=>createRndStep(payload),'مرحله R&D اضافه شد.')} onUpdateStep={(id,patch)=>runAction(()=>updateRndStep(id,patch),'مرحله R&D ذخیره شد.')}/>} 
 
     {modal?.type==='accept' && <AcceptModal order={modal.order} templates={data.templates} busy={busy} onClose={()=>setModal(null)} onSubmit={(payload)=>runAction(()=>acceptRndOrder(payload),'سفارش وارد R&D شد.')}/>} 

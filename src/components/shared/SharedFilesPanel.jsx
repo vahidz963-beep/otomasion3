@@ -31,6 +31,12 @@ export default function SharedFilesPanel({ sourceModule = 'manual', relatedOrder
 
   useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  async function handleDownload(row) {
+    setError('');
+    try { await downloadSharedFile(row); }
+    catch (e) { setError(e.message || 'خطا در دانلود فایل'); }
+  }
+
   async function submit(e) {
     e.preventDefault();
     setBusy(true); setError('');
@@ -58,8 +64,8 @@ export default function SharedFilesPanel({ sourceModule = 'manual', relatedOrder
     </form>}
     {error && <div className="shared-error">{error}</div>}
     {loading ? <div className="shared-empty">در حال دریافت...</div> : filtered.length === 0 ? <div className="shared-empty">فایل اشتراکی وجود ندارد.</div> : <div className="shared-list">{filtered.map((r) => <article key={r.id}>
-      <div><strong>{r.title_fa || r.file_name}</strong><small>{r.file_number || '—'} · {MODULE_LABEL[r.source_module] || r.source_module} · {formatJalaliDateTime(r.uploaded_at)} · {formatSize(r.file_size)}</small>{r.description_fa && <p>{r.description_fa}</p>}</div>
-      <button onClick={() => downloadSharedFile(r)}><Download size={14}/> دانلود</button>
+      <div><strong>{r.title_fa || r.file_name}</strong><small>{r.file_number || '—'} · فولدر {MODULE_LABEL[r.source_module] || r.source_module} · {formatJalaliDateTime(r.uploaded_at)} · {formatSize(r.file_size)}</small><small className="shared-path">{r.storage_path || 'فایل قدیمی/داخلی'}</small>{r.description_fa && <p>{r.description_fa}</p>}</div>
+      <button onClick={() => handleDownload(r)}><Download size={14}/> دانلود</button>
     </article>)}</div>}
   </section>;
 }

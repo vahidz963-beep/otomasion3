@@ -35,7 +35,7 @@ export function useProductionData() {
       supabase.from('production_plans').select('*').order('updated_at', { ascending: false }).limit(200),
       supabase.from('production_workflow_templates').select('*').order('created_at', { ascending: true }).limit(100),
       supabase.from('production_workflow_steps').select('*').order('stage_order', { ascending: true }).limit(1000),
-      supabase.from('v_warehouse_current_stock').select('item_id, item_code, item_name_fa, item_name_en, item_group, category, unit, location, current_qty, unit_price_estimate, available_for_sale_qty, is_low_stock').order('item_code', { ascending: true }).limit(500),
+      supabase.from('v_sales_stock_overview').select('item_id, item_code, item_name_fa, item_name_en, item_group, category, unit, location, current_qty, unit_price_estimate, available_for_sale_qty, is_low_stock').order('item_code', { ascending: true }).limit(500),
       supabase.from('v_production_bom_summary').select('*').order('updated_at', { ascending: false }).limit(150),
       supabase.from('production_bom_items').select('*').order('created_at', { ascending: true }).limit(1000),
       supabase.from('production_qc_checks').select('id, production_order_id, stage_id, checked_by, result, quantity_checked, quantity_passed, quantity_rejected, rejection_reason, checked_at').order('checked_at', { ascending: false }).limit(200),
