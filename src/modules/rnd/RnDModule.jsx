@@ -1,724 +1,105 @@
-import React, { useState, useMemo } from "react";
-import {
-  Plus, X, FileText, MessageSquare, Clock, Flag, Calendar,
-  LayoutGrid, List as ListIcon, Cpu, Factory, CheckCircle2,
-  ChevronDown, Paperclip, DollarSign, Globe, Search, Upload,
-} from "lucide-react";
-import JalaliDateInput from "../../components/JalaliDateInput";
+import { useMemo, useState } from 'react';
+import { BarChart3, CheckCircle2, ClipboardList, Cpu, DollarSign, FileText, FlaskConical, ListChecks, Plus, RefreshCw, Search, Settings, TestTube2, X } from 'lucide-react';
+import JalaliDateInput from '../../components/JalaliDateInput';
+import ReferralPanel from '../../components/referrals/ReferralPanel';
+import SharedFilesPanel from '../../components/shared/SharedFilesPanel';
+import { formatJalaliDate, formatJalaliDateTime, formatNumber, formatToman } from '../../lib/formatters';
+import { useRndData } from '../../hooks/useRndData';
+import { acceptRndOrder, createInternalRndProject, createRndStep, createRndTemplate, deleteRndCost, downloadRndExcel, openRndPrintable, rndSafe, saveRndCost, saveRndTest, setRndStage, updateRndStep, updateRndTemplate } from '../../lib/rndApi';
+import './RnDModule.css';
 
-/* ------------------------------------------------------------------ */
-/*  Tokens                                                             */
-/* ------------------------------------------------------------------ */
+const STATUS_LABELS = { requested: 'درخواست‌شده', design: 'طراحی', prototyping: 'نمونه‌سازی', testing: 'تست', revision_needed: 'نیازمند اصلاح', approved: 'تأیید نهایی', sent_to_production: 'ارسال به تولید', rejected: 'رد/لغو', archived: 'آرشیو' };
+const STAGE_STATUS_LABELS = { pending: 'در انتظار', in_progress: 'در حال انجام', completed: 'انجام‌شده', failed: 'ناموفق', skipped: 'ردشده' };
+const DELIVERY_LABELS = { completed: 'تکمیل', cancelled: 'لغوشده', late: 'عقب‌افتاده', due_soon: 'نزدیک تحویل', on_track: 'طبق برنامه' };
+const PROJECT_TYPE_LABELS = { pcb: 'برد', transformer: 'ترانس/پاور', service: 'خدمات فنی', custom: 'سفارشی' };
+const COST_TYPE_LABELS = { labor: 'نفرساعت', material: 'متریال', service: 'خدمات', overhead: 'سربار', test: 'تست' };
+const TEST_LABELS = { pending: 'در انتظار', passed: 'قبول', failed: 'رد', needs_revision: 'نیازمند اصلاح' };
 
-const C = {
-  graphite900: "#14181C",
-  graphite800: "#1E252B",
-  graphiteLine: "#2B333A",
-  paper: "#F3F5F6",
-  paperDim: "#E7EAEC",
-  ink: "#1B2126",
-  inkDim: "#5B6670",
-  steel: "#3B4B5C",
-  steelLight: "#7690A3",
-  copper: "#A8672E",
-  copperLight: "#E7C39C",
-  amber: "#B98A2E",
-  amberLight: "#F1DBA8",
-  green: "#4C7A61",
-  greenLight: "#BFDACB",
-  red: "#A5453F",
-  redLight: "#EFC7C3",
-  gray: "#8891998",
-};
-
-const OUTPUT_TYPES = {
-  transformer_sample: { fa: "نمونه ترانس", en: "Transformer sample", color: C.steel, icon: Cpu },
-  pcb_sample: { fa: "نمونه برد", en: "PCB sample", color: C.copper, icon: Cpu },
-  pcb_design_service: { fa: "خدمات طراحی PCB", en: "PCB design service", color: C.amber, icon: FileText },
-  technical_service: { fa: "خدمات فنی", en: "Technical service", color: C.green, icon: Factory },
-};
-
-const STATUSES = [
-  { key: "requested", fa: "درخواست شده", en: "Requested", color: C.inkDim },
-  { key: "design", fa: "طراحی", en: "Design", color: C.copper },
-  { key: "prototyping", fa: "نمونه‌سازی", en: "Prototyping", color: C.copper },
-  { key: "testing", fa: "تست", en: "Testing", color: C.amber },
-  { key: "revision_needed", fa: "نیازمند اصلاح", en: "Revision needed", color: C.amber },
-  { key: "approved", fa: "تأیید نهایی", en: "Approved", color: C.green },
-  { key: "sent_to_production", fa: "منتقل به تولید", en: "Sent to production", color: C.steel },
-  { key: "rejected", fa: "رد/لغو شده", en: "Rejected", color: C.red },
-  { key: "archived", fa: "بایگانی", en: "Archived", color: C.inkDim },
-];
-
-const statusOf = (k) => STATUSES.find((s) => s.key === k);
-
-const T = {
-  title: { fa: "بخش R&D", en: "R&D Module" },
-  subtitle: { fa: "پیگیری پروژه‌ها از درخواست تا تحویل یا تولید", en: "Track projects from request to delivery or production" },
-  newProject: { fa: "پروژه جدید", en: "New project" },
-  kanban: { fa: "کانبان", en: "Kanban" },
-  list: { fa: "لیست", en: "List" },
-  search: { fa: "جست‌وجوی عنوان یا کد...", en: "Search title or code..." },
-  code: { fa: "کد", en: "Code" },
-  order: { fa: "سفارش", en: "Order" },
-  assignee: { fa: "مسئول", en: "Assignee" },
-  due: { fa: "موعد", en: "Due" },
-  status: { fa: "وضعیت", en: "Status" },
-  outputType: { fa: "نوع خروجی", en: "Output type" },
-  overdue: { fa: "عقب‌افتاده", en: "Overdue" },
-  noProjects: { fa: "پروژه‌ای در این وضعیت نیست", en: "No projects in this status" },
-  detailTabs: { timeline: { fa: "تایم‌لاین", en: "Timeline" }, files: { fa: "فایل‌ها", en: "Files" }, comments: { fa: "یادداشت‌ها", en: "Comments" }, cost: { fa: "هزینه‌ها", en: "Costs" } },
-  estCost: { fa: "برآورد هزینه", en: "Estimated cost" },
-  actCost: { fa: "هزینه واقعی", en: "Actual cost" },
-  changeStatus: { fa: "تغییر وضعیت به:", en: "Change status to:" },
-  addNote: { fa: "یادداشت بگذارید...", en: "Write a note..." },
-  send: { fa: "ارسال", en: "Send" },
-  uploadFile: { fa: "افزودن فایل", en: "Add file" },
-  noFiles: { fa: "هنوز فایلی پیوست نشده.", en: "No files attached yet." },
-  noComments: { fa: "هنوز یادداشتی ثبت نشده.", en: "No comments yet." },
-  addCost: { fa: "افزودن قلم هزینه", en: "Add cost item" },
-  desc: { fa: "شرح", en: "Description" },
-  amount: { fa: "مبلغ (تومان)", en: "Amount" },
-  add: { fa: "افزودن", en: "Add" },
-  close: { fa: "بستن", en: "Close" },
-  form: {
-    heading: { fa: "ثبت پروژه R&D جدید", en: "New R&D Project" },
-    titleFa: { fa: "عنوان (فارسی)", en: "Title (Persian)" },
-    titleEn: { fa: "عنوان (انگلیسی)", en: "Title (English)" },
-    orderCode: { fa: "کد سفارش (اختیاری)", en: "Order code (optional)" },
-    priority: { fa: "اولویت", en: "Priority" },
-    priorityOpts: [{ v: 1, fa: "فوری", en: "Urgent" }, { v: 2, fa: "عادی", en: "Normal" }, { v: 3, fa: "کم‌اهمیت", en: "Low" }],
-    description: { fa: "توضیحات فنی", en: "Technical description" },
-    submit: { fa: "ثبت پروژه", en: "Create project" },
-    cancel: { fa: "انصراف", en: "Cancel" },
-  },
-  productionBanner: {
-    fa: "این پروژه به تولید داخلی منتقل شده است.",
-    en: "This project has been transferred to internal production.",
-  },
-};
-
-/* ------------------------------------------------------------------ */
-/*  Mock seed data (matches the Supabase schema fields)                */
-/* ------------------------------------------------------------------ */
-
-const seedProjects = [
-  {
-    id: "1", code: "RND-202607-0001",
-    title_fa: "نمونه ترانس ۲۲۰ به ۱۲ ولت سفارشی",
-    title_en: "Custom 220-12V transformer sample",
-    output_type: "transformer_sample", status: "design",
-    order_code: "ORD-1042", assigned: "علیرضا کریمی", priority: 2,
-    estimated_cost: 3200000, actual_cost: 1450000, due_date: "2026-08-05",
-    description_fa: "طراحی هسته و سیم‌پیچی برای مصرف‌کننده صنعتی با محدودیت دما.",
-  },
-  {
-    id: "2", code: "RND-202607-0002",
-    title_fa: "برد کنترلر دور موتور - نمونه اول",
-    title_en: "Motor speed controller board - first sample",
-    output_type: "pcb_sample", status: "testing",
-    order_code: "ORD-1050", assigned: "سارا محمدی", priority: 1,
-    estimated_cost: 5400000, actual_cost: 5100000, due_date: "2026-07-30",
-    description_fa: "تست حرارتی و EMC روی نمونه اول قبل از تحویل.",
-  },
-  {
-    id: "3", code: "RND-202607-0003",
-    title_fa: "خدمات طراحی PCB برای مشتری خارجی",
-    title_en: "PCB design service for external client",
-    output_type: "pcb_design_service", status: "approved",
-    order_code: null, assigned: "علیرضا کریمی", priority: 2,
-    estimated_cost: 2100000, actual_cost: 2050000, due_date: "2026-07-25",
-    description_fa: "طراحی شماتیک و لایه‌گذاری چهار لایه، بدون نیاز به نمونه‌سازی داخلی.",
-  },
-  {
-    id: "4", code: "RND-202606-0014",
-    title_fa: "خدمات فنی - عیب‌یابی مدار حفاظتی",
-    title_en: "Technical service - protection circuit diagnostics",
-    output_type: "technical_service", status: "approved",
-    order_code: "ORD-0988", assigned: "نگار احمدی", priority: 3,
-    estimated_cost: 800000, actual_cost: 750000, due_date: "2026-07-10",
-    description_fa: "بررسی و رفع خطای قطع ناگهانی مدار حفاظتی مشتری.",
-  },
-  {
-    id: "5", code: "RND-202606-0011",
-    title_fa: "نمونه ترانس فرکانس بالا",
-    title_en: "High-frequency transformer sample",
-    output_type: "transformer_sample", status: "sent_to_production",
-    order_code: "ORD-0960", assigned: "علیرضا کریمی", priority: 2,
-    estimated_cost: 4000000, actual_cost: 3900000, due_date: "2026-06-28",
-    description_fa: "نمونه تایید شد و به خط تولید داخلی سپرده شد.",
-    went_to_production: true, production_order_id: "PRD-2207",
-  },
-  {
-    id: "6", code: "RND-202607-0004",
-    title_fa: "امکان‌سنجی نمونه برد شارژر سریع",
-    title_en: "Feasibility - fast charger board sample",
-    output_type: "pcb_sample", status: "design",
-    order_code: "ORD-1061", assigned: "سارا محمدی", priority: 2,
-    estimated_cost: null, actual_cost: 0, due_date: "2026-08-12",
-    description_fa: "بررسی امکان ساخت با قطعات موجود در انبار.",
-  },
-  {
-    id: "7", code: "RND-202607-0005",
-    title_fa: "درخواست نمونه ترانس ایزوله پزشکی",
-    title_en: "Request for isolated medical-grade transformer sample",
-    output_type: "transformer_sample", status: "requested",
-    order_code: null, assigned: null, priority: 1,
-    estimated_cost: null, actual_cost: 0, due_date: "2026-08-15",
-    description_fa: "درخواست اولیه مشتری، هنوز مسئول تعیین نشده.",
-  },
-];
-
-const seedHistory = {
-  "1": [
-    { status: "requested", note_fa: "درخواست از طریق سفارش ORD-1042 ثبت شد.", by: "پریسا سلطانی", at: "2026-07-05" },
-    { status: "design", note_fa: "امکان‌سنجی تایید شد.", by: "علیرضا کریمی", at: "2026-07-08" },
-    { status: "design", note_fa: "شروع طراحی سیم‌پیچی.", by: "علیرضا کریمی", at: "2026-07-12" },
-  ],
-  "5": [
-    { status: "requested", note_fa: "درخواست ثبت شد.", by: "پریسا سلطانی", at: "2026-06-01" },
-    { status: "design", note_fa: "طراحی آغاز شد.", by: "علیرضا کریمی", at: "2026-06-05" },
-    { status: "testing", note_fa: "تست فرکانسی موفق بود.", by: "علیرضا کریمی", at: "2026-06-18" },
-    { status: "approved", note_fa: "نمونه تحویل مدیر تولید شد.", by: "علیرضا کریمی", at: "2026-06-25" },
-    { status: "sent_to_production", note_fa: "پرونده فنی به تولید منتقل شد (PRD-2207).", by: "مدیر کل", at: "2026-06-28" },
-  ],
-};
-
-const seedDocuments = {
-  "1": [{ name: "winding-spec-v2.pdf", by: "علیرضا کریمی", at: "2026-07-12" }],
-  "2": [{ name: "schematic-rev-c.sch", by: "سارا محمدی", at: "2026-07-15" }, { name: "thermal-test-report.pdf", by: "سارا محمدی", at: "2026-07-22" }],
-};
-
-const seedComments = {
-  "2": [{ text: "تست EMC نیاز به تکرار در دمای بالاتر دارد.", by: "سارا محمدی", at: "2026-07-23" }],
-};
-
-const seedCosts = {
-  "1": [{ desc: "سیم مسی 0.5mm", type: "material", amount: 950000 }, { desc: "ساعت کاری طراحی", type: "labor", amount: 500000 }],
-};
-
-const fmtMoney = (n) => (n == null ? "—" : n.toLocaleString("en-US") + " ت");
-const isOverdue = (p) => p.due_date && p.due_date < "2026-07-28" && !["approved", "archived", "rejected", "sent_to_production"].includes(p.status);
-
-/* ------------------------------------------------------------------ */
-/*  Main component                                                     */
-/* ------------------------------------------------------------------ */
-
-export default function RnDModule() {
-  const [lang, setLang] = useState("fa");
-  const [view, setView] = useState("kanban");
-  const [query, setQuery] = useState("");
-  const [projects, setProjects] = useState(seedProjects);
-  const [history, setHistory] = useState(seedHistory);
-  const [documents, setDocuments] = useState(seedDocuments);
-  const [comments, setComments] = useState(seedComments);
-  const [costs, setCosts] = useState(seedCosts);
+export default function RnDModule({ lang = 'fa' }) {
+  const data = useRndData();
+  const [tab, setTab] = useState('overview');
+  const [query, setQuery] = useState('');
   const [selectedId, setSelectedId] = useState(null);
-  const [showForm, setShowForm] = useState(false);
-  const [detailTab, setDetailTab] = useState("timeline");
-  const [toast, setToast] = useState(null);
+  const [modal, setModal] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState('');
 
-  const isFa = lang === "fa";
-  const dir = isFa ? "rtl" : "ltr";
-  const tt = (obj) => (obj ? obj[lang] : "");
+  const selected = useMemo(() => data.projects.find((p) => p.id === selectedId), [data.projects, selectedId]);
+  const selectedStages = useMemo(() => data.stages.filter((s) => s.rnd_project_id === selectedId).sort((a,b)=>Number(a.order_index)-Number(b.order_index)), [data.stages, selectedId]);
+  const selectedCosts = useMemo(() => data.costs.filter((c) => c.rnd_project_id === selectedId), [data.costs, selectedId]);
+  const selectedTests = useMemo(() => data.tests.filter((t) => t.rnd_project_id === selectedId), [data.tests, selectedId]);
+  const selectedSummary = useMemo(() => data.costSummary.find((c) => c.rnd_project_id === selectedId), [data.costSummary, selectedId]);
 
-  const flash = (msg) => { setToast(msg); setTimeout(() => setToast(null), 2200); };
+  const filteredProjects = useMemo(() => data.projects.filter((p) => {
+    const text = `${p.code || ''} ${p.title_fa || ''} ${p.customer_name || ''} ${p.requester_name || ''} ${p.current_stage_name_fa || ''}`.toLowerCase();
+    return !query || text.includes(query.toLowerCase());
+  }), [data.projects, query]);
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return projects;
-    return projects.filter(
-      (p) => p.code.toLowerCase().includes(q) || p.title_fa.includes(q) || p.title_en.toLowerCase().includes(q)
-    );
-  }, [projects, query]);
+  const kpis = useMemo(() => ({
+    incoming: data.incomingOrders.length,
+    active: data.projects.filter((p) => !['approved','sent_to_production','archived','rejected'].includes(p.status)).length,
+    late: data.projects.filter((p) => p.delivery_status === 'late').length,
+    tests: data.tests.filter((t) => ['failed','needs_revision'].includes(t.result)).length,
+    costs: data.costSummary.reduce((sum, c) => sum + Number(c.total_cost || 0), 0),
+    files: 0,
+  }), [data]);
 
-  const selected = projects.find((p) => p.id === selectedId) || null;
-
-  function createProject(data) {
-    const seq = String(projects.length + 1).padStart(4, "0");
-    const id = String(Date.now());
-    const proj = {
-      id, code: `RND-202607-${seq}`,
-      title_fa: data.title_fa, title_en: data.title_en || data.title_fa,
-      output_type: data.output_type, status: "requested",
-      order_code: data.order_code || null, assigned: null, priority: Number(data.priority),
-      estimated_cost: data.estimated_cost ? Number(data.estimated_cost) : null, actual_cost: 0,
-      due_date: data.due_date || null, description_fa: data.description_fa,
-    };
-    setProjects((p) => [proj, ...p]);
-    setHistory((h) => ({ ...h, [id]: [{ status: "requested", note_fa: "درخواست ثبت شد.", by: isFa ? "شما" : "You", at: "2026-07-28" }] }));
-    setShowForm(false);
-    flash(isFa ? "پروژه ثبت شد." : "Project created.");
+  async function runAction(fn, ok) {
+    setBusy(true); setNotice('');
+    try { await fn(); setNotice(ok); setModal(null); await data.refetch(); }
+    catch (e) { setNotice(e.message || 'خطا در عملیات R&D'); }
+    finally { setBusy(false); }
   }
 
-  function changeStatus(id, newStatus) {
-    setProjects((ps) => ps.map((p) => (p.id === id ? {
-      ...p, status: newStatus,
-      went_to_production: newStatus === "sent_to_production" ? true : p.went_to_production,
-      production_order_id: newStatus === "sent_to_production" ? `PRD-${Math.floor(2000 + Math.random() * 900)}` : p.production_order_id,
-    } : p)));
-    setHistory((h) => ({ ...h, [id]: [...(h[id] || []), { status: newStatus, note_fa: "وضعیت به‌روزرسانی شد.", by: isFa ? "شما" : "You", at: "2026-07-28" }] }));
-    flash(isFa ? "وضعیت تغییر کرد." : "Status updated.");
+  function exportProjects() {
+    const headers = ['کد', 'عنوان', 'مشتری/درخواست‌کننده', 'وضعیت', 'مرحله', 'پیشرفت', 'هزینه', 'نفرساعت', 'موعد'];
+    const rows = filteredProjects.map((p) => [p.code, p.title_fa, p.customer_name || p.requester_name || 'داخلی', STATUS_LABELS[p.status] || p.status, p.current_stage_name_fa, `${p.progress_percent || 0}%`, formatMoney(p.actual_total_cost), p.total_man_hours || '—', daysText(p.days_to_delivery, p.delivery_status)]);
+    downloadRndExcel('rnd-projects.xls', headers, rows, 'گزارش پروژه‌های R&D');
   }
 
-  function addComment(id, text) {
-    if (!text.trim()) return;
-    setComments((c) => ({ ...c, [id]: [...(c[id] || []), { text, by: isFa ? "شما" : "You", at: "2026-07-28" }] }));
+  function printProjects() {
+    const rows = filteredProjects.map((p) => `<tr><td>${safe(p.code)}</td><td>${safe(p.title_fa)}</td><td>${safe(p.customer_name || p.requester_name || 'داخلی')}</td><td>${STATUS_LABELS[p.status] || p.status}</td><td>${safe(p.current_stage_name_fa || '—')}</td><td>${formatNumber(p.progress_percent)}٪</td><td>${formatMoney(p.actual_total_cost)}</td></tr>`).join('');
+    openRndPrintable('گزارش پروژه‌های R&D', `<h1>گزارش پروژه‌های R&D</h1><table><thead><tr><th>کد</th><th>عنوان</th><th>درخواست‌کننده</th><th>وضعیت</th><th>مرحله</th><th>پیشرفت</th><th>هزینه</th></tr></thead><tbody>${rows}</tbody></table>`);
   }
 
-  function addDocument(id, file) {
-    if (!file) return;
-    setDocuments((d) => ({ ...d, [id]: [...(d[id] || []), { name: file.name, by: isFa ? "شما" : "You", at: "2026-07-28" }] }));
-    flash(isFa ? "فایل پیوست شد." : "File attached.");
-  }
+  return <div className="rnd-page" dir="rtl" lang={lang}>
+    <header className="rnd-hero"><div><div className="eyebrow">R&D · Projects · Tests · Costs</div><h1>R&D</h1><p>دریافت پروژه از سفارش یا پروژه داخلی، مدیریت مراحل، هزینه‌ها، تست‌ها و فایل‌های اشتراکی برای همه واحدها.</p></div><div className="rnd-actions"><button className="primary" onClick={() => setModal({ type:'internal' })}><Plus size={16}/> پروژه R&D</button><button onClick={() => setTab('flow')}><ListChecks size={16}/> مراحل پروژه</button><button onClick={data.refetch}><RefreshCw size={16}/> به‌روزرسانی</button></div></header>
+    {notice && <div className="rnd-message">{notice}</div>}{data.loading && <div className="rnd-message">در حال دریافت اطلاعات R&D...</div>}{data.error && <div className="rnd-message error">{data.error.message}</div>}
+    <nav className="rnd-tabs">{[['overview','نمای کلی'],['flow','مراحل پروژه'],['incoming','تأیید سفارش‌ها'],['projects','پروژه‌ها'],['costs','هزینه‌ها'],['tests','تست‌ها'],['refs','ارجاعات و فایل‌ها'],['settings','تنظیم مراحل']].map(([k,l])=><button key={k} className={tab===k?'active':''} onClick={()=>setTab(k)}>{l}</button>)}</nav>
 
-  function addCost(id, item) {
-    setCosts((c) => ({ ...c, [id]: [...(c[id] || []), item] }));
-    setProjects((ps) => ps.map((p) => p.id === id ? { ...p, actual_cost: (p.actual_cost || 0) + item.amount } : p));
-  }
+    {!data.loading && tab==='overview' && <Overview kpis={kpis} projects={data.projects} incoming={data.incomingOrders} setTab={setTab} onSelect={setSelectedId}/>} 
+    {!data.loading && tab==='incoming' && <IncomingOrders orders={data.incomingOrders} templates={data.templates} busy={busy} onAccept={(order)=>setModal({type:'accept',order})}/>} 
+    {!data.loading && tab==='flow' && <FlowSection projects={filteredProjects} stages={data.stages} selected={selected} selectedStages={selectedStages} selectedCosts={selectedCosts} selectedTests={selectedTests} selectedSummary={selectedSummary} query={query} setQuery={setQuery} busy={busy} onSelect={setSelectedId} onClose={()=>setSelectedId(null)} onSetStage={(stage,status)=>runAction(()=>setRndStage(stage.id,status,`تغییر مرحله ${stageName(stage)}`),'مرحله R&D تغییر کرد.')} onCost={(project)=>setModal({type:'cost',project})} onTest={(project)=>setModal({type:'test',project})} onExport={exportProjects} onPrint={printProjects}/>} 
+    {!data.loading && tab==='projects' && <ProjectsList projects={filteredProjects} query={query} setQuery={setQuery} onSelect={setSelectedId} onExport={exportProjects} onPrint={printProjects}/>} 
+    {!data.loading && tab==='costs' && <CostsSection projects={data.projects} costs={data.costs} summary={data.costSummary} stock={data.stock} busy={busy} onAdd={(project)=>setModal({type:'cost',project})} onDelete={(cost)=>runAction(()=>deleteRndCost(cost.id,cost.rnd_project_id),'هزینه حذف شد.')}/>} 
+    {!data.loading && tab==='tests' && <TestsSection tests={data.tests} projects={data.projects} stages={data.stages} onNew={(project)=>setModal({type:'test',project})}/>} 
+    {!data.loading && tab==='refs' && <div className="rnd-grid"><ReferralPanel sourceModule="rnd" title="ارجاعات R&D" defaultTarget="production" /><SharedFilesPanel sourceModule="rnd" /></div>} 
+    {!data.loading && tab==='settings' && <SettingsSection templates={data.templates} steps={data.templateSteps} busy={busy} onCreateTemplate={(payload)=>runAction(()=>createRndTemplate(payload),'قالب R&D ساخته شد.')} onUpdateTemplate={(id,patch)=>runAction(()=>updateRndTemplate(id,patch),'قالب R&D ذخیره شد.')} onCreateStep={(payload)=>runAction(()=>createRndStep(payload),'مرحله R&D اضافه شد.')} onUpdateStep={(id,patch)=>runAction(()=>updateRndStep(id,patch),'مرحله R&D ذخیره شد.')}/>} 
 
-  return (
-    <div dir={dir} style={{ fontFamily: "'Vazirmatn', sans-serif", background: C.paper, minHeight: "100vh", color: C.ink }}>
-      <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
-        .mono { font-family: 'IBM Plex Mono', monospace; }
-        .rnd-scroll::-webkit-scrollbar { height: 8px; width: 8px; }
-        .rnd-scroll::-webkit-scrollbar-thumb { background: ${C.graphiteLine}; border-radius: 8px; }
-        .drawer-in { animation: drawerIn .22s ease-out; }
-        @keyframes drawerIn { from { transform: translateX(${isFa ? "-16px" : "16px"}); opacity: 0 } to { transform: translateX(0); opacity: 1 } }
-        .card:hover { box-shadow: 0 2px 10px rgba(20,24,28,.10); transform: translateY(-1px); }
-        .card { transition: box-shadow .15s ease, transform .15s ease; }
-      `}</style>
-
-      {/* Top bar */}
-      <div style={{ background: C.graphite900, color: "#fff", padding: "18px 28px" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
-          <div>
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <Cpu size={20} color={C.copperLight} />
-              <h1 style={{ fontSize: 20, fontWeight: 700, margin: 0 }}>{tt(T.title)}</h1>
-            </div>
-            <p style={{ margin: "4px 0 0", fontSize: 13, color: "#9BA6AF" }}>{tt(T.subtitle)}</p>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <button onClick={() => setLang(isFa ? "en" : "fa")}
-              style={btnGhost}>
-              <Globe size={15} /> {isFa ? "EN" : "فا"}
-            </button>
-            <div style={{ display: "flex", background: C.graphite800, borderRadius: 10, padding: 3 }}>
-              <button onClick={() => setView("kanban")} style={toggleBtn(view === "kanban")}><LayoutGrid size={15} /> {tt(T.kanban)}</button>
-              <button onClick={() => setView("list")} style={toggleBtn(view === "list")}><ListIcon size={15} /> {tt(T.list)}</button>
-            </div>
-            <button onClick={() => setShowForm(true)} style={btnPrimary}>
-              <Plus size={16} /> {tt(T.newProject)}
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Search */}
-      <div style={{ padding: "16px 28px 0" }}>
-        <div style={{ position: "relative", maxWidth: 360 }}>
-          <Search size={15} style={{ position: "absolute", top: 10, [isFa ? "right" : "left"]: 12, color: C.inkDim }} />
-          <input
-            value={query} onChange={(e) => setQuery(e.target.value)} placeholder={tt(T.search)}
-            style={{ width: "100%", padding: isFa ? "9px 36px 9px 12px" : "9px 12px 9px 36px", borderRadius: 10, border: `1px solid ${C.paperDim}`, background: "#fff", fontFamily: "inherit", fontSize: 13 }}
-          />
-        </div>
-      </div>
-
-      {/* Body */}
-      <div style={{ padding: 28 }}>
-        {view === "kanban" ? (
-          <div className="rnd-scroll" style={{ display: "flex", gap: 14, overflowX: "auto", paddingBottom: 8 }}>
-            {STATUSES.filter((s) => s.key !== "rejected").map((s) => {
-              const items = filtered.filter((p) => p.status === s.key);
-              return (
-                <div key={s.key} style={{ minWidth: 260, flex: "0 0 260px" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-                    <span style={{ width: 8, height: 8, borderRadius: 999, background: s.color, display: "inline-block" }} />
-                    <span style={{ fontSize: 13, fontWeight: 600 }}>{tt(s)}</span>
-                    <span style={{ fontSize: 11, color: C.inkDim, marginInlineStart: 2 }}>{items.length}</span>
-                  </div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 10, minHeight: 40 }}>
-                    {items.length === 0 && <div style={{ fontSize: 12, color: C.inkDim, padding: 10 }}>{tt(T.noProjects)}</div>}
-                    {items.map((p) => <ProjectCard key={p.id} p={p} isFa={isFa} onClick={() => { setSelectedId(p.id); setDetailTab("timeline"); }} />)}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        ) : (
-          <div style={{ background: "#fff", borderRadius: 14, overflow: "hidden", border: `1px solid ${C.paperDim}` }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-              <thead>
-                <tr style={{ background: C.paperDim, textAlign: isFa ? "right" : "left" }}>
-                  {[T.code, T.title, T.outputType, T.status, T.assignee, T.due].map((h, i) => (
-                    <th key={i} style={{ padding: "10px 14px", fontWeight: 600, color: C.inkDim }}>{tt(h)}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((p) => {
-                  const st = statusOf(p.status);
-                  const ot = OUTPUT_TYPES[p.output_type];
-                  return (
-                    <tr key={p.id} onClick={() => { setSelectedId(p.id); setDetailTab("timeline"); }}
-                      style={{ borderTop: `1px solid ${C.paperDim}`, cursor: "pointer" }}>
-                      <td style={{ padding: "10px 14px" }} className="mono">{p.code}</td>
-                      <td style={{ padding: "10px 14px" }}>{isFa ? p.title_fa : p.title_en}</td>
-                      <td style={{ padding: "10px 14px" }}><Pill color={ot.color} text={tt(ot)} /></td>
-                      <td style={{ padding: "10px 14px" }}><Pill color={st.color} text={tt(st)} /></td>
-                      <td style={{ padding: "10px 14px" }}>{p.assigned || "—"}</td>
-                      <td style={{ padding: "10px 14px", color: isOverdue(p) ? C.red : C.ink }}>{p.due_date || "—"}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      {/* Detail drawer */}
-      {selected && (
-        <div style={{ position: "fixed", inset: 0, zIndex: 40 }}>
-          <div onClick={() => setSelectedId(null)} style={{ position: "absolute", inset: 0, background: "rgba(20,24,28,.35)" }} />
-          <div className="drawer-in" style={{
-            position: "absolute", top: 0, bottom: 0, [isFa ? "right" : "left"]: 0, width: "min(440px, 92vw)",
-            background: "#fff", boxShadow: "0 0 30px rgba(0,0,0,.2)", overflowY: "auto",
-          }}>
-            <div style={{ padding: 20, borderBottom: `1px solid ${C.paperDim}` }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                <div>
-                  <div className="mono" style={{ fontSize: 12, color: C.inkDim }}>{selected.code}</div>
-                  <h2 style={{ margin: "4px 0", fontSize: 17, fontWeight: 700 }}>{isFa ? selected.title_fa : selected.title_en}</h2>
-                  <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
-                    <Pill color={OUTPUT_TYPES[selected.output_type].color} text={tt(OUTPUT_TYPES[selected.output_type])} />
-                    <Pill color={statusOf(selected.status).color} text={tt(statusOf(selected.status))} />
-                  </div>
-                </div>
-                <button onClick={() => setSelectedId(null)} style={{ background: "none", border: "none", cursor: "pointer", color: C.inkDim }}><X size={18} /></button>
-              </div>
-
-              {selected.went_to_production && (
-                <div style={{ marginTop: 12, background: "#EEF2F4", border: `1px solid ${C.steelLight}`, borderRadius: 10, padding: "8px 12px", fontSize: 12, display: "flex", gap: 8, alignItems: "center" }}>
-                  <Factory size={14} color={C.steel} />
-                  <span>{tt(T.productionBanner)} <span className="mono">{selected.production_order_id}</span></span>
-                </div>
-              )}
-
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 14, fontSize: 13 }}>
-                <Field label={tt(T.order)} value={selected.order_code || "—"} mono />
-                <Field label={tt(T.assignee)} value={selected.assigned || "—"} />
-                <Field label={tt(T.estCost)} value={fmtMoney(selected.estimated_cost)} />
-                <Field label={tt(T.actCost)} value={fmtMoney(selected.actual_cost)} />
-                <Field label={tt(T.due)} value={selected.due_date || "—"} highlight={isOverdue(selected)} />
-              </div>
-
-              {selected.description_fa && isFa && <p style={{ marginTop: 12, fontSize: 13, color: C.inkDim, lineHeight: 1.7 }}>{selected.description_fa}</p>}
-
-              <div style={{ marginTop: 14 }}>
-                <label style={{ fontSize: 12, color: C.inkDim }}>{tt(T.changeStatus)}</label>
-                <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
-                  <select value={selected.status} onChange={(e) => changeStatus(selected.id, e.target.value)} style={selectStyle}>
-                    {STATUSES.map((s) => <option key={s.key} value={s.key}>{tt(s)}</option>)}
-                  </select>
-                </div>
-              </div>
-            </div>
-
-            {/* Tabs */}
-            <div style={{ display: "flex", borderBottom: `1px solid ${C.paperDim}` }}>
-              {["timeline", "files", "comments", "cost"].map((k) => (
-                <button key={k} onClick={() => setDetailTab(k)}
-                  style={{
-                    flex: 1, padding: "10px 0", fontSize: 12, background: "none", cursor: "pointer",
-                    border: "none", borderBottom: detailTab === k ? `2px solid ${C.copper}` : "2px solid transparent",
-                    color: detailTab === k ? C.ink : C.inkDim, fontWeight: detailTab === k ? 600 : 400,
-                  }}>
-                  {tt(T.detailTabs[k])}
-                </button>
-              ))}
-            </div>
-
-            <div style={{ padding: 20 }}>
-              {detailTab === "timeline" && (
-                <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-                  {(history[selected.id] || []).map((h, i) => {
-                    const st = statusOf(h.status);
-                    return (
-                      <div key={i} style={{ display: "flex", gap: 10 }}>
-                        <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
-                          <span style={{ width: 9, height: 9, borderRadius: 999, background: st.color }} />
-                          {i < (history[selected.id] || []).length - 1 && <span style={{ width: 1, flex: 1, background: C.paperDim, marginTop: 2 }} />}
-                        </div>
-                        <div style={{ paddingBottom: 12 }}>
-                          <div style={{ fontSize: 13, fontWeight: 600 }}>{tt(st)}</div>
-                          {h.note_fa && isFa && <div style={{ fontSize: 12, color: C.inkDim, marginTop: 2 }}>{h.note_fa}</div>}
-                          <div style={{ fontSize: 11, color: C.inkDim, marginTop: 2 }}>{h.by} · {h.at}</div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                  {!(history[selected.id] || []).length && <Empty icon={Clock} text={isFa ? "بدون تاریخچه" : "No history yet"} />}
-                </div>
-              )}
-
-              {detailTab === "files" && (
-                <div>
-                  <label style={{ ...btnGhostLight, display: "inline-flex", cursor: "pointer" }}>
-                    <Upload size={14} /> {tt(T.uploadFile)}
-                    <input type="file" style={{ display: "none" }} onChange={(e) => addDocument(selected.id, e.target.files[0])} />
-                  </label>
-                  <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 8 }}>
-                    {(documents[selected.id] || []).map((d, i) => (
-                      <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, padding: "8px 10px", background: C.paper, borderRadius: 8 }}>
-                        <Paperclip size={14} color={C.inkDim} />
-                        <span className="mono" style={{ flex: 1 }}>{d.name}</span>
-                        <span style={{ fontSize: 11, color: C.inkDim }}>{d.by} · {d.at}</span>
-                      </div>
-                    ))}
-                    {!(documents[selected.id] || []).length && <Empty icon={FileText} text={tt(T.noFiles)} />}
-                  </div>
-                </div>
-              )}
-
-              {detailTab === "comments" && (
-                <CommentBox
-                  items={comments[selected.id] || []}
-                  onAdd={(text) => addComment(selected.id, text)}
-                  isFa={isFa} T={T}
-                />
-              )}
-
-              {detailTab === "cost" && (
-                <CostBox
-                  items={costs[selected.id] || []}
-                  onAdd={(item) => addCost(selected.id, item)}
-                  isFa={isFa} T={T}
-                />
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Create form modal */}
-      {showForm && (
-        <FormModal
-          onClose={() => setShowForm(false)}
-          onSubmit={createProject}
-          isFa={isFa} T={T}
-        />
-      )}
-
-      {/* Toast */}
-      {toast && (
-        <div style={{ position: "fixed", bottom: 20, [isFa ? "right" : "left"]: 20, background: C.graphite900, color: "#fff", padding: "10px 16px", borderRadius: 10, fontSize: 13, display: "flex", gap: 8, alignItems: "center", zIndex: 60 }}>
-          <CheckCircle2 size={15} color={C.greenLight} /> {toast}
-        </div>
-      )}
-    </div>
-  );
+    {modal?.type==='accept' && <AcceptModal order={modal.order} templates={data.templates} busy={busy} onClose={()=>setModal(null)} onSubmit={(payload)=>runAction(()=>acceptRndOrder(payload),'سفارش وارد R&D شد.')}/>} 
+    {modal?.type==='internal' && <InternalProjectModal templates={data.templates} busy={busy} onClose={()=>setModal(null)} onSubmit={(payload)=>runAction(()=>createInternalRndProject(payload),'پروژه داخلی R&D ثبت شد.')}/>} 
+    {modal?.type==='cost' && <CostModal project={modal.project || selected} stock={data.stock} busy={busy} onClose={()=>setModal(null)} onSubmit={(payload)=>runAction(()=>saveRndCost(payload),'هزینه R&D ثبت شد.')}/>} 
+    {modal?.type==='test' && <TestModal project={modal.project || selected} projects={data.projects} stages={data.stages} busy={busy} onClose={()=>setModal(null)} onSubmit={(payload)=>runAction(()=>saveRndTest(payload),'تست R&D ثبت شد.')}/>} 
+  </div>;
 }
 
-/* ------------------------------------------------------------------ */
-/*  Small pieces                                                       */
-/* ------------------------------------------------------------------ */
-
-function ProjectCard({ p, isFa, onClick }) {
-  const ot = OUTPUT_TYPES[p.output_type];
-  const st = statusOf(p.status);
-  const overdue = isOverdue(p);
-  return (
-    <div className="card" onClick={onClick} style={{
-      background: "#fff", borderRadius: 12, padding: 12, cursor: "pointer",
-      borderInlineStart: `4px solid ${ot.color}`, border: `1px solid ${C.paperDim}`, borderInlineStartWidth: 4,
-    }}>
-      <div className="mono" style={{ fontSize: 11, color: C.inkDim }}>{p.code}</div>
-      <div style={{ fontSize: 13, fontWeight: 600, margin: "4px 0 8px", lineHeight: 1.5 }}>{isFa ? p.title_fa : p.title_en}</div>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 11, color: C.inkDim }}>
-        <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-          {p.priority === 1 && <Flag size={12} color={C.red} />}
-          <Calendar size={12} />
-          <span style={{ color: overdue ? C.red : C.inkDim }}>{p.due_date || "—"}</span>
-        </span>
-        <span>{p.assigned ? p.assigned.split(" ")[0] : "—"}</span>
-      </div>
-    </div>
-  );
-}
-
-function Pill({ color, text }) {
-  return (
-    <span style={{ fontSize: 11, padding: "3px 9px", borderRadius: 999, background: color + "22", color, fontWeight: 600, whiteSpace: "nowrap" }}>
-      {text}
-    </span>
-  );
-}
-
-function Field({ label, value, mono, highlight }) {
-  return (
-    <div>
-      <div style={{ fontSize: 11, color: C.inkDim }}>{label}</div>
-      <div className={mono ? "mono" : ""} style={{ fontSize: 13, fontWeight: 600, color: highlight ? C.red : C.ink }}>{value}</div>
-    </div>
-  );
-}
-
-function Empty({ icon: Icon, text }) {
-  return (
-    <div style={{ textAlign: "center", padding: "24px 0", color: C.inkDim }}>
-      <Icon size={22} style={{ marginBottom: 6, opacity: .5 }} />
-      <div style={{ fontSize: 12 }}>{text}</div>
-    </div>
-  );
-}
-
-function CommentBox({ items, onAdd, isFa, T }) {
-  const [text, setText] = useState("");
-  return (
-    <div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 14 }}>
-        {items.map((c, i) => (
-          <div key={i} style={{ background: C.paper, borderRadius: 10, padding: 10 }}>
-            <div style={{ fontSize: 13 }}>{c.text}</div>
-            <div style={{ fontSize: 11, color: C.inkDim, marginTop: 4 }}>{c.by} · {c.at}</div>
-          </div>
-        ))}
-        {!items.length && <Empty icon={MessageSquare} text={T.noComments[isFa ? "fa" : "en"]} />}
-      </div>
-      <div style={{ display: "flex", gap: 8 }}>
-        <input value={text} onChange={(e) => setText(e.target.value)} placeholder={T.addNote[isFa ? "fa" : "en"]} style={{ ...selectStyle, flex: 1 }} />
-        <button onClick={() => { onAdd(text); setText(""); }} style={btnPrimary}>{T.send[isFa ? "fa" : "en"]}</button>
-      </div>
-    </div>
-  );
-}
-
-function CostBox({ items, onAdd, isFa, T }) {
-  const [desc, setDesc] = useState("");
-  const [amount, setAmount] = useState("");
-  return (
-    <div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 14 }}>
-        {items.map((c, i) => (
-          <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "8px 10px", background: C.paper, borderRadius: 8 }}>
-            <span>{c.desc}</span>
-            <span className="mono" style={{ fontWeight: 600 }}>{fmtMoney(c.amount)}</span>
-          </div>
-        ))}
-        {!items.length && <Empty icon={DollarSign} text={isFa ? "هنوز هزینه‌ای ثبت نشده." : "No cost items yet."} />}
-      </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        <input value={desc} onChange={(e) => setDesc(e.target.value)} placeholder={T.desc[isFa ? "fa" : "en"]} style={selectStyle} />
-        <div style={{ display: "flex", gap: 8 }}>
-          <input value={amount} onChange={(e) => setAmount(e.target.value)} placeholder={T.amount[isFa ? "fa" : "en"]} type="number" style={{ ...selectStyle, flex: 1 }} />
-          <button onClick={() => { if (desc && amount) { onAdd({ desc, amount: Number(amount), type: "other" }); setDesc(""); setAmount(""); } }} style={btnPrimary}>{T.add[isFa ? "fa" : "en"]}</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function FormModal({ onClose, onSubmit, isFa, T }) {
-  const [data, setData] = useState({ output_type: "transformer_sample", priority: 2 });
-  const set = (k, v) => setData((d) => ({ ...d, [k]: v }));
-  return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <div onClick={onClose} style={{ position: "absolute", inset: 0, background: "rgba(20,24,28,.45)" }} />
-      <div style={{ position: "relative", background: "#fff", borderRadius: 16, padding: 24, width: "min(480px, 92vw)", maxHeight: "88vh", overflowY: "auto" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>{T.form.heading[isFa ? "fa" : "en"]}</h3>
-          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: C.inkDim }}><X size={18} /></button>
-        </div>
-
-        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          <LabeledInput label={T.form.titleFa[isFa ? "fa" : "en"]} onChange={(v) => set("title_fa", v)} />
-          <LabeledInput label={T.form.titleEn[isFa ? "fa" : "en"]} onChange={(v) => set("title_en", v)} />
-
-          <div>
-            <label style={labelStyle}>{T.outputType[isFa ? "fa" : "en"]}</label>
-            <select value={data.output_type} onChange={(e) => set("output_type", e.target.value)} style={selectStyle}>
-              {Object.entries(OUTPUT_TYPES).map(([k, v]) => <option key={k} value={k}>{v[isFa ? "fa" : "en"]}</option>)}
-            </select>
-          </div>
-
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-            <LabeledInput label={T.form.orderCode[isFa ? "fa" : "en"]} onChange={(v) => set("order_code", v)} />
-            <div>
-              <label style={labelStyle}>{T.form.priority[isFa ? "fa" : "en"]}</label>
-              <select value={data.priority} onChange={(e) => set("priority", e.target.value)} style={selectStyle}>
-                {T.form.priorityOpts.map((o) => <option key={o.v} value={o.v}>{o[isFa ? "fa" : "en"]}</option>)}
-              </select>
-            </div>
-          </div>
-
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-            <LabeledInput label={T.estCost[isFa ? "fa" : "en"]} type="number" onChange={(v) => set("estimated_cost", v)} />
-            <LabeledInput label={T.due[isFa ? "fa" : "en"]} type="date" onChange={(v) => set("due_date", v)} />
-          </div>
-
-          <div>
-            <label style={labelStyle}>{T.form.description[isFa ? "fa" : "en"]}</label>
-            <textarea rows={3} onChange={(e) => set("description_fa", e.target.value)} style={{ ...selectStyle, resize: "vertical" }} />
-          </div>
-
-          <div style={{ display: "flex", gap: 10, marginTop: 6 }}>
-            <button onClick={onClose} style={btnGhostLight}>{T.form.cancel[isFa ? "fa" : "en"]}</button>
-            <button
-              disabled={!data.title_fa}
-              onClick={() => onSubmit(data)}
-              style={{ ...btnPrimary, flex: 1, justifyContent: "center", opacity: data.title_fa ? 1 : .5 }}>
-              {T.form.submit[isFa ? "fa" : "en"]}
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function LabeledInput({ label, onChange, type = "text" }) {
-  const [dateValue, setDateValue] = useState("");
-  if (type === "date") {
-    return (
-      <div>
-        <label style={labelStyle}>{label}</label>
-        <JalaliDateInput value={dateValue} onChange={(value) => { setDateValue(value); onChange(value); }} style={selectStyle} />
-      </div>
-    );
-  }
-  return (
-    <div>
-      <label style={labelStyle}>{label}</label>
-      <input type={type} onChange={(e) => onChange(e.target.value)} style={selectStyle} />
-    </div>
-  );
-}
-
-/* ------------------------------------------------------------------ */
-/*  Shared inline styles                                                */
-/* ------------------------------------------------------------------ */
-
-const btnPrimary = {
-  display: "inline-flex", alignItems: "center", gap: 6, background: C.copper, color: "#fff",
-  border: "none", borderRadius: 10, padding: "9px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit",
-};
-const btnGhost = {
-  display: "inline-flex", alignItems: "center", gap: 6, background: "transparent", color: "#fff",
-  border: `1px solid ${C.graphiteLine}`, borderRadius: 10, padding: "8px 12px", fontSize: 13, cursor: "pointer", fontFamily: "inherit",
-};
-const btnGhostLight = {
-  display: "inline-flex", alignItems: "center", gap: 6, background: "#fff", color: C.ink,
-  border: `1px solid ${C.paperDim}`, borderRadius: 10, padding: "9px 14px", fontSize: 13, cursor: "pointer", fontFamily: "inherit",
-};
-const toggleBtn = (active) => ({
-  display: "flex", alignItems: "center", gap: 6, padding: "7px 12px", borderRadius: 8, border: "none", cursor: "pointer",
-  background: active ? "#fff" : "transparent", color: active ? C.ink : "#9BA6AF", fontSize: 12, fontWeight: 600, fontFamily: "inherit",
-});
-const selectStyle = {
-  width: "100%", padding: "9px 10px", borderRadius: 8, border: `1px solid ${C.paperDim}`, fontSize: 13, fontFamily: "inherit", background: "#fff",
-};
-const labelStyle = { fontSize: 12, color: C.inkDim, marginBottom: 4, display: "block" };
+function Overview({ kpis, projects, incoming, setTab, onSelect }) { const active=projects.filter(p=>!['approved','sent_to_production','archived','rejected'].includes(p.status)).slice(0,6); return <><section className="rnd-kpis"><Kpi icon="📥" label="در انتظار تأیید" value={kpis.incoming} warning/><Kpi icon="🔬" label="فعال" value={kpis.active}/><Kpi icon="⚠️" label="عقب‌افتاده" value={kpis.late} danger/><Kpi icon="🧪" label="تست نیازمند توجه" value={kpis.tests} danger/><Kpi icon="💰" label="هزینه کل" value={formatMoney(kpis.cost)} success/></section><div className="rnd-grid two"><section className="rnd-card"><CardTitle icon={CheckCircle2} title="سفارش‌های آماده R&D" action={<button onClick={()=>setTab('incoming')}>تأیید سفارش</button>}/>{incoming.length?<div className="rnd-timeline">{incoming.slice(0,7).map(o=><article key={o.order_id}><strong>{o.order_code} · {o.customer_name}</strong><small>{o.title_fa} · موعد {formatDate(o.expected_delivery_date)}</small></article>)}</div>:<Empty text="سفارش R&D جدیدی نرسیده است."/>}</section><section className="rnd-card"><CardTitle icon={FlaskConical} title="پروژه‌های فعال" action={<button onClick={()=>setTab('flow')}>مراحل پروژه</button>}/>{active.length?<div className="rnd-timeline">{active.map(p=><button key={p.id} className="active-rnd" onClick={()=>onSelect(p.id)}><span><b>{p.code}</b><small>{p.title_fa} · {p.current_stage_name_fa||'—'}</small></span><Status status={p.delivery_status}/></button>)}</div>:<Empty/>}</section></div></> }
+function IncomingOrders({orders,templates,busy,onAccept}){return <section className="rnd-card"><CardTitle icon={CheckCircle2} title="تأیید سفارش‌های R&D رسیده از سفارش‌ها" />{orders.length===0?<Empty text="سفارش جدیدی برای R&D وجود ندارد."/>:<div className="rnd-table-wrap"><table><thead><tr><th>کد سفارش</th><th>مشتری</th><th>عنوان</th><th>موعد</th><th>اقلام</th><th>اولویت</th><th>عملیات</th></tr></thead><tbody>{orders.map(o=><tr key={o.order_id}><td dir="ltr">{o.order_code}</td><td>{o.customer_name}</td><td>{o.title_fa}</td><td>{formatDate(o.expected_delivery_date)}</td><td>{formatNumber(o.item_count)} قلم / {formatNumber(o.total_quantity)}</td><td>{priorityText(o.priority)}</td><td><button disabled={busy} onClick={()=>onAccept(o)}>تأیید و ورود به R&D</button></td></tr>)}</tbody></table></div>}</section>}
+function FlowSection({projects,stages,selected,selectedStages,selectedCosts,selectedTests,selectedSummary,query,setQuery,busy,onSelect,onClose,onSetStage,onCost,onTest,onExport,onPrint}){return <section className="rnd-card rnd-flow-workspace"><div className="flow-section-head"><div><CardTitle icon={ListChecks} title="مراحل پروژه R&D"/><p className="muted">نمای خطی پروژه‌ها مثل سفارش‌ها؛ مرحله فعلی، پیشرفت، هزینه و تست.</p></div><div className="filters"><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="جست‌وجوی پروژه، مشتری، کد..."/><button onClick={onExport}>Excel</button><button onClick={onPrint}>PDF</button></div></div>{projects.length===0?<Empty/>:<div className="rnd-flow-list">{projects.map(p=>{const ps=stages.filter(s=>s.rnd_project_id===p.id).sort((a,b)=>Number(a.order_index)-Number(b.order_index));return <article key={p.id} className="rnd-flow-card"><div className="flow-card-top"><div><h3>{p.code} · {p.title_fa}</h3><small>{p.customer_name||p.requester_name||'داخلی'} · مرحله فعلی: {p.current_stage_name_fa||'—'}</small></div><div className="flow-badges"><Status status={p.delivery_status}/><span>{STATUS_LABELS[p.status]||p.status}</span></div></div><div className="advanced-progress"><span style={{width:`${Number(p.progress_percent||0)}%`}}/></div><div className="flow-progress-note">پیشرفت: {formatNumber(p.progress_percent)}٪ · هزینه: {formatMoney(p.actual_total_cost)} · نفرساعت: {p.total_man_hours||'—'}</div><div className="stage-stepper">{ps.map((s,i)=><div key={s.id} className={`stage-step ${s.status}`}><div className="stage-dot">{s.status==='completed'?'✓':i+1}</div><small>{stageName(s)}</small></div>)}</div><div className="rnd-flow-footer"><div className="dueBox"><span>{daysText(p.days_to_delivery,p.delivery_status)}</span><b>تا موعد R&D</b><small>{formatDate(p.planned_end)}</small></div><button onClick={()=>onSelect(p.id)}>جزئیات و عملیات</button></div></article>})}</div>}{selected&&<div className="rnd-drawer-backdrop" onMouseDown={e=>e.target===e.currentTarget&&onClose()}><aside className="rnd-detail-drawer"><RndDetail project={selected} stages={selectedStages} costs={selectedCosts} tests={selectedTests} summary={selectedSummary} busy={busy} onClose={onClose} onSetStage={onSetStage} onCost={onCost} onTest={onTest}/></aside></div>}</section>}
+function RndDetail({project,stages,costs,tests,summary,busy,onClose,onSetStage,onCost,onTest}){return <section className="rnd-card detail-card"><CardTitle icon={FileText} title={`جزئیات ${project.code}`} action={<button onClick={onClose}>بستن ×</button>}/><div className="detail-mini-grid"><Info label="درخواست‌کننده" value={project.customer_name||project.requester_name||'داخلی'}/><Info label="وضعیت" value={STATUS_LABELS[project.status]||project.status}/><Info label="مرحله" value={project.current_stage_name_fa}/><Info label="پیشرفت" value={`${formatNumber(project.progress_percent)}٪`}/><Info label="هزینه" value={formatMoney(summary?.total_cost||project.actual_total_cost)}/><Info label="نفرساعت" value={summary?.total_hours||project.total_man_hours}/></div><div className="detail-actions"><button onClick={()=>onCost(project)}>ثبت هزینه</button><button onClick={()=>onTest(project)}>ثبت تست</button></div><section className="detail-block"><h3>مراحل پروژه</h3><div className="stage-buttons">{stages.map(s=><button key={s.id} disabled={busy} className={s.status} onClick={()=>onSetStage(s,s.status==='completed'?'in_progress':'completed')}>{s.order_index}. {stageName(s)} · {STAGE_STATUS_LABELS[s.status]||s.status}</button>)}</div></section><section className="detail-block"><h3>هزینه‌ها</h3>{costs.length?<div className="rnd-table-wrap"><table><tbody>{costs.map(c=><tr key={c.id}><td>{COST_TYPE_LABELS[c.cost_type]||c.cost_type}</td><td>{c.title_fa}</td><td>{formatNumber(c.quantity)} {c.unit}</td><td>{formatMoney(c.total_cost)}</td><td>{c.hours||'—'} ساعت</td></tr>)}</tbody></table></div>:<p className="muted">هزینه‌ای ثبت نشده است.</p>}</section><section className="detail-block"><h3>تست‌ها</h3>{tests.length?<div className="rnd-timeline compact">{tests.map(t=><article key={t.id}><strong>{t.test_title} · {TEST_LABELS[t.result]||t.result}</strong><small>{formatDateTime(t.tested_at)} · {t.result_notes||''}</small></article>)}</div>:<p className="muted">تستی ثبت نشده است.</p>}</section><SharedFilesPanel compact sourceModule="rnd" relatedRecordId={project.id} /></section>}
+function ProjectsList({projects,query,setQuery,onSelect,onExport,onPrint}){return <section className="rnd-card"><div className="section-head"><CardTitle icon={ClipboardList} title="لیست کامل پروژه‌های R&D"/><div><button onClick={onExport}>Excel</button><button onClick={onPrint}>PDF</button></div></div><div className="filters"><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="جست‌وجو..."/></div><div className="rnd-table-wrap"><table><thead><tr><th>کد</th><th>عنوان</th><th>درخواست‌کننده</th><th>وضعیت</th><th>مرحله</th><th>پیشرفت</th><th>هزینه</th><th>عملیات</th></tr></thead><tbody>{projects.map(p=><tr key={p.id}><td dir="ltr">{p.code}</td><td>{p.title_fa}</td><td>{p.customer_name||p.requester_name||'داخلی'}</td><td>{STATUS_LABELS[p.status]||p.status}</td><td>{p.current_stage_name_fa||'—'}</td><td>{formatNumber(p.progress_percent)}٪</td><td>{formatMoney(p.actual_total_cost)}</td><td><button onClick={()=>onSelect(p.id)}>جزئیات</button></td></tr>)}</tbody></table></div></section>}
+function CostsSection({projects,costs,summary,stock,busy,onAdd,onDelete}){const projectById=Object.fromEntries(projects.map(p=>[p.id,p]));return <section className="rnd-card"><CardTitle icon={DollarSign} title="هزینه‌های پروژه‌ها"/>{costs.length===0?<Empty/>:<div className="rnd-table-wrap"><table><thead><tr><th>پروژه</th><th>نوع</th><th>شرح</th><th>تعداد</th><th>قیمت</th><th>جمع</th><th>ساعت</th><th>عملیات</th></tr></thead><tbody>{costs.map(c=><tr key={c.id}><td>{projectById[c.rnd_project_id]?.code||'—'}</td><td>{COST_TYPE_LABELS[c.cost_type]}</td><td>{c.title_fa}</td><td>{formatNumber(c.quantity)} {c.unit}</td><td>{formatMoney(c.unit_cost)}</td><td>{formatMoney(c.total_cost)}</td><td>{c.hours||'—'}</td><td><button disabled={busy} onClick={()=>onDelete(c)}>حذف</button></td></tr>)}</tbody></table></div>}<div className="cost-projects">{projects.slice(0,8).map(p=><button key={p.id} onClick={()=>onAdd(p)}>＋ هزینه برای {p.code}</button>)}</div></section>}
+function TestsSection({tests,projects,stages,onNew}){const projectById=Object.fromEntries(projects.map(p=>[p.id,p]));return <section className="rnd-card"><div className="section-head"><CardTitle icon={TestTube2} title="تست‌های R&D"/><button onClick={()=>onNew()}>＋ ثبت تست</button></div>{tests.length===0?<Empty/>:<div className="rnd-table-wrap"><table><thead><tr><th>پروژه</th><th>عنوان تست</th><th>نوع</th><th>نتیجه</th><th>مدت</th><th>شرایط</th><th>شرح نتیجه</th><th>تاریخ</th></tr></thead><tbody>{tests.map(t=><tr key={t.id}><td>{projectById[t.rnd_project_id]?.code||'—'}</td><td>{t.test_title}</td><td>{t.test_type||'—'}</td><td>{TEST_LABELS[t.result]||t.result}</td><td>{t.test_duration_hours||'—'}</td><td>{t.test_conditions||'—'}</td><td>{t.result_notes||'—'}</td><td>{formatDateTime(t.tested_at)}</td></tr>)}</tbody></table></div>}</section>}
+function SettingsSection({templates,steps,busy,onCreateTemplate,onUpdateTemplate,onCreateStep,onUpdateStep}){const [selectedId,setSelectedId]=useState(templates[0]?.id||'');const [newTemplate,setNewTemplate]=useState({nameFa:'',projectType:'custom',stageCount:6});const [newStep,setNewStep]=useState({stage_key:'',stage_name_fa:'',stage_order:1,responsible_role:'rnd'});const selected=templates.find(t=>t.id===selectedId)||templates[0];const selectedSteps=steps.filter(s=>s.template_id===selected?.id).sort((a,b)=>Number(a.stage_order)-Number(b.stage_order));function submitTemplate(e){e.preventDefault();if(newTemplate.nameFa.trim())onCreateTemplate(newTemplate);setNewTemplate({nameFa:'',projectType:'custom',stageCount:6})}function submitStep(e){e.preventDefault();if(!selected||!newStep.stage_key||!newStep.stage_name_fa)return;onCreateStep({template_id:selected.id,stage_key:newStep.stage_key,stage_order:Number(newStep.stage_order||selectedSteps.length+1),stage_name_fa:newStep.stage_name_fa,stage_name_en:newStep.stage_key,responsible_role:newStep.responsible_role||null,is_active:true});setNewStep({stage_key:'',stage_name_fa:'',stage_order:selectedSteps.length+2,responsible_role:'rnd'})}return <section className="rnd-card configurable-stages"><CardTitle icon={Settings} title="تنظیم قالب‌ها و مراحل R&D"/><p className="muted">قالب‌های R&D با ۴ تا ۱۵ مرحله قابل ساخت و ویرایش هستند.</p><form className="new-template-form" onSubmit={submitTemplate}><input value={newTemplate.nameFa} onChange={e=>setNewTemplate({...newTemplate,nameFa:e.target.value})} placeholder="نام قالب جدید R&D"/><select value={newTemplate.projectType} onChange={e=>setNewTemplate({...newTemplate,projectType:e.target.value})}>{Object.entries(PROJECT_TYPE_LABELS).map(([k,v])=><option key={k} value={k}>{v}</option>)}</select><select value={newTemplate.stageCount} onChange={e=>setNewTemplate({...newTemplate,stageCount:Number(e.target.value)})}>{Array.from({length:12}).map((_,i)=><option key={i+4} value={i+4}>{i+4} مرحله</option>)}</select><button disabled={busy} type="submit">＋ ساخت قالب</button></form><div className="template-settings-grid"><aside className="template-list-panel"><h3>قالب‌های R&D</h3>{templates.map(t=><button key={t.id} className={selected?.id===t.id?'active':''} onClick={()=>setSelectedId(t.id)}><b>{t.name_fa}</b><span>{PROJECT_TYPE_LABELS[t.project_type]||t.project_type} · {t.is_active?'فعال':'غیرفعال'} · {steps.filter(s=>s.template_id===t.id&&s.is_active).length} مرحله</span></button>)}</aside><div className="template-editor-panel">{selected&&<><div className="template-editor-head"><div><h3>{selected.name_fa}</h3><p>{PROJECT_TYPE_LABELS[selected.project_type]||selected.project_type}</p></div><button onClick={()=>onUpdateTemplate(selected.id,{is_active:!selected.is_active})}>{selected.is_active?'غیرفعال کردن':'فعال کردن'}</button></div><div className="stage-preview-line">{selectedSteps.filter(s=>s.is_active).map((s,i)=><span key={s.id}><i>{i+1}</i>{s.stage_name_fa}</span>)}</div><div className="rnd-table-wrap"><table><thead><tr><th>ترتیب</th><th>کلید</th><th>نام مرحله</th><th>مسئول</th><th>مواد</th><th>تست</th><th>فعال</th><th>ذخیره</th></tr></thead><tbody>{selectedSteps.map(s=><StepRow key={s.id} step={s} busy={busy} onSave={onUpdateStep}/>)}</tbody></table></div><form className="add-stage-form" onSubmit={submitStep}><input dir="ltr" value={newStep.stage_key} onChange={e=>setNewStep({...newStep,stage_key:e.target.value.replace(/\s+/g,'_')})} placeholder="stage_key"/><input value={newStep.stage_name_fa} onChange={e=>setNewStep({...newStep,stage_name_fa:e.target.value})} placeholder="نام مرحله"/><input type="number" value={newStep.stage_order} onChange={e=>setNewStep({...newStep,stage_order:e.target.value})}/><select value={newStep.responsible_role} onChange={e=>setNewStep({...newStep,responsible_role:e.target.value})}><option value="rnd">R&D</option><option value="production">تولید</option><option value="warehouse">انبار</option><option value="accountant">مالی</option></select><button type="submit">افزودن مرحله</button></form></>}</div></div></section>}
+function StepRow({step,busy,onSave}){const [row,setRow]=useState({...step});return <tr><td><input type="number" value={row.stage_order} onChange={e=>setRow({...row,stage_order:e.target.value})}/></td><td dir="ltr">{step.stage_key}</td><td><input value={row.stage_name_fa} onChange={e=>setRow({...row,stage_name_fa:e.target.value})}/></td><td><select value={row.responsible_role||''} onChange={e=>setRow({...row,responsible_role:e.target.value||null})}><option value="rnd">R&D</option><option value="production">تولید</option><option value="warehouse">انبار</option><option value="accountant">مالی</option></select></td><td><input type="checkbox" checked={row.requires_material} onChange={e=>setRow({...row,requires_material:e.target.checked})}/></td><td><input type="checkbox" checked={row.requires_test} onChange={e=>setRow({...row,requires_test:e.target.checked})}/></td><td><input type="checkbox" checked={row.is_active} onChange={e=>setRow({...row,is_active:e.target.checked})}/></td><td><button disabled={busy} onClick={()=>onSave(step.id,{stage_order:Number(row.stage_order),stage_name_fa:row.stage_name_fa,responsible_role:row.responsible_role||null,requires_material:row.requires_material,requires_test:row.requires_test,is_active:row.is_active})}>ذخیره</button></td></tr>}
+function AcceptModal({order,templates,busy,onClose,onSubmit}){const active=templates.filter(t=>t.is_active);const [form,setForm]=useState({templateId:active[0]?.id||'',titleFa:order.title_fa||'',requesterName:order.customer_name||'',notes:''});return <Modal title="تأیید سفارش برای R&D" onClose={onClose}><form onSubmit={e=>{e.preventDefault();onSubmit({orderId:order.order_id,...form})}}><div className="form-grid"><label><span>سفارش</span><input readOnly value={`${order.order_code} · ${order.customer_name}`}/></label><label><span>قالب R&D</span><select value={form.templateId} onChange={e=>setForm({...form,templateId:e.target.value})}>{active.map(t=><option key={t.id} value={t.id}>{t.name_fa}</option>)}</select></label><label><span>عنوان پروژه</span><input value={form.titleFa} onChange={e=>setForm({...form,titleFa:e.target.value})} required/></label><label><span>درخواست‌کننده</span><input value={form.requesterName} onChange={e=>setForm({...form,requesterName:e.target.value})}/></label><label className="full"><span>یادداشت</span><textarea value={form.notes} onChange={e=>setForm({...form,notes:e.target.value})}/></label></div><div className="modal-actions"><button type="button" onClick={onClose}>انصراف</button><button disabled={busy} type="submit">تأیید و ورود به R&D</button></div></form></Modal>}
+function InternalProjectModal({templates,busy,onClose,onSubmit}){const active=templates.filter(t=>t.is_active);const [form,setForm]=useState({templateId:active[0]?.id||'',titleFa:'',requesterName:'داخلی',requirements:'',notes:''});return <Modal title="پروژه داخلی R&D" onClose={onClose}><form onSubmit={e=>{e.preventDefault();onSubmit(form)}}><div className="form-grid"><label><span>عنوان پروژه</span><input value={form.titleFa} onChange={e=>setForm({...form,titleFa:e.target.value})} required/></label><label><span>قالب R&D</span><select value={form.templateId} onChange={e=>setForm({...form,templateId:e.target.value})}>{active.map(t=><option key={t.id} value={t.id}>{t.name_fa}</option>)}</select></label><label><span>درخواست‌کننده</span><input value={form.requesterName} onChange={e=>setForm({...form,requesterName:e.target.value})}/></label><label className="full"><span>نیازمندی</span><textarea value={form.requirements} onChange={e=>setForm({...form,requirements:e.target.value})}/></label><label className="full"><span>یادداشت فنی</span><textarea value={form.notes} onChange={e=>setForm({...form,notes:e.target.value})}/></label></div><div className="modal-actions"><button type="button" onClick={onClose}>انصراف</button><button disabled={busy} type="submit">ثبت پروژه داخلی</button></div></form></Modal>}
+function CostModal({project,stock,busy,onClose,onSubmit}){const [form,setForm]=useState({rnd_project_id:project?.id||'',cost_type:'labor',warehouse_item_id:'',title_fa:'نفرساعت طراحی',quantity:1,unit:'ساعت',unit_cost:0,hours:1,note:''});function selectStock(id){const item=stock.find(s=>s.item_id===id);setForm({...form,warehouse_item_id:id,title_fa:item?.item_name_fa||form.title_fa,unit:item?.unit||form.unit,unit_cost:item?.unit_price_estimate||form.unit_cost})}return <Modal title="ثبت هزینه R&D" onClose={onClose}><form onSubmit={e=>{e.preventDefault();onSubmit({projectId:form.rnd_project_id,item:form})}}><div className="form-grid"><label><span>پروژه</span><input readOnly value={project?.code||'—'}/></label><label><span>نوع هزینه</span><select value={form.cost_type} onChange={e=>setForm({...form,cost_type:e.target.value})}>{Object.entries(COST_TYPE_LABELS).map(([k,v])=><option key={k} value={k}>{v}</option>)}</select></label><label><span>کالا از انبار</span><select value={form.warehouse_item_id} onChange={e=>selectStock(e.target.value)}><option value="">بدون کالا</option>{stock.map(s=><option key={s.item_id} value={s.item_id}>{s.item_code} · {s.item_name_fa}</option>)}</select></label><label><span>شرح</span><input value={form.title_fa} onChange={e=>setForm({...form,title_fa:e.target.value})} required/></label><label><span>تعداد</span><input type="number" value={form.quantity} onChange={e=>setForm({...form,quantity:e.target.value})}/></label><label><span>واحد</span><input value={form.unit} onChange={e=>setForm({...form,unit:e.target.value})}/></label><label><span>قیمت واحد ریال</span><input type="number" value={form.unit_cost} onChange={e=>setForm({...form,unit_cost:e.target.value})}/></label><label><span>ساعت مصرفی</span><input type="number" value={form.hours} onChange={e=>setForm({...form,hours:e.target.value})}/></label><label className="full"><span>یادداشت</span><textarea value={form.note} onChange={e=>setForm({...form,note:e.target.value})}/></label></div><div className="modal-actions"><button type="button" onClick={onClose}>انصراف</button><button disabled={busy} type="submit">ثبت هزینه</button></div></form></Modal>}
+function TestModal({project,projects,stages,busy,onClose,onSubmit}){const projectId=project?.id||projects[0]?.id||'';const [form,setForm]=useState({rnd_project_id:projectId,stage_id:'',test_title:'تست نمونه',test_type:'functional',result:'pending',quantity_tested:'',test_duration_hours:'',test_conditions:'',result_notes:''});const projectStages=stages.filter(s=>s.rnd_project_id===form.rnd_project_id);return <Modal title="ثبت تست R&D" onClose={onClose}><form onSubmit={e=>{e.preventDefault();onSubmit(form)}}><div className="form-grid"><label><span>پروژه</span><select value={form.rnd_project_id} onChange={e=>setForm({...form,rnd_project_id:e.target.value,stage_id:''})}>{projects.map(p=><option key={p.id} value={p.id}>{p.code} · {p.title_fa}</option>)}</select></label><label><span>مرحله</span><select value={form.stage_id} onChange={e=>setForm({...form,stage_id:e.target.value})}><option value="">بدون مرحله</option>{projectStages.map(s=><option key={s.id} value={s.id}>{s.order_index}. {stageName(s)}</option>)}</select></label><label><span>عنوان تست</span><input value={form.test_title} onChange={e=>setForm({...form,test_title:e.target.value})} required/></label><label><span>نوع تست</span><input value={form.test_type} onChange={e=>setForm({...form,test_type:e.target.value})}/></label><label><span>نتیجه</span><select value={form.result} onChange={e=>setForm({...form,result:e.target.value})}>{Object.entries(TEST_LABELS).map(([k,v])=><option key={k} value={k}>{v}</option>)}</select></label><label><span>تعداد تست</span><input type="number" value={form.quantity_tested} onChange={e=>setForm({...form,quantity_tested:e.target.value})}/></label><label><span>مدت تست ساعت</span><input type="number" value={form.test_duration_hours} onChange={e=>setForm({...form,test_duration_hours:e.target.value})}/></label><label className="full"><span>شرایط تست</span><textarea value={form.test_conditions} onChange={e=>setForm({...form,test_conditions:e.target.value})}/></label><label className="full"><span>نتیجه و توضیحات</span><textarea value={form.result_notes} onChange={e=>setForm({...form,result_notes:e.target.value})}/></label></div><div className="modal-actions"><button type="button" onClick={onClose}>انصراف</button><button disabled={busy} type="submit">ثبت تست</button></div></form></Modal>}
+function Modal({title,onClose,children}){return <div className="rnd-modal-backdrop" onMouseDown={e=>e.target===e.currentTarget&&onClose()}><div className="rnd-modal"><header><h3>{title}</h3><button onClick={onClose}><X size={18}/></button></header><div>{children}</div></div></div>}
+function CardTitle({icon:Icon,title,action}){return <div className="rnd-card-title"><span><Icon size={18}/><b>{title}</b></span>{action}</div>}
+function Kpi({icon,label,value,danger,warning,success}){return <div className={`rnd-kpi ${danger?'danger':warning?'warning':success?'success':''}`}><i>{icon}</i><span>{label}</span><b>{value}</b></div>}
+function Empty({text='داده‌ای برای نمایش نیست.'}){return <div className="rnd-empty">{text}</div>}
+function Info({label,value}){return <div className="info"><span>{label}</span><b>{value||'—'}</b></div>}
+function Status({status}){return <span className={`status-pill ${status}`}>{DELIVERY_LABELS[status]||status||'—'}</span>}
+function formatDate(v){return formatJalaliDate(v)}function formatDateTime(v){return formatJalaliDateTime(v)}function formatMoney(v){return formatToman(v,'fa')}function safe(v){return rndSafe(v)}function stageName(s){return s.custom_name_fa||s.stage_name_fa||s.custom_stage_type||'مرحله'}function daysText(days,status){if(status==='completed')return'تکمیل';if(status==='cancelled')return'لغوشده';if(days==null)return'—';if(days<0)return`${formatNumber(Math.abs(days))} روز تأخیر`;if(days===0)return'امروز';return`${formatNumber(days)} روز مانده`}function priorityText(v){return Number(v)===1?'فوری':Number(v)===3?'کم‌اهمیت':'عادی'}

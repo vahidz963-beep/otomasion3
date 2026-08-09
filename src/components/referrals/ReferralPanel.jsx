@@ -3,6 +3,7 @@ import { Link2, RefreshCw } from 'lucide-react';
 import { createReferral, fetchModuleReferrals, MODULE_LABELS_FA, updateReferralStatus } from '../../lib/referralApi';
 import { formatJalaliDate } from '../../lib/formatters';
 import JalaliDateInput from '../JalaliDateInput';
+import SharedFilesPanel from '../shared/SharedFilesPanel';
 import './ReferralPanel.css';
 
 const STATUS_LABELS = {
@@ -154,6 +155,7 @@ export default function ReferralPanel({
           ))}
         </div>
       )}
+      <SharedFilesPanel compact sourceModule={sourceModule} relatedOrderId={relatedOrderId} relatedRecordId={sourceRecordId || relatedDocumentId} />
     </section>
   );
 }

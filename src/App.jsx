@@ -9,6 +9,7 @@ import WarehouseModule from './modules/warehouse/WarehouseModule';
 import AdminUserPanel from './components/admin/AdminUserPanel';
 import AuditLogPanel from './components/admin/AuditLogPanel';
 import PlaceholderModule from './modules/placeholder/PlaceholderModule';
+import ProductionModule from './modules/production/ProductionModule';
 import AccountingModule from './modules/accounting/AccountingModule';
 import { roleLabel } from './lib/supabaseClient';
 
@@ -23,7 +24,7 @@ function AppShell() {
     { key: 'dashboard', labelFa: 'داشبورد', labelEn: 'Dashboard', roles: ['admin', 'sales', 'rnd', 'production', 'warehouse', 'accountant', 'office_admin'], Component: Dashboard },
     { key: 'orders', labelFa: 'سفارش‌ها', labelEn: 'Orders', roles: ['admin', 'sales', 'rnd', 'production', 'warehouse', 'accountant'], Component: OrdersModule },
     { key: 'rnd', labelFa: 'R&D', labelEn: 'R&D', roles: ['admin', 'rnd', 'sales', 'accountant'], Component: RnDModule },
-    { key: 'production', labelFa: 'تولید', labelEn: 'Production', roles: ['admin', 'production', 'warehouse', 'accountant'], Component: (props) => <PlaceholderModule title={props.lang === 'fa' ? 'تولید' : 'Production'} {...props} /> },
+    { key: 'production', labelFa: 'تولید', labelEn: 'Production', roles: ['admin', 'production', 'warehouse', 'accountant', 'sales'], Component: ProductionModule },
     { key: 'warehouse', labelFa: 'انبار', labelEn: 'Warehouse', roles: ['admin', 'warehouse', 'production', 'sales', 'accountant'], Component: WarehouseModule },
     { key: 'accounting', labelFa: 'مالی/حسابداری', labelEn: 'Accounting', roles: ['admin', 'accountant'], Component: AccountingModule },
     { key: 'admin_users', labelFa: 'کاربران', labelEn: 'Users', roles: ['admin'], Component: AdminUserPanel },
