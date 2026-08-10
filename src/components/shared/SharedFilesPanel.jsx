@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Download, FileUp, RefreshCw, Share2 } from 'lucide-react';
-import { downloadSharedFile, fetchSharedFiles, uploadSharedFile } from '../../lib/sharedFilesApi';
+import { Download, FileUp, RefreshCw, Share2, Trash2 } from 'lucide-react';
+import { deleteSharedFile, downloadSharedFile, fetchSharedFiles, uploadSharedFile } from '../../lib/sharedFilesApi';
 import { formatJalaliDateTime, formatNumber } from '../../lib/formatters';
 import './SharedFilesPanel.css';
 
@@ -16,6 +16,7 @@ export default function SharedFilesPanel({ sourceModule = 'manual', relatedOrder
   const [showForm, setShowForm] = useState(false);
   const [busy, setBusy] = useState(false);
   const [form, setForm] = useState({ title: '', description: '', file: null });
+  const [confirmDelete, setConfirmDelete] = useState(null);
   const [query, setQuery] = useState('');
   const [folder, setFolder] = useState('all');
 
@@ -41,6 +42,21 @@ export default function SharedFilesPanel({ sourceModule = 'manual', relatedOrder
   }
 
   useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+
+  async function handleDelete(row) {
+    setError('');
+    setBusy(true);
+    try {
+      await deleteSharedFile(row, sourceModule);
+      setConfirmDelete(null);
+      await load();
+    } catch (e) {
+      setError(e.message || 'خطا در حذف فایل');
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function handleDownload(row) {
     setError('');
@@ -78,8 +94,9 @@ export default function SharedFilesPanel({ sourceModule = 'manual', relatedOrder
     {error && <div className="shared-error">{error}</div>}
     {loading ? <div className="shared-empty">در حال دریافت...</div> : filtered.length === 0 ? <div className="shared-empty">فایل اشتراکی وجود ندارد.</div> : <div className="shared-list">{filtered.map((r) => <article key={r.id}>
       <div><strong>{r.title_fa || r.file_name}</strong><small>{r.file_number || '—'} · فولدر {MODULE_LABEL[r.source_module] || r.source_module} · {formatJalaliDateTime(r.uploaded_at)} · {formatSize(r.file_size)}</small><small className="shared-path">{r.storage_path || 'فایل قدیمی/داخلی'}</small>{r.description_fa && <p>{r.description_fa}</p>}</div>
-      <button onClick={() => handleDownload(r)}><Download size={14}/> دانلود</button>
+      <div className="shared-file-actions"><button onClick={() => handleDownload(r)}><Download size={14}/> دانلود</button><button className="danger" onClick={() => setConfirmDelete(r)}><Trash2 size={14}/> حذف</button></div>
     </article>)}</div>}
+    {confirmDelete && <div className="shared-modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && setConfirmDelete(null)}><div className="shared-modal"><h3>حذف فایل اشتراکی</h3><p>آیا از حذف فایل «{confirmDelete.file_name}» مطمئن هستید؟ فایل از Storage سرور حذف می‌شود.</p><div><button onClick={() => setConfirmDelete(null)}>خیر</button><button className="danger" disabled={busy} onClick={() => handleDelete(confirmDelete)}>بله، حذف شود</button></div></div></div>}
   </section>;
 }
 

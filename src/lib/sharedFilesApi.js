@@ -93,3 +93,22 @@ export async function downloadSharedFile(row) {
   a.target = '_blank';
   a.click();
 }
+
+export async function deleteSharedFile(row, currentModule = 'manual') {
+  if (!row?.id) throw new Error('فایل نامعتبر است.');
+  const userId = await currentUserId();
+  const { data: profile } = await supabase.from('profiles').select('*').eq('id', userId).maybeSingle();
+  const roles = [profile?.role, ...(profile?.additional_roles || [])].filter(Boolean);
+  const canDelete = roles.includes('admin') || row.source_module === currentModule;
+  if (!canDelete) throw new Error('شما فقط فایل‌های بخش خودتان را می‌توانید حذف کنید.');
+
+  if (row.storage_path) {
+    const bucket = row.storage_bucket || SHARED_BUCKET;
+    const removeRes = await supabase.storage.from(bucket).remove([row.storage_path]);
+    assertNoError(removeRes, 'خطا در حذف فایل از Storage');
+  }
+
+  const res = await supabase.from('shared_files').update({ deleted_at: new Date().toISOString() }).eq('id', row.id).select('id').single();
+  assertNoError(res, 'خطا در حذف رکورد فایل');
+  return true;
+}

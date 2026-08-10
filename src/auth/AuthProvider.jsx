@@ -17,7 +17,7 @@ export function AuthProvider({ children }) {
 
     const { data, error: profErr } = await supabase
       .from('profiles')
-      .select('id, email, full_name, full_name_en, role, is_active, preferred_language')
+      .select('*')
       .eq('id', userId)
       .maybeSingle();
 
@@ -73,7 +73,7 @@ export function AuthProvider({ children }) {
   }, []);
 
   const hasRole = useCallback(
-    (...roles) => !!profile && profile.is_active && roles.flat().includes(profile.role),
+    (...roles) => { const allowed = roles.flat(); const userRoles = [profile?.role, ...(profile?.additional_roles || [])].filter(Boolean); return !!profile && profile.is_active && userRoles.some((r) => allowed.includes(r)); },
     [profile]
   );
 

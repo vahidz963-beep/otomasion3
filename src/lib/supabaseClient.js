@@ -21,6 +21,7 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
 export const ROLES = [
   { value: 'admin', labelFa: 'مدیر کل', labelEn: 'Admin' },
   { value: 'sales', labelFa: 'فروش', labelEn: 'Sales' },
+  { value: 'sales_manager', labelFa: 'مدیر فروش', labelEn: 'Sales Manager' },
   { value: 'rnd', labelFa: 'R&D', labelEn: 'R&D' },
   { value: 'production', labelFa: 'تولید', labelEn: 'Production' },
   { value: 'warehouse', labelFa: 'انبار', labelEn: 'Warehouse' },

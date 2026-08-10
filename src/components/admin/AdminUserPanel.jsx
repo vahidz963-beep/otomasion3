@@ -27,7 +27,7 @@ export default function AdminUserPanel({ lang = 'fa' }) {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ full_name: '', email: '', password: '', role: 'sales' });
+  const [form, setForm] = useState({ full_name: '', email: '', password: '', role: 'sales_manager', roles: ['sales_manager'] });
   const [busyId, setBusyId] = useState(null);
   const [msg, setMsg] = useState('');
 
@@ -35,7 +35,7 @@ export default function AdminUserPanel({ lang = 'fa' }) {
     setLoading(true);
     const { data, error } = await supabase
       .from('profiles')
-      .select('id, email, full_name, role, is_active, created_at')
+      .select('*')
       .order('created_at', { ascending: false });
     if (error) setMsg(`${t.error}: ${error.message}`);
     setUsers(data || []);
@@ -60,8 +60,8 @@ export default function AdminUserPanel({ lang = 'fa' }) {
 
   async function handleCreate(e) {
     e.preventDefault();
-    await run('create', { ...form }, 'create');
-    setForm({ full_name: '', email: '', password: '', role: 'sales' });
+    await run('create', { ...form, role: form.roles[0] || form.role }, 'create');
+    setForm({ full_name: '', email: '', password: '', role: 'sales_manager', roles: ['sales_manager'] });
     setShowForm(false);
   }
 
@@ -84,6 +84,24 @@ export default function AdminUserPanel({ lang = 'fa' }) {
     await run('reset_password', { user_id, new_password: newPassword }, user_id);
   }
 
+  function toggleFormRole(role) {
+    setForm((f) => {
+      const exists = f.roles.includes(role);
+      let roles = exists ? f.roles.filter((r) => r !== role) : [...f.roles, role];
+      roles = roles.slice(0, 3);
+      return { ...f, roles, role: roles[0] || f.role };
+    });
+  }
+
+  async function handleRolesChange(user, role) {
+    const current = user.additional_roles?.length ? user.additional_roles : [user.role];
+    const exists = current.includes(role);
+    let roles = exists ? current.filter((r) => r !== role) : [...current, role];
+    roles = roles.slice(0, 3);
+    if (roles.length === 0) roles = [user.role];
+    await run('set_role', { user_id: user.id, role: roles[0], roles }, user.id);
+  }
+
   return (
     <div className="admin-panel" dir={dir} lang={lang}>
       <header className="admin-header">
@@ -101,9 +119,7 @@ export default function AdminUserPanel({ lang = 'fa' }) {
           <input required placeholder={t.name} value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} />
           <input required type="email" dir="ltr" placeholder={t.email} value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
           <input required type="password" dir="ltr" placeholder={t.password} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} minLength={8} />
-          <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}>
-            {ROLES.filter((r) => r.value !== 'admin').map((r) => <option key={r.value} value={r.value}>{lang === 'fa' ? r.labelFa : r.labelEn}</option>)}
-          </select>
+          <div className="role-checks">{ROLES.filter((r) => r.value !== 'admin').map((r) => <label key={r.value}><input type="checkbox" checked={form.roles.includes(r.value)} disabled={!form.roles.includes(r.value) && form.roles.length >= 3} onChange={() => toggleFormRole(r.value)} /> <span>{lang === 'fa' ? r.labelFa : r.labelEn}</span></label>)}</div>
           <button type="submit" className="primary-btn" disabled={busyId === 'create'}>{t.create}</button>
         </form>
       )}
@@ -122,9 +138,7 @@ export default function AdminUserPanel({ lang = 'fa' }) {
                   <td>{u.full_name || '—'}</td>
                   <td dir="ltr">{u.email || '—'}</td>
                   <td>
-                    <select value={u.role} disabled={busyId === u.id} onChange={(e) => handleRoleChange(u.id, e.target.value)}>
-                      {ROLES.map((r) => <option key={r.value} value={r.value}>{roleLabel(r.value, lang)}</option>)}
-                    </select>
+                    <div className="role-checks inline">{ROLES.map((r) => { const userRoles = u.additional_roles?.length ? u.additional_roles : [u.role]; return <label key={r.value}><input type="checkbox" checked={userRoles.includes(r.value)} disabled={busyId === u.id || (!userRoles.includes(r.value) && userRoles.length >= 3)} onChange={() => handleRolesChange(u, r.value)} /> <span>{roleLabel(r.value, lang)}</span></label>; })}</div>
                   </td>
                   <td><span className={u.is_active ? 'status active' : 'status inactive'}>{u.is_active ? t.active : t.inactive}</span></td>
                   <td className="actions">

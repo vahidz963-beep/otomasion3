@@ -4,7 +4,12 @@ const SUPABASE_URL = process.env.SUPABASE_URL;
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const ANON_KEY = process.env.SUPABASE_ANON_KEY;
 
-const allowedRoles = new Set(['admin', 'sales', 'rnd', 'production', 'warehouse', 'accountant', 'office_admin']);
+const allowedRoles = new Set(['admin', 'sales', 'sales_manager', 'rnd', 'production', 'warehouse', 'accountant', 'office_admin']);
+function normalizeRoles(role, roles) {
+  const list = Array.isArray(roles) ? roles.filter((r) => allowedRoles.has(r)) : [];
+  if (role && allowedRoles.has(role) && !list.includes(role)) list.unshift(role);
+  return [...new Set(list)].slice(0, 3);
+}
 
 function json(statusCode, body) {
   return { statusCode, headers: { 'Content-Type': 'application/json; charset=utf-8' }, body: JSON.stringify(body) };
@@ -58,15 +63,17 @@ export const handler = async (event) => {
     if (action === 'create') {
       const { email, password, full_name, role } = body;
       const preferred_language = ['fa', 'en'].includes(body.preferred_language) ? body.preferred_language : 'fa';
+      const roles = normalizeRoles(role, body.roles);
+      const primaryRole = roles[0] || role;
       if (!email || !password || !full_name || !role) return json(400, { error: 'فیلدهای الزامی ناقص است' });
-      if (!allowedRoles.has(role) || role === 'admin') return json(400, { error: 'نقش نامعتبر است' });
+      if (!allowedRoles.has(primaryRole) || primaryRole === 'admin') return json(400, { error: 'نقش نامعتبر است' });
       if (password.length < 8) return json(400, { error: 'رمز عبور باید حداقل ۸ کاراکتر باشد' });
 
       const { data: created, error: createErr } = await adminClient.auth.admin.createUser({
         email,
         password,
         email_confirm: true,
-        user_metadata: { full_name, role, preferred_language },
+        user_metadata: { full_name, role: primaryRole, roles, preferred_language },
       });
       if (createErr) throw createErr;
 
@@ -74,23 +81,26 @@ export const handler = async (event) => {
         id: created.user.id,
         email,
         full_name,
-        role,
+        role: primaryRole,
+        additional_roles: roles,
         preferred_language,
         is_active: true,
       });
       if (upsertErr) throw upsertErr;
 
-      await writeAudit({ target_user_id: created.user.id, action: 'created', new_value: role });
+      await writeAudit({ target_user_id: created.user.id, action: 'created', new_value: roles.join(',') });
       return json(200, { ok: true, user_id: created.user.id });
     }
 
     if (action === 'set_role') {
       const { user_id, role } = body;
-      if (!user_id || !allowedRoles.has(role)) return json(400, { error: 'نقش یا کاربر نامعتبر است' });
-      const { data: before } = await adminClient.from('profiles').select('role').eq('id', user_id).maybeSingle();
-      const { error } = await adminClient.from('profiles').update({ role }).eq('id', user_id);
+      const roles = normalizeRoles(role, body.roles);
+      const primaryRole = roles[0] || role;
+      if (!user_id || !allowedRoles.has(primaryRole)) return json(400, { error: 'نقش یا کاربر نامعتبر است' });
+      const { data: before } = await adminClient.from('profiles').select('role, additional_roles').eq('id', user_id).maybeSingle();
+      const { error } = await adminClient.from('profiles').update({ role: primaryRole, additional_roles: roles }).eq('id', user_id);
       if (error) throw error;
-      await writeAudit({ target_user_id: user_id, action: 'role_changed', old_value: before?.role, new_value: role });
+      await writeAudit({ target_user_id: user_id, action: 'role_changed', old_value: before?.additional_roles?.join(',') || before?.role, new_value: roles.join(',') });
       return json(200, { ok: true });
     }
 

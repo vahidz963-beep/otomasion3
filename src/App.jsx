@@ -11,6 +11,7 @@ import AuditLogPanel from './components/admin/AuditLogPanel';
 import PlaceholderModule from './modules/placeholder/PlaceholderModule';
 import ProductionModule from './modules/production/ProductionModule';
 import AccountingModule from './modules/accounting/AccountingModule';
+import OfficeAdminModule from './modules/office/OfficeAdminModule';
 import { roleLabel } from './lib/supabaseClient';
 
 
@@ -44,11 +45,12 @@ function AppShell() {
 
   const modules = useMemo(() => [
     { key: 'dashboard', labelFa: 'داشبورد', labelEn: 'Dashboard', roles: ['admin', 'sales', 'rnd', 'production', 'warehouse', 'accountant', 'office_admin'], Component: Dashboard },
-    { key: 'orders', labelFa: 'سفارش‌ها', labelEn: 'Orders', roles: ['admin', 'sales', 'rnd', 'production', 'warehouse', 'accountant'], Component: OrdersModule },
+    { key: 'orders', labelFa: 'سفارش‌ها', labelEn: 'Orders', roles: ['admin', 'sales', 'sales_manager'], Component: OrdersModule },
     { key: 'rnd', labelFa: 'R&D', labelEn: 'R&D', roles: ['admin', 'rnd', 'sales', 'accountant'], Component: RnDModule },
     { key: 'production', labelFa: 'تولید', labelEn: 'Production', roles: ['admin', 'production', 'warehouse', 'accountant', 'sales'], Component: ProductionModule },
     { key: 'warehouse', labelFa: 'انبار', labelEn: 'Warehouse', roles: ['admin', 'warehouse', 'production', 'sales', 'accountant'], Component: WarehouseModule },
     { key: 'accounting', labelFa: 'مالی/حسابداری', labelEn: 'Accounting', roles: ['admin', 'accountant'], Component: AccountingModule },
+    { key: 'office', labelFa: 'اداری', labelEn: 'Office', roles: ['admin', 'office_admin'], Component: OfficeAdminModule },
     { key: 'admin_users', labelFa: 'کاربران', labelEn: 'Users', roles: ['admin'], Component: AdminUserPanel },
     { key: 'audit', labelFa: 'تاریخچه', labelEn: 'Audit', roles: ['admin'], Component: AuditLogPanel },
   ], []);

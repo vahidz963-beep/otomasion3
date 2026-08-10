@@ -18,3 +18,4 @@
 .actions button { border: 1px solid #d8dee3; border-radius: 8px; background: #fff; padding: 7px 9px; cursor: pointer; font-size: 12px; }
 .actions .danger { color: #a5453f; border-color: #e5b9b5; }
 @media (max-width: 900px) { .user-form { grid-template-columns: 1fr; } .admin-header { align-items: stretch; flex-direction: column; } }
+.role-checks{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;border:1px solid #d8dee3;background:#fff;border-radius:12px;padding:8px}.role-checks.inline{grid-template-columns:repeat(2,minmax(0,1fr));min-width:260px}.role-checks label{display:flex;align-items:center;gap:6px;font-size:12px;color:#1b2126}.role-checks input{width:auto!important}
