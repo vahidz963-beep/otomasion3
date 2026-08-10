@@ -104,3 +104,25 @@ export async function updateReferralStatus(id, status, response) {
   assertNoError(res, 'خطا در تغییر وضعیت ارجاع');
   return res.data;
 }
+
+export async function fetchReferralMessages(referralId) {
+  const res = await supabase
+    .from('automation_referral_messages')
+    .select('id, referral_id, message_fa, message_type, created_by, created_at, profiles:created_by(full_name, role)')
+    .eq('referral_id', referralId)
+    .order('created_at', { ascending: true });
+  assertNoError(res, 'خطا در دریافت گفتگوهای ارجاع');
+  return res.data || [];
+}
+
+export async function addReferralMessage(referralId, message, messageType = 'reply') {
+  const userId = await currentUserId();
+  const res = await supabase
+    .from('automation_referral_messages')
+    .insert({ referral_id: referralId, message_fa: message, message_type: messageType, created_by: userId })
+    .select('id')
+    .single();
+  assertNoError(res, 'خطا در ثبت پاسخ ارجاع');
+  await supabase.from('automation_referrals').update({ status: 'answered', response_fa: message }).eq('id', referralId);
+  return res.data;
+}

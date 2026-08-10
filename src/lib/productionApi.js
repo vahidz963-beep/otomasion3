@@ -192,3 +192,24 @@ export function openProductionPrintable(title, html) {
 export function productionSafe(value) {
   return escapeHtml(value);
 }
+
+export async function publishBomToWarehouse(bomId, itemCode) {
+  const res = await supabase.rpc('fn_production_publish_bom_to_warehouse', {
+    p_bom_id: bomId,
+    p_item_code: itemCode || null,
+  });
+  assertNoError(res, 'خطا در ثبت/به‌روزرسانی کالا در انبار');
+  return res.data;
+}
+
+export async function registerProductionOutput({ productionOrderId, warehouseItemId, quantity }) {
+  const userId = await currentUserId();
+  const res = await supabase.from('production_output').insert({
+    production_order_id: productionOrderId,
+    warehouse_item_id: warehouseItemId,
+    quantity: Number(quantity || 0),
+    registered_by: userId,
+  }).select('id').single();
+  assertNoError(res, 'خطا در ثبت خروجی تولید در انبار');
+  return res.data;
+}
