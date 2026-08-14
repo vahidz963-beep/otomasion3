@@ -129,18 +129,26 @@ export function FinanceDocumentForm({ parties, orders = [], stock = [], initialD
 }
 
 export function FinancePaymentForm({ parties, documents, accounts, initialDocumentId, onCancel, onSubmit, busy }) {
-  const payableDocs = documents.filter((d) => Number(d.balance_amount) > 0 && !['void', 'cancelled'].includes(d.status));
   const initialDoc = documents.find((d) => d.id === initialDocumentId);
   const [payment, setPayment] = useState({
     direction: 'receipt',
     method: 'bank_transfer',
-    party_id: initialDoc?.party_id || parties[0]?.party_id || '',
+    party_id: initialDoc?.party_id || '',
     payment_date: today(),
     amount: initialDoc?.balance_amount || '',
     bank_account_id: accounts[0]?.id || '',
     description: initialDoc ? `تسویه سند ${initialDoc.doc_number}` : '',
     document_id: initialDocumentId || '',
   });
+
+  const payableDocs = documents.filter((d) => Number(d.balance_amount) > 0
+    && !['void', 'cancelled'].includes(d.status)
+    && (!payment.party_id || d.party_id === payment.party_id));
+
+  function selectParty(id) {
+    const keepDocument = payment.document_id && documents.find((d) => d.id === payment.document_id && (!id || d.party_id === id));
+    setPayment({ ...payment, party_id: id, document_id: keepDocument ? payment.document_id : '' });
+  }
 
   function selectDocument(id) {
     const doc = documents.find((d) => d.id === id);
@@ -169,7 +177,7 @@ export function FinancePaymentForm({ parties, documents, accounts, initialDocume
       <Field label="نوع"><select value={payment.direction} onChange={(e) => setPayment({ ...payment, direction: e.target.value })}><option value="receipt">دریافت</option><option value="payment">پرداخت</option></select></Field>
       <Field label="روش"><select value={payment.method} onChange={(e) => setPayment({ ...payment, method: e.target.value })}><option value="bank_transfer">حواله بانکی</option><option value="cash">نقد</option><option value="pos">پوز</option><option value="check">چک</option><option value="offset">تهاتر</option></select></Field>
       <Field label="حساب"><select value={payment.bank_account_id} onChange={(e) => setPayment({ ...payment, bank_account_id: e.target.value })}><option value="">بدون حساب</option>{accounts.map((a) => <option key={a.id} value={a.id}>{a.account_name} - {a.bank_name}</option>)}</select></Field>
-      <Field label="شخص"><select value={payment.party_id} onChange={(e) => setPayment({ ...payment, party_id: e.target.value })}><option value="">بدون شخص</option>{parties.map((p) => <option key={p.party_id} value={p.party_id}>{p.display_name}</option>)}</select></Field>
+      <Field label="شخص"><select value={payment.party_id} onChange={(e) => selectParty(e.target.value)}><option value="">بدون شخص</option>{parties.map((p) => <option key={p.party_id} value={p.party_id}>{p.display_name}</option>)}</select></Field>
       <Field label="فاکتور مرتبط"><select value={payment.document_id} onChange={(e) => selectDocument(e.target.value)}><option value="">بدون فاکتور</option>{payableDocs.map((d) => <option key={d.id} value={d.id}>{d.doc_number} · {d.party_name} · مانده {Number(d.balance_amount).toLocaleString('fa-IR')}</option>)}</select></Field>
       <Field label="تاریخ شمسی"><JalaliDateInput value={payment.payment_date} onChange={(value) => setPayment({ ...payment, payment_date: value })} /></Field>
       <Field label="مبلغ ریال"><input type="number" value={payment.amount} onChange={(e) => setPayment({ ...payment, amount: e.target.value })} required /></Field>

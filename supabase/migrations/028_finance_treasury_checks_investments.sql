@@ -40,7 +40,7 @@ select
   ba.account_number,
   ba.iban,
   ba.currency,
-  ba.account_usage,
+  ba.account_usage::text as account_usage,
   ba.opening_balance,
   coalesce(sum(case when p.direction = 'receipt' and p.status = 'confirmed' then p.amount else 0 end), 0) as total_receipts,
   coalesce(sum(case when p.direction = 'payment' and p.status = 'confirmed' then p.amount else 0 end), 0) as total_payments,
