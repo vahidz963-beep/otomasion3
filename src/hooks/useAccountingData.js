@@ -21,6 +21,10 @@ const initialState = {
   profitability: [],
   numbering: [],
   bankAccounts: [],
+  cashboxes: [],
+  treasuryAccounts: [],
+  paymentLedger: [],
+  investments: [],
   payments: [],
   checks: [],
   fiscalYears: [],
@@ -28,6 +32,7 @@ const initialState = {
   ioDocuments: [],
   orders: [],
   stock: [],
+  itemKardex: [],
 };
 
 function softError(results) {
@@ -48,6 +53,10 @@ export function useAccountingData() {
       profitRes,
       numberingRes,
       bankRes,
+      cashboxRes,
+      treasuryRes,
+      ledgerRes,
+      investmentRes,
       paymentsRes,
       checksRes,
       fiscalYearsRes,
@@ -55,11 +64,12 @@ export function useAccountingData() {
       ioDocsRes,
       ordersRes,
       stockRes,
+      itemKardexRes,
     ] = await Promise.all([
       supabase.from('v_finance_dashboard').select('*').maybeSingle(),
       supabase
         .from('v_finance_document_summary')
-        .select('id, doc_number, document_type, status, issue_date, due_date, party_id, party_name, party_type, related_order_id, order_code, source_module, subtotal_amount, discount_amount, tax_amount, total_amount, paid_amount, balance_amount, is_overdue')
+        .select('id, doc_number, document_type, status, issue_date, due_date, party_id, party_name, party_type, related_order_id, order_code, source_module, converted_from_document_id, subtotal_amount, discount_amount, tax_amount, total_amount, paid_amount, balance_amount, is_overdue')
         .order('issue_date', { ascending: false })
         .limit(100),
       supabase
@@ -86,6 +96,25 @@ export function useAccountingData() {
         .from('finance_bank_accounts')
         .select('id, account_name, bank_name, account_number, iban, currency, opening_balance, account_usage, is_active')
         .order('account_usage', { ascending: true }),
+      supabase
+        .from('finance_cashboxes')
+        .select('id, name, currency, opening_balance, is_active, created_at')
+        .order('name', { ascending: true }),
+      supabase
+        .from('v_finance_account_turnover')
+        .select('*')
+        .order('account_kind', { ascending: true })
+        .order('account_name', { ascending: true }),
+      supabase
+        .from('v_finance_payment_ledger')
+        .select('*')
+        .order('payment_date', { ascending: false })
+        .limit(300),
+      supabase
+        .from('finance_investments')
+        .select('*')
+        .order('acquisition_date', { ascending: false })
+        .limit(200),
       supabase
         .from('finance_payments')
         .select('id, payment_number, direction, method, status, party_id, payment_date, amount, currency, bank_account_id, cashbox_id, related_order_id, description, created_at')
@@ -117,9 +146,14 @@ export function useAccountingData() {
         .limit(150),
       supabase
         .from('v_sales_stock_overview')
-        .select('item_id, item_code, item_name_fa, item_name_en, unit, available_for_sale_qty, unit_price_estimate')
+        .select('item_id, item_code, item_name_fa, item_name_en, category, item_group, unit, current_qty, available_for_sale_qty, unit_price_estimate')
         .order('item_name_fa', { ascending: true })
         .limit(300),
+      supabase
+        .from('v_warehouse_kardex')
+        .select('item_id, item_code, item_name_fa, tx_id, transaction_type, direction, quantity, doc_number, document_status, note, created_at, running_balance')
+        .order('created_at', { ascending: false })
+        .limit(1000),
     ]);
 
     const firstError = softError([
@@ -130,6 +164,10 @@ export function useAccountingData() {
       profitRes,
       numberingRes,
       bankRes,
+      cashboxRes,
+      treasuryRes,
+      ledgerRes,
+      investmentRes,
       paymentsRes,
       checksRes,
       fiscalYearsRes,
@@ -137,6 +175,7 @@ export function useAccountingData() {
       ioDocsRes,
       ordersRes,
       stockRes,
+      itemKardexRes,
     ]);
 
     setState({
@@ -149,6 +188,10 @@ export function useAccountingData() {
       profitability: profitRes.data || [],
       numbering: numberingRes.data || [],
       bankAccounts: bankRes.data || [],
+      cashboxes: cashboxRes.data || [],
+      treasuryAccounts: treasuryRes.data || [],
+      paymentLedger: ledgerRes.data || [],
+      investments: investmentRes.data || [],
       payments: paymentsRes.data || [],
       checks: checksRes.data || [],
       fiscalYears: fiscalYearsRes.data || [],
@@ -156,6 +199,7 @@ export function useAccountingData() {
       ioDocuments: ioDocsRes.data || [],
       orders: ordersRes.data || [],
       stock: stockRes.data || [],
+      itemKardex: itemKardexRes.data || [],
     });
   }, []);
 

@@ -264,3 +264,54 @@ export function openPrintableDocument(title, html) {
     a.click();
   }
 }
+
+export async function settleFinanceCheck({ checkId, bankAccountId, status = 'cleared', note }) {
+  const res = await supabase.rpc('fn_finance_settle_check', {
+    p_check_id: checkId,
+    p_bank_account_id: bankAccountId || null,
+    p_status: status,
+    p_note: note || null,
+  });
+  assertNoError(res, 'خطا در تسویه/وصول چک');
+  return res.data;
+}
+
+export async function createFinanceInvestment(payload) {
+  const res = await supabase.from('finance_investments').insert({
+    asset_type: payload.asset_type || 'other',
+    title_fa: payload.title_fa,
+    acquisition_date: payload.acquisition_date || new Date().toISOString().slice(0, 10),
+    quantity: Number(payload.quantity || 1),
+    unit: payload.unit || 'عدد',
+    purchase_amount: Number(payload.purchase_amount || 0),
+    current_estimated_value: Number(payload.current_estimated_value || payload.purchase_amount || 0),
+    location: payload.location || null,
+    notes: payload.notes || null,
+    status: payload.status || 'active',
+  }).select('id').single();
+  assertNoError(res, 'خطا در ثبت سرمایه‌گذاری');
+  return res.data;
+}
+
+export async function updateFinanceInvestment(id, payload) {
+  const res = await supabase.from('finance_investments').update({
+    asset_type: payload.asset_type || 'other',
+    title_fa: payload.title_fa,
+    acquisition_date: payload.acquisition_date || new Date().toISOString().slice(0, 10),
+    quantity: Number(payload.quantity || 1),
+    unit: payload.unit || 'عدد',
+    purchase_amount: Number(payload.purchase_amount || 0),
+    current_estimated_value: Number(payload.current_estimated_value || 0),
+    location: payload.location || null,
+    notes: payload.notes || null,
+    status: payload.status || 'active',
+  }).eq('id', id).select('id').single();
+  assertNoError(res, 'خطا در ویرایش سرمایه‌گذاری');
+  return res.data;
+}
+
+export async function archiveFinanceInvestment(id) {
+  const res = await supabase.from('finance_investments').update({ status: 'archived' }).eq('id', id).select('id').single();
+  assertNoError(res, 'خطا در آرشیو سرمایه‌گذاری');
+  return res.data;
+}
