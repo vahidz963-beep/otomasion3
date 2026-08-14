@@ -1,86 +1,170 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabase } from '../lib/supabaseClient';
 
 const completedStages = new Set(['closed', 'delivered']);
 
 function dayKey(dateLike) {
-  return new Date(dateLike).toISOString().slice(0, 10);
+  if (!dateLike) return null;
+  const d = new Date(dateLike);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toISOString().slice(0, 10);
 }
 
-function buildDailySeries(rows, dateFrom, dateTo) {
+function buildDays(dateFrom, dateTo) {
   const days = [];
   const start = new Date(dateFrom);
   const end = new Date(dateTo);
   for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-    days.push({ day: d.toISOString().slice(0, 10), orders_created: 0, orders_completed: 0 });
+    days.push({ day: d.toISOString().slice(0, 10), orders_created: 0, orders_completed: 0, income: 0, expense: 0 });
   }
+  return days;
+}
+
+function buildTrends({ orders = [], payments = [], dateFrom, dateTo }) {
+  const days = buildDays(dateFrom, dateTo);
   const byDay = Object.fromEntries(days.map((d) => [d.day, d]));
-  rows.forEach((r) => {
-    const created = dayKey(r.created_at);
-    if (byDay[created]) byDay[created].orders_created += 1;
-    if (completedStages.has(r.current_stage) && r.updated_at) {
+  orders.forEach((r) => {
+    const created = dayKey(r.created_at || r.registered_at);
+    if (created && byDay[created]) byDay[created].orders_created += 1;
+    if ((completedStages.has(r.current_stage) || r.delivery_status === 'closed') && r.updated_at) {
       const completed = dayKey(r.updated_at);
-      if (byDay[completed]) byDay[completed].orders_completed += 1;
+      if (completed && byDay[completed]) byDay[completed].orders_completed += 1;
     }
+  });
+  payments.forEach((p) => {
+    const day = dayKey(p.payment_date || p.created_at);
+    if (!day || !byDay[day] || p.status !== 'confirmed') return;
+    if (p.direction === 'receipt') byDay[day].income += Number(p.amount || 0);
+    if (p.direction === 'payment') byDay[day].expense += Number(p.amount || 0);
   });
   return days;
 }
 
+function okArray(res) { return res?.error ? [] : (res?.data || []); }
+function okObject(res, fallback = {}) { return res?.error ? fallback : (res?.data || fallback); }
+
 export function useDashboardData(filters) {
-  const [state, setState] = useState({ loading: true, error: null, kpis: null, ordersTrend: [], revenueTrend: [] });
+  const [state, setState] = useState({
+    loading: true,
+    error: null,
+    kpis: null,
+    ordersTrend: [],
+    revenueTrend: [],
+    orders: [],
+    referrals: [],
+    stock: [],
+    production: [],
+    rnd: [],
+    checks: [],
+    payments: [],
+    finance: {},
+    health: null,
+    queryErrors: [],
+  });
 
   const fetchData = useCallback(async () => {
     setState((s) => ({ ...s, loading: true, error: null }));
 
-    let query = supabase
-      .from('orders')
-      .select('id, sales_path, current_stage, is_cancelled, created_at, updated_at, expected_delivery_date')
-      .gte('created_at', `${filters.dateFrom}T00:00:00`)
-      .lte('created_at', `${filters.dateTo}T23:59:59`)
-      .order('created_at', { ascending: true });
+    const [ordersRes, financeRes, paymentsRes, stockRes, referralsRes, productionRes, rndRes, checksRes, healthRes] = await Promise.all([
+      supabase
+        .from('v_order_lifecycle_overview')
+        .select('id, order_code, customer_name, sales_path, current_stage, current_stage_name_fa, progress_percent, delivery_status, days_to_delivery, financial_status, stock_status, registered_at, expected_delivery_date')
+        .gte('registered_at', filters.dateFrom)
+        .lte('registered_at', filters.dateTo)
+        .order('registered_at', { ascending: false })
+        .limit(250),
+      supabase.from('v_finance_dashboard').select('*').maybeSingle(),
+      supabase
+        .from('v_finance_payment_ledger')
+        .select('id, payment_number, direction, method, status, party_name, payment_date, amount, account_name, bank_name, description, created_at')
+        .gte('payment_date', filters.dateFrom)
+        .lte('payment_date', filters.dateTo)
+        .order('payment_date', { ascending: false })
+        .limit(250),
+      supabase
+        .from('v_warehouse_current_stock')
+        .select('item_id, item_code, item_name_fa, unit, current_qty, is_low_stock, reorder_point, min_stock_threshold, stock_value_estimate, location')
+        .limit(250),
+      supabase
+        .from('automation_referrals')
+        .select('id, referral_number, source_module, target_module, priority, status, title_fa, due_date, created_at')
+        .in('status', ['open', 'in_progress', 'answered'])
+        .order('created_at', { ascending: false })
+        .limit(100),
+      supabase
+        .from('v_production_order_overview')
+        .select('id, code, product_name_fa, customer_name, status, progress_percent, current_stage_name_fa, delivery_status, days_to_delivery, planned_end')
+        .order('updated_at', { ascending: false })
+        .limit(100),
+      supabase
+        .from('v_rnd_project_overview')
+        .select('id, code, title_fa, customer_name, requester_name, status, progress_percent, current_stage_name_fa, delivery_status, days_to_delivery')
+        .order('updated_at', { ascending: false })
+        .limit(100),
+      supabase
+        .from('finance_checks')
+        .select('id, internal_check_code, check_type, status, due_date, amount, bank_name, owner_name')
+        .order('due_date', { ascending: true })
+        .limit(80),
+      supabase.rpc('fn_system_health_report'),
+    ]);
 
-    if (filters.salesPath) query = query.eq('sales_path', filters.salesPath);
+    const orders = okArray(ordersRes);
+    const finance = okObject(financeRes, {});
+    const payments = okArray(paymentsRes);
+    const stock = okArray(stockRes);
+    const referrals = okArray(referralsRes);
+    const production = okArray(productionRes);
+    const rnd = okArray(rndRes);
+    const checks = okArray(checksRes);
+    const health = healthRes?.error ? null : healthRes.data;
 
-    const { data, error } = await query;
-    if (error) {
-      setState({ loading: false, error, kpis: null, ordersTrend: [], revenueTrend: [] });
-      return;
-    }
+    const trend = buildTrends({ orders, payments, dateFrom: filters.dateFrom, dateTo: filters.dateTo });
+    const activeOrders = orders.filter((o) => !['closed', 'cancelled'].includes(o.delivery_status));
+    const completedOrders = orders.filter((o) => o.delivery_status === 'closed');
+    const cancelledOrders = orders.filter((o) => o.delivery_status === 'cancelled');
+    const activeProduction = production.filter((p) => !['completed', 'delivered_to_warehouse', 'cancelled'].includes(p.status));
+    const activeRnd = rnd.filter((p) => !['approved', 'sent_to_production', 'archived', 'rejected'].includes(p.status));
+    const dueChecks = checks.filter((c) => !['cleared', 'cancelled'].includes(c.status) && c.due_date && new Date(c.due_date) <= new Date(Date.now() + 7 * 86400000));
 
-    const rows = data || [];
-    const completed = rows.filter((r) => completedStages.has(r.current_stage));
-    const cancelled = rows.filter((r) => r.is_cancelled);
-    const active = rows.filter((r) => !r.is_cancelled && !completedStages.has(r.current_stage));
-
-    const deliveryDurations = completed
-      .filter((r) => r.created_at && r.updated_at)
-      .map((r) => (new Date(r.updated_at) - new Date(r.created_at)) / 86400000)
-      .filter((v) => Number.isFinite(v) && v >= 0);
-
-    const avgDeliveryDays = deliveryDurations.length
-      ? Math.round((deliveryDurations.reduce((sum, v) => sum + v, 0) / deliveryDurations.length) * 10) / 10
-      : null;
-
-    const ordersTrend = buildDailySeries(rows, filters.dateFrom, filters.dateTo);
-    const revenueTrend = ordersTrend.map((d) => ({ day: d.day, income: 0, expense: 0 }));
+    const queryErrors = [ordersRes, financeRes, paymentsRes, stockRes, referralsRes, productionRes, rndRes, checksRes, healthRes]
+      .filter((r) => r?.error)
+      .map((r) => r.error.message);
 
     setState({
       loading: false,
       error: null,
       kpis: {
-        active_orders: active.length,
-        completed_orders: completed.length,
-        cancelled_orders: cancelled.length,
-        avg_delivery_days: avgDeliveryDays,
-        total_income: 0,
-        net_revenue: 0,
+        active_orders: activeOrders.length,
+        completed_orders: completedOrders.length,
+        cancelled_orders: cancelledOrders.length,
+        total_income: finance.month_sales || 0,
+        net_revenue: finance.month_profit || 0,
+        receivable_total: finance.receivable_total || 0,
+        payable_total: finance.payable_total || 0,
+        overdue_total: finance.overdue_total || 0,
+        low_stock: stock.filter((i) => i.is_low_stock).length,
+        active_production: activeProduction.length,
+        active_rnd: activeRnd.length,
+        open_referrals: referrals.length,
+        due_checks: dueChecks.length,
       },
-      ordersTrend,
-      revenueTrend,
+      ordersTrend: trend.map((d) => ({ day: d.day, orders_created: d.orders_created, orders_completed: d.orders_completed })),
+      revenueTrend: trend.map((d) => ({ day: d.day, income: d.income, expense: d.expense })),
+      orders,
+      referrals,
+      stock,
+      production,
+      rnd,
+      checks,
+      payments,
+      finance,
+      health,
+      queryErrors,
     });
   }, [filters]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
-  return { ...state, refetch: fetchData };
+  return useMemo(() => ({ ...state, refetch: fetchData }), [state, fetchData]);
 }

@@ -33,6 +33,8 @@ const initialState = {
   orders: [],
   stock: [],
   itemKardex: [],
+  itemLastSales: [],
+  orderCosts: [],
 };
 
 function softError(results) {
@@ -65,6 +67,8 @@ export function useAccountingData() {
       ordersRes,
       stockRes,
       itemKardexRes,
+      itemLastSalesRes,
+      orderCostsRes,
     ] = await Promise.all([
       supabase.from('v_finance_dashboard').select('*').maybeSingle(),
       supabase
@@ -154,6 +158,15 @@ export function useAccountingData() {
         .select('item_id, item_code, item_name_fa, tx_id, transaction_type, direction, quantity, doc_number, document_status, note, created_at, running_balance')
         .order('created_at', { ascending: false })
         .limit(1000),
+      supabase
+        .from('v_finance_item_last_sale')
+        .select('*')
+        .limit(500),
+      supabase
+        .from('finance_order_costs')
+        .select('id, related_order_id, related_rnd_project_id, related_production_order_id, cost_type, amount, document_id, source_module, notes, created_at')
+        .order('created_at', { ascending: false })
+        .limit(300),
     ]);
 
     const firstError = softError([
@@ -200,6 +213,8 @@ export function useAccountingData() {
       orders: ordersRes.data || [],
       stock: stockRes.data || [],
       itemKardex: itemKardexRes.data || [],
+      itemLastSales: itemLastSalesRes.error ? [] : (itemLastSalesRes.data || []),
+      orderCosts: orderCostsRes.error ? [] : (orderCostsRes.data || []),
     });
   }, []);
 

@@ -8,7 +8,6 @@ import OrdersModule from './modules/orders/OrdersModule';
 import WarehouseModule from './modules/warehouse/WarehouseModule';
 import AdminUserPanel from './components/admin/AdminUserPanel';
 import AuditLogPanel from './components/admin/AuditLogPanel';
-import PlaceholderModule from './modules/placeholder/PlaceholderModule';
 import ProductionModule from './modules/production/ProductionModule';
 import AccountingModule from './modules/accounting/AccountingModule';
 import OfficeAdminModule from './modules/office/OfficeAdminModule';
@@ -44,11 +43,11 @@ function AppShell() {
   const isResetRoute = window.location.pathname === '/reset-password';
 
   const modules = useMemo(() => [
-    { key: 'dashboard', labelFa: 'داشبورد', labelEn: 'Dashboard', roles: ['admin', 'sales', 'rnd', 'production', 'warehouse', 'accountant', 'office_admin'], Component: Dashboard },
+    { key: 'dashboard', labelFa: 'داشبورد', labelEn: 'Dashboard', roles: ['admin', 'sales', 'sales_manager', 'rnd', 'production', 'warehouse', 'accountant', 'office_admin'], Component: Dashboard },
     { key: 'orders', labelFa: 'سفارش‌ها', labelEn: 'Orders', roles: ['admin', 'sales', 'sales_manager'], Component: OrdersModule },
-    { key: 'rnd', labelFa: 'R&D', labelEn: 'R&D', roles: ['admin', 'rnd', 'sales', 'accountant'], Component: RnDModule },
-    { key: 'production', labelFa: 'تولید', labelEn: 'Production', roles: ['admin', 'production', 'warehouse', 'accountant', 'sales'], Component: ProductionModule },
-    { key: 'warehouse', labelFa: 'انبار', labelEn: 'Warehouse', roles: ['admin', 'warehouse', 'production', 'sales', 'accountant'], Component: WarehouseModule },
+    { key: 'rnd', labelFa: 'R&D', labelEn: 'R&D', roles: ['admin', 'rnd'], Component: RnDModule },
+    { key: 'production', labelFa: 'تولید', labelEn: 'Production', roles: ['admin', 'production'], Component: ProductionModule },
+    { key: 'warehouse', labelFa: 'انبار', labelEn: 'Warehouse', roles: ['admin', 'warehouse'], Component: WarehouseModule },
     { key: 'accounting', labelFa: 'مالی/حسابداری', labelEn: 'Accounting', roles: ['admin', 'accountant'], Component: AccountingModule },
     { key: 'office', labelFa: 'اداری', labelEn: 'Office', roles: ['admin', 'office_admin'], Component: OfficeAdminModule },
     { key: 'admin_users', labelFa: 'کاربران', labelEn: 'Users', roles: ['admin'], Component: AdminUserPanel },
@@ -68,8 +67,11 @@ function AppShell() {
     );
   }
 
-  const visibleModules = modules.filter((m) => m.roles.includes(profile.role));
+  const userRoles = [...new Set([profile.role, ...(profile.additional_roles || [])].filter(Boolean))];
+  const isAdmin = userRoles.includes('admin');
+  const visibleModules = modules.filter((m) => isAdmin || m.roles.some((role) => userRoles.includes(role)));
   const current = visibleModules.find((m) => m.key === activeModule) || visibleModules[0];
+  const roleText = userRoles.map((role) => roleLabel(role, lang)).join('، ');
 
   const CurrentComponent = current?.Component;
 
@@ -86,7 +88,7 @@ function AppShell() {
           </button>
         ))}
         <div className="nav-profile">
-          <span>{profile.full_name || profile.email} · {roleLabel(profile.role, lang)}</span>
+          <span>{profile.full_name || profile.email} · {roleText}</span>
           <button onClick={signOut} className="nav-logout">{lang === 'fa' ? 'خروج' : 'Sign out'}</button>
         </div>
       </nav>

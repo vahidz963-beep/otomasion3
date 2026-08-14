@@ -93,9 +93,10 @@ export async function createSalesInvoiceFromOrder(orderId) {
 }
 
 export async function createFinanceDocument({ document, items }) {
+  const defaultStatus = document.status || (document.document_type === 'sales_proforma' ? 'sent' : 'approved');
   const docRes = await supabase
     .from('finance_documents')
-    .insert({ doc_number: null, status: 'draft', ...document })
+    .insert({ doc_number: null, ...document, status: defaultStatus })
     .select('id, doc_number')
     .single();
   assertNoError(docRes, 'خطا در ثبت سند مالی');
@@ -313,5 +314,55 @@ export async function updateFinanceInvestment(id, payload) {
 export async function archiveFinanceInvestment(id) {
   const res = await supabase.from('finance_investments').update({ status: 'archived' }).eq('id', id).select('id').single();
   assertNoError(res, 'خطا در آرشیو سرمایه‌گذاری');
+  return res.data;
+}
+
+async function currentFinanceUserId() {
+  const { data, error } = await supabase.auth.getUser();
+  if (error || !data?.user?.id) throw new Error('نشست کاربر معتبر نیست.');
+  return data.user.id;
+}
+
+export async function createFinanceParty(payload) {
+  const rpcRes = await supabase.rpc('fn_finance_create_party_and_customer', {
+    p_display_name: payload.display_name,
+    p_party_type: payload.party_type || 'customer',
+    p_phone: payload.phone || null,
+    p_email: payload.email || null,
+    p_address: payload.address || null,
+    p_opening_balance: Number(payload.opening_balance || 0),
+    p_notes: payload.notes || null,
+  });
+  if (!rpcRes.error) return rpcRes.data;
+
+  const userId = await currentFinanceUserId();
+  const res = await supabase.from('finance_parties').insert({
+    party_type: payload.party_type || 'customer',
+    display_name: payload.display_name,
+    phone: payload.phone || null,
+    email: payload.email || null,
+    address: payload.address || null,
+    opening_balance: Number(payload.opening_balance || 0),
+    notes: payload.notes || null,
+    created_by: userId,
+  }).select('id').single();
+  assertNoError(res, 'خطا در ثبت شخص مالی');
+  return res.data;
+}
+
+export async function createFinanceOrderCost(payload) {
+  const userId = await currentFinanceUserId();
+  const res = await supabase.from('finance_order_costs').insert({
+    related_order_id: payload.related_order_id || null,
+    related_rnd_project_id: payload.related_rnd_project_id || null,
+    related_production_order_id: payload.related_production_order_id || null,
+    cost_type: payload.cost_type || 'other',
+    amount: Number(payload.amount || 0),
+    document_id: payload.document_id || null,
+    source_module: payload.source_module || 'accounting',
+    notes: payload.notes || null,
+    created_by: userId,
+  }).select('id').single();
+  assertNoError(res, 'خطا در ثبت هزینه سفارش');
   return res.data;
 }
