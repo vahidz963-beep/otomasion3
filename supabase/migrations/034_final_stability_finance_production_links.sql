@@ -20,13 +20,32 @@ create or replace view public.v_production_bom_summary
 with (security_invoker = true)
 as
 select
-  b.*,
+  -- Keep the original 021 view column order exactly.
+  b.id,
+  b.warehouse_item_id,
+  b.product_name_fa,
+  b.product_name_en,
+  b.version_no,
+  b.status,
+  b.unit,
+  b.total_material_cost,
+  b.total_labor_cost,
+  b.total_overhead_cost,
+  b.total_estimated_cost,
+  b.notes,
+  b.created_by,
+  b.created_at,
+  b.updated_at,
   wi.item_code as warehouse_item_code,
   wi.item_name_fa as warehouse_item_name,
+  count(i.id) as item_count,
+  -- New columns appended at the end. Do not insert these before old columns.
+  b.related_order_id,
+  b.related_production_order_id,
+  b.related_rnd_project_id,
   po.code as production_order_code,
   po.source_order_id as production_source_order_id,
-  o.order_code as related_order_code,
-  count(i.id) as item_count
+  o.order_code as related_order_code
 from public.production_boms b
 left join public.warehouse_items wi on wi.id = b.warehouse_item_id
 left join public.production_orders po on po.id = b.related_production_order_id
