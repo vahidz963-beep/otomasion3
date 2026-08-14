@@ -82,8 +82,8 @@ export function useDashboardData(filters) {
         .order('payment_date', { ascending: false })
         .limit(250),
       supabase
-        .from('v_warehouse_current_stock')
-        .select('item_id, item_code, item_name_fa, unit, current_qty, is_low_stock, reorder_point, min_stock_threshold, stock_value_estimate, location')
+        .from('v_app_inventory_catalog')
+        .select('item_id, item_code, item_name_fa, unit, current_qty, is_low_stock, reorder_point, min_stock_threshold, stock_value_estimate, location, item_group_label, is_produced_item')
         .limit(250),
       supabase
         .from('automation_referrals')

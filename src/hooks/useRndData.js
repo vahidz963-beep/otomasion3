@@ -18,7 +18,7 @@ export function useRndData() {
       supabase.from('v_rnd_cost_summary').select('*').limit(200),
       supabase.from('rnd_test_records').select('*').order('tested_at', { ascending: false }).limit(300),
       supabase.from('automation_referrals').select('id, referral_number, source_module, target_module, target_role, referral_type, priority, status, title_fa, due_date, source_record_id, related_order_id, created_at').or('source_module.eq.rnd,target_module.eq.rnd').order('created_at', { ascending: false }).limit(120),
-      supabase.from('v_sales_stock_overview').select('item_id,item_code,item_name_fa,unit,current_qty,unit_price_estimate,available_for_sale_qty').order('item_code', { ascending: true }).limit(500),
+      supabase.from('v_app_inventory_catalog').select('item_id,item_code,item_name_fa,item_group_label,is_produced_item,unit,current_qty,unit_price_estimate,effective_sale_price,available_for_sale_qty').order('item_code', { ascending: true }).limit(500),
     ]);
     setState({ loading: false, error: firstError([incomingRes, projectsRes, stagesRes, templatesRes, stepsRes, costsRes, costSummaryRes, testsRes, refsRes, stockRes]), incomingOrders: incomingRes.data || [], projects: projectsRes.data || [], stages: stagesRes.data || [], templates: templatesRes.data || [], templateSteps: stepsRes.data || [], costs: costsRes.data || [], costSummary: costSummaryRes.data || [], tests: testsRes.data || [], referrals: refsRes.data || [], stock: stockRes.data || [] });
   }, []);

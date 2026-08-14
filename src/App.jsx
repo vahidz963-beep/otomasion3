@@ -1,18 +1,18 @@
-import React, { useMemo, useState } from 'react';
+import React, { Suspense, useMemo, useState } from 'react';
 import { AuthProvider, useAuth } from './auth/AuthProvider';
 import LoginPage from './auth/LoginPage';
 import ResetPasswordPage from './auth/ResetPasswordPage';
-import Dashboard from './modules/dashboard/Dashboard';
-import RnDModule from './modules/rnd/RnDModule';
-import OrdersModule from './modules/orders/OrdersModule';
-import WarehouseModule from './modules/warehouse/WarehouseModule';
-import AdminUserPanel from './components/admin/AdminUserPanel';
-import AuditLogPanel from './components/admin/AuditLogPanel';
-import ProductionModule from './modules/production/ProductionModule';
-import AccountingModule from './modules/accounting/AccountingModule';
-import OfficeAdminModule from './modules/office/OfficeAdminModule';
 import { roleLabel } from './lib/supabaseClient';
 
+const Dashboard = React.lazy(() => import('./modules/dashboard/Dashboard'));
+const RnDModule = React.lazy(() => import('./modules/rnd/RnDModule'));
+const OrdersModule = React.lazy(() => import('./modules/orders/OrdersModule'));
+const WarehouseModule = React.lazy(() => import('./modules/warehouse/WarehouseModule'));
+const ProductionModule = React.lazy(() => import('./modules/production/ProductionModule'));
+const AccountingModule = React.lazy(() => import('./modules/accounting/AccountingModule'));
+const OfficeAdminModule = React.lazy(() => import('./modules/office/OfficeAdminModule'));
+const AdminUserPanel = React.lazy(() => import('./components/admin/AdminUserPanel'));
+const AuditLogPanel = React.lazy(() => import('./components/admin/AuditLogPanel'));
 
 class ModuleErrorBoundary extends React.Component {
   constructor(props) {
@@ -33,6 +33,10 @@ class ModuleErrorBoundary extends React.Component {
     }
     return this.props.children;
   }
+}
+
+function ModuleLoading() {
+  return <div style={{ padding: 32, direction: 'rtl', fontFamily: 'Vazirmatn, sans-serif' }}><div style={{ background: '#fff', borderRadius: 16, padding: 18, boxShadow: '0 1px 10px rgba(20,24,28,.07)', color: '#5b6670' }}>در حال بارگذاری ماژول...</div></div>;
 }
 
 function AppShell() {
@@ -72,7 +76,6 @@ function AppShell() {
   const visibleModules = modules.filter((m) => isAdmin || m.roles.some((role) => userRoles.includes(role)));
   const current = visibleModules.find((m) => m.key === activeModule) || visibleModules[0];
   const roleText = userRoles.map((role) => roleLabel(role, lang)).join('، ');
-
   const CurrentComponent = current?.Component;
 
   return (
@@ -93,7 +96,7 @@ function AppShell() {
         </div>
       </nav>
       <main className="page-shell">
-        {CurrentComponent ? <ModuleErrorBoundary resetKey={current?.key}><CurrentComponent lang={lang} /></ModuleErrorBoundary> : <div style={{ padding: 40 }}>هیچ ماژولی برای نقش شما فعال نیست.</div>}
+        {CurrentComponent ? <ModuleErrorBoundary resetKey={current?.key}><Suspense fallback={<ModuleLoading />}><CurrentComponent lang={lang} /></Suspense></ModuleErrorBoundary> : <div style={{ padding: 40 }}>هیچ ماژولی برای نقش شما فعال نیست.</div>}
       </main>
     </div>
   );

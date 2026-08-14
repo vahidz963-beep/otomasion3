@@ -84,7 +84,7 @@ export function FinanceDocumentForm({ parties, orders = [], stock = [], initialD
       description_fa: item?.item_name_fa || items[index]?.description_fa || '',
       description_en: item?.item_name_en || items[index]?.description_en || '',
       unit: item?.unit || items[index]?.unit || 'عدد',
-      unit_price: item?.unit_price_estimate ?? items[index]?.unit_price ?? 0,
+      unit_price: item?.effective_sale_price ?? item?.unit_price_estimate ?? items[index]?.unit_price ?? 0,
     });
   }
 
@@ -105,7 +105,7 @@ export function FinanceDocumentForm({ parties, orders = [], stock = [], initialD
     </div>
 
     <datalist id="finance-stock-items">
-      {stock.map((s) => <option key={s.item_id} value={s.item_code}>{s.item_name_fa} · قابل فروش {s.available_for_sale_qty}</option>)}
+      {stock.map((s) => <option key={s.item_id} value={s.item_code}>{s.item_code} · {s.item_name_fa} · {s.item_group_label || s.category || 'کالا'} · قابل فروش {s.available_for_sale_qty} · قیمت {Number(s.effective_sale_price ?? s.unit_price_estimate ?? 0).toLocaleString('fa-IR')}</option>)}
     </datalist>
     <div className="line-editor">
       <table>

@@ -80,6 +80,9 @@ export async function saveProductionBom({ bom, items }) {
   await currentUserId();
   const cleanBom = {
     warehouse_item_id: bom.warehouse_item_id || null,
+    related_order_id: bom.related_order_id || null,
+    related_production_order_id: bom.related_production_order_id || null,
+    related_rnd_project_id: bom.related_rnd_project_id || null,
     product_name_fa: bom.product_name_fa,
     product_name_en: bom.product_name_en || null,
     version_no: bom.version_no || 'v1',
@@ -203,13 +206,44 @@ export async function publishBomToWarehouse(bomId, itemCode) {
 }
 
 export async function registerProductionOutput({ productionOrderId, warehouseItemId, quantity }) {
-  const userId = await currentUserId();
-  const res = await supabase.from('production_output').insert({
-    production_order_id: productionOrderId,
-    warehouse_item_id: warehouseItemId,
-    quantity: Number(quantity || 0),
-    registered_by: userId,
-  }).select('id').single();
+  const res = await supabase.rpc('fn_production_register_output', {
+    p_production_order_id: productionOrderId,
+    p_quantity: Number(quantity || 0),
+    p_warehouse_item_id: warehouseItemId || null,
+  });
   assertNoError(res, 'خطا در ثبت خروجی تولید در انبار');
+  return res.data;
+}
+
+export async function deleteProductionPlan(productionOrderId) {
+  const res = await supabase.rpc('fn_production_delete_plan', { p_production_order_id: productionOrderId });
+  assertNoError(res, 'خطا در حذف برنامه تولید');
+  return res.data;
+}
+
+
+export async function prepareProductionMaterialsFromBom({ productionOrderId, bomId }) {
+  const res = await supabase.rpc('fn_production_prepare_material_usage_from_bom', {
+    p_production_order_id: productionOrderId,
+    p_bom_id: bomId || null,
+  });
+  assertNoError(res, 'خطا در آماده‌سازی مواد مصرفی تولید');
+  return res.data;
+}
+
+export async function issueProductionMaterial(usageId, quantity) {
+  const res = await supabase.rpc('fn_production_issue_material_usage', {
+    p_usage_id: usageId,
+    p_quantity: quantity ? Number(quantity) : null,
+  });
+  assertNoError(res, 'خطا در صدور مواد تولید از انبار');
+  return res.data;
+}
+
+export async function issueAllProductionMaterials(productionOrderId) {
+  const res = await supabase.rpc('fn_production_issue_all_materials', {
+    p_production_order_id: productionOrderId,
+  });
+  assertNoError(res, 'خطا در صدور همه مواد تولید');
   return res.data;
 }

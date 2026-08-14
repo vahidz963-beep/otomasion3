@@ -149,8 +149,8 @@ export function useAccountingData() {
         .order('created_at', { ascending: false })
         .limit(150),
       supabase
-        .from('v_sales_stock_overview')
-        .select('item_id, item_code, item_name_fa, item_name_en, category, item_group, unit, current_qty, available_for_sale_qty, unit_price_estimate')
+        .from('v_app_inventory_catalog')
+        .select('item_id, item_code, item_name_fa, item_name_en, category, item_group, item_group_label, is_produced_item, unit, current_qty, available_for_sale_qty, unit_price_estimate, effective_sale_price, last_sale_unit_price')
         .order('item_name_fa', { ascending: true })
         .limit(300),
       supabase
