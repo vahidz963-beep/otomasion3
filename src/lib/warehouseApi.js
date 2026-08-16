@@ -227,6 +227,46 @@ export async function createWarehouseSnapshot({ fileName, rows, notes }) {
   return snap.data;
 }
 
+
+export async function createWarehouseShipment(payload) {
+  const res = await supabase.from('warehouse_shipments').insert({
+    source_type: payload.source_type || 'manual',
+    customer_name: payload.customer_name || null,
+    customer_city: payload.customer_city || null,
+    shipment_date: payload.shipment_date || new Date().toISOString().slice(0, 10),
+    item_summary: payload.item_summary || null,
+    total_quantity: Number(payload.total_quantity || 0),
+    carton_count: Number(payload.carton_count || 0),
+    total_value: Number(payload.total_value || 0),
+    carrier_name: payload.carrier_name || null,
+    tracking_code: payload.tracking_code || null,
+    receiver_name: payload.receiver_name || null,
+    status: payload.status || 'pending_warehouse',
+    notes: payload.notes || null,
+  }).select('id').single();
+  assertNoError(res, 'خطا در ثبت ارسال دستی');
+  return res.data;
+}
+
+export async function updateWarehouseShipment(id, payload) {
+  const res = await supabase.from('warehouse_shipments').update({
+    customer_name: payload.customer_name || null,
+    customer_city: payload.customer_city || null,
+    shipment_date: payload.shipment_date || new Date().toISOString().slice(0, 10),
+    item_summary: payload.item_summary || null,
+    total_quantity: Number(payload.total_quantity || 0),
+    carton_count: Number(payload.carton_count || 0),
+    total_value: Number(payload.total_value || 0),
+    carrier_name: payload.carrier_name || null,
+    tracking_code: payload.tracking_code || null,
+    receiver_name: payload.receiver_name || null,
+    status: payload.status || 'pending_warehouse',
+    notes: payload.notes || null,
+  }).eq('id', id).select('id').single();
+  assertNoError(res, 'خطا در ویرایش اطلاعات ارسال');
+  return res.data;
+}
+
 export function parseCsvText(text) {
   const lines = String(text || '').split(/\r?\n/).filter(Boolean);
   if (lines.length < 2) return [];

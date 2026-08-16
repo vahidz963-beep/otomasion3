@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { supabase, ROLES, roleLabel, callAdminUsersFunction } from '../../lib/supabaseClient';
+import { ROLES, roleLabel, callAdminUsersFunction } from '../../lib/supabaseClient';
 import './AdminUserPanel.css';
 
 const COPY = {
@@ -33,13 +33,16 @@ export default function AdminUserPanel({ lang = 'fa' }) {
 
   async function loadUsers() {
     setLoading(true);
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('*')
-      .order('created_at', { ascending: false });
-    if (error) setMsg(`${t.error}: ${error.message}`);
-    setUsers(data || []);
-    setLoading(false);
+    setMsg('');
+    try {
+      const res = await callAdminUsersFunction('list');
+      setUsers(res.users || []);
+    } catch (e) {
+      setMsg(`${t.error}: ${e.message}`);
+      setUsers([]);
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => { loadUsers(); }, []); // eslint-disable-line react-hooks/exhaustive-deps

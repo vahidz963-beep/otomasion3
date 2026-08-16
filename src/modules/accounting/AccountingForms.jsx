@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import JalaliDateInput from '../../components/JalaliDateInput';
+import ProductPicker from '../../components/ProductPicker';
 
 const DOC_TYPES = [
   ['sales_proforma', 'پیش‌فاکتور فروش'],
@@ -76,15 +77,15 @@ export function FinanceDocumentForm({ parties, orders = [], stock = [], initialD
     setItems((rows) => rows.map((row, i) => (i === index ? { ...row, ...patch } : row)));
   }
 
-  function selectStockItem(index, itemCode) {
-    const item = stock.find((s) => s.item_code === itemCode);
+  function selectStockItem(index, selected) {
     updateItem(index, {
-      warehouse_item_code: itemCode,
-      warehouse_item_id: item?.item_id || null,
-      description_fa: item?.item_name_fa || items[index]?.description_fa || '',
-      description_en: item?.item_name_en || items[index]?.description_en || '',
-      unit: item?.unit || items[index]?.unit || 'عدد',
-      unit_price: item?.effective_sale_price ?? item?.unit_price_estimate ?? items[index]?.unit_price ?? 0,
+      warehouse_item_code: selected?.item_code || '',
+      warehouse_item_id: selected?.item_id || null,
+      description_fa: selected?.item_name_fa || items[index]?.description_fa || '',
+      description_en: selected?.item_name_en || items[index]?.description_en || '',
+      unit: selected?.unit || items[index]?.unit || 'عدد',
+      unit_price: selected?.effective_sale_price ?? selected?.unit_price_estimate ?? items[index]?.unit_price ?? 0,
+      item_type: selected ? 'goods' : (items[index]?.item_type || 'service'),
     });
   }
 
@@ -104,14 +105,11 @@ export function FinanceDocumentForm({ parties, orders = [], stock = [], initialD
       <Field label="شرح" full><textarea value={document.description} onChange={(e) => setDocument({ ...document, description: e.target.value })} /></Field>
     </div>
 
-    <datalist id="finance-stock-items">
-      {stock.map((s) => <option key={s.item_id} value={s.item_code}>{s.item_code} · {s.item_name_fa} · {s.item_group_label || s.category || 'کالا'} · قابل فروش {s.available_for_sale_qty} · قیمت {Number(s.effective_sale_price ?? s.unit_price_estimate ?? 0).toLocaleString('fa-IR')}</option>)}
-    </datalist>
     <div className="line-editor">
       <table>
         <thead><tr><th>کد کالا</th><th>شرح</th><th>تعداد</th><th>واحد</th><th>فی ریال</th><th>تخفیف</th><th>مالیات٪</th><th></th></tr></thead>
         <tbody>{items.map((item, index) => <tr key={index}>
-          <td><input list="finance-stock-items" value={item.warehouse_item_code || ''} onChange={(e) => selectStockItem(index, e.target.value)} placeholder="جست‌وجوی کالا" /></td>
+          <td><ProductPicker items={stock} value={item.warehouse_item_id || item.warehouse_item_code || ''} onSelect={(selected) => selectStockItem(index, selected)} placeholder="کد یا نام کالا را بنویس..." /></td>
           <td><input value={item.description_fa} onChange={(e) => updateItem(index, { description_fa: e.target.value })} /></td>
           <td><input type="number" value={item.quantity} onChange={(e) => updateItem(index, { quantity: e.target.value })} /></td>
           <td><input value={item.unit} onChange={(e) => updateItem(index, { unit: e.target.value })} /></td>

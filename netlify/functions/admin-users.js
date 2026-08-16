@@ -5,6 +5,7 @@ const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const ANON_KEY = process.env.SUPABASE_ANON_KEY;
 
 const allowedRoles = new Set(['admin', 'sales', 'sales_manager', 'rnd', 'production', 'warehouse', 'accountant', 'office_admin']);
+
 function normalizeRoles(role, roles) {
   const list = Array.isArray(roles) ? roles.filter((r) => allowedRoles.has(r)) : [];
   if (role && allowedRoles.has(role) && !list.includes(role)) list.unshift(role);
@@ -24,28 +25,27 @@ export const handler = async (event) => {
   const accessToken = authHeader.replace('Bearer ', '').trim();
 
   const authClient = createClient(SUPABASE_URL, ANON_KEY);
+  const adminClient = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
+
   const { data: userData, error: userErr } = await authClient.auth.getUser(accessToken);
   if (userErr || !userData?.user) return json(401, { error: 'توکن نامعتبر است' });
 
-  const userScopedClient = createClient(SUPABASE_URL, ANON_KEY, {
-    global: { headers: { Authorization: `Bearer ${accessToken}` } },
-  });
+  const actorId = userData.user.id;
 
-  const { data: profile, error: profileErr } = await userScopedClient
+  // Use service role to read profile so admin panel doesn't fail if table grants/RLS are incomplete.
+  const { data: profile, error: profileErr } = await adminClient
     .from('profiles')
-    .select('role, is_active')
-    .eq('id', userData.user.id)
+    .select('role, additional_roles, is_active')
+    .eq('id', actorId)
     .maybeSingle();
 
-  if (profileErr || !profile || profile.role !== 'admin' || !profile.is_active) {
+  const actorRoles = [profile?.role, ...(profile?.additional_roles || [])].filter(Boolean);
+  if (profileErr || !profile || !profile.is_active || !actorRoles.includes('admin')) {
     return json(403, { error: 'فقط مدیر کل مجاز به این عملیات است' });
   }
 
   let body;
   try { body = JSON.parse(event.body || '{}'); } catch { return json(400, { error: 'بدنه‌ی درخواست نامعتبر است' }); }
-
-  const adminClient = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
-  const actorId = userData.user.id;
 
   async function writeAudit({ target_user_id, action, old_value, new_value }) {
     await adminClient.from('audit_log').insert({
@@ -60,12 +60,39 @@ export const handler = async (event) => {
   try {
     const { action } = body;
 
+    if (action === 'list') {
+      const { data, error } = await adminClient
+        .from('profiles')
+        .select('id, email, full_name, role, additional_roles, is_active, created_at, preferred_language')
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      return json(200, { ok: true, users: data || [] });
+    }
+
+    if (action === 'audit') {
+      const { data: logs, error: logsErr } = await adminClient
+        .from('audit_log')
+        .select('id, actor_id, target_user_id, action, old_value, new_value, created_at')
+        .order('created_at', { ascending: false })
+        .limit(200);
+      if (logsErr) throw logsErr;
+
+      const ids = [...new Set((logs || []).flatMap((r) => [r.actor_id, r.target_user_id]).filter(Boolean))];
+      let profiles = [];
+      if (ids.length) {
+        const { data, error } = await adminClient.from('profiles').select('id, full_name, email').in('id', ids);
+        if (error) throw error;
+        profiles = data || [];
+      }
+      return json(200, { ok: true, logs: logs || [], profiles });
+    }
+
     if (action === 'create') {
       const { email, password, full_name, role } = body;
       const preferred_language = ['fa', 'en'].includes(body.preferred_language) ? body.preferred_language : 'fa';
       const roles = normalizeRoles(role, body.roles);
       const primaryRole = roles[0] || role;
-      if (!email || !password || !full_name || !role) return json(400, { error: 'فیلدهای الزامی ناقص است' });
+      if (!email || !password || !full_name || !primaryRole) return json(400, { error: 'فیلدهای الزامی ناقص است' });
       if (!allowedRoles.has(primaryRole) || primaryRole === 'admin') return json(400, { error: 'نقش نامعتبر است' });
       if (password.length < 8) return json(400, { error: 'رمز عبور باید حداقل ۸ کاراکتر باشد' });
 
@@ -119,10 +146,11 @@ export const handler = async (event) => {
       const { user_id } = body;
       if (!user_id) return json(400, { error: 'کاربر نامعتبر است' });
       if (user_id === actorId) return json(400, { error: 'مدیر نمی‌تواند حساب خودش را حذف کند' });
-      const { data: before } = await adminClient.from('profiles').select('role').eq('id', user_id).maybeSingle();
+      const { data: before } = await adminClient.from('profiles').select('role, additional_roles').eq('id', user_id).maybeSingle();
       const { error } = await adminClient.auth.admin.deleteUser(user_id);
       if (error) throw error;
-      await writeAudit({ target_user_id: user_id, action: 'deleted', old_value: before?.role });
+      await adminClient.from('profiles').delete().eq('id', user_id);
+      await writeAudit({ target_user_id: user_id, action: 'deleted', old_value: before?.additional_roles?.join(',') || before?.role });
       return json(200, { ok: true });
     }
 

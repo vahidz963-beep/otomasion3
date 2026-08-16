@@ -38,3 +38,101 @@
 
 /* final width tuning requested */
 .crm-main-layout{grid-template-columns:minmax(0,1.85fr) minmax(300px,.72fr)!important}.crm-main-layout .crm-followups-card{min-width:300px}.orders-actions button:nth-child(n+5){display:none!important}@media(max-width:1180px){.crm-main-layout{grid-template-columns:1fr!important}.crm-main-layout .crm-followups-card{min-width:0}}
+
+/* Fix: professional boxed layout for "ثبت سفارش جدید" modal */
+.orders-modal.order-create-modal{
+  width:min(1120px,96vw);
+}
+.order-create-form{
+  direction:rtl;
+}
+.order-create-form .order-create-grid{
+  grid-template-columns:repeat(4,minmax(0,1fr));
+  gap:14px;
+  align-items:start;
+  border:1px solid #edf0f2;
+  background:linear-gradient(180deg,#ffffff 0%,#f8fafb 100%);
+  border-radius:18px;
+  padding:16px;
+}
+.order-create-form .order-create-grid label{
+  display:flex;
+  flex-direction:column;
+  min-width:0;
+}
+.order-create-form .order-create-grid span{
+  margin-bottom:7px;
+  color:#5b6670;
+  font-size:12px;
+  font-weight:900;
+  min-height:18px;
+}
+.order-create-form .order-create-grid input,
+.order-create-form .order-create-grid select,
+.order-create-form .order-create-grid textarea{
+  width:100%;
+  min-width:0;
+  min-height:48px;
+  box-sizing:border-box;
+  border:1px solid #d8dee3;
+  border-radius:14px;
+  background:#fff;
+  padding:10px 12px;
+  color:#10243d;
+  font-size:14px;
+  line-height:1.6;
+  outline:none;
+  transition:border-color .15s ease,box-shadow .15s ease,background .15s ease;
+}
+.order-create-form .order-create-grid input:focus,
+.order-create-form .order-create-grid select:focus,
+.order-create-form .order-create-grid textarea:focus{
+  border-color:#a8672e;
+  box-shadow:0 0 0 3px rgba(168,103,46,.13);
+}
+.order-create-form .order-create-grid select{
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.order-create-form .order-create-grid textarea{
+  min-height:115px;
+  resize:vertical;
+}
+.order-create-form .order-create-grid .half{
+  grid-column:span 2;
+}
+.order-create-form .order-create-grid .full{
+  grid-column:1/-1;
+}
+.order-create-form .order-create-grid .date-hint{
+  margin-top:6px;
+  line-height:1.6;
+}
+.order-create-form .order-template-preview,
+.order-create-form .order-options,
+.order-create-form .item-editor{
+  margin-top:14px;
+}
+.order-create-form .order-options{
+  border:1px solid #edf0f2;
+  background:#fff;
+  border-radius:18px;
+  padding:12px;
+}
+.order-create-form .item-editor{
+  background:#fff;
+}
+@media(max-width:980px){
+  .order-create-form .order-create-grid{grid-template-columns:repeat(2,minmax(0,1fr));}
+  .order-create-form .order-create-grid .half{grid-column:1/-1;}
+}
+@media(max-width:640px){
+  .orders-modal.order-create-modal{width:100vw;max-height:100vh;border-radius:0;}
+  .order-create-form .order-create-grid{grid-template-columns:1fr;padding:12px;}
+  .order-create-form .order-create-grid .half,
+  .order-create-form .order-create-grid .full{grid-column:1/-1;}
+}
+
+/* Product search inside order modal should not open the full warehouse list */
+.item-editor.searchable-items{overflow:visible}.item-editor.searchable-items .product-picker-menu{min-width:360px}.order-create-modal>header{background:linear-gradient(135deg,#f8d348,#c9932b)!important;color:#10243d!important}.order-create-modal>header button{background:rgba(16,36,61,.12)!important;color:#10243d!important}.orders-actions button.primary{background:linear-gradient(135deg,#f8d348,#c9932b)!important;border-color:#d9ab28!important;color:#10243d!important;font-weight:900}.orders-hero,.orders-tabs,.orders-message,.orders-kpis,.orders-grid,.orders-card{max-width:1440px}.flow-workspace-card{max-width:1440px!important}
+.live-linked-progress{display:grid;gap:8px}.live-linked-progress article{border:1px solid #e5f3eb;background:#f7fcf9;border-radius:12px;padding:10px}.live-linked-progress b{display:block;color:#10243d}.live-linked-progress span{display:block;color:#4c7a61;font-size:12px;margin-top:5px;line-height:1.8}

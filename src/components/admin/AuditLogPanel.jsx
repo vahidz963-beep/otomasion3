@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
-import { supabase, roleLabel } from '../../lib/supabaseClient';
+import { roleLabel, callAdminUsersFunction } from '../../lib/supabaseClient';
 import { formatJalaliDateTime } from '../../lib/formatters';
 import './AdminUserPanel.css';
+import { getFriendlyErrorMessage, getTechnicalErrorMessage } from '../../lib/errorMessages';
 
 const COPY = {
   fa: {
@@ -22,23 +23,24 @@ export default function AuditLogPanel({ lang = 'fa' }) {
   const [rows, setRows] = useState([]);
   const [names, setNames] = useState({});
   const [loading, setLoading] = useState(true);
+  const [msg, setMsg] = useState('');
 
   useEffect(() => {
     (async () => {
-      const { data: logs } = await supabase
-        .from('audit_log')
-        .select('id, actor_id, target_user_id, action, old_value, new_value, created_at')
-        .order('created_at', { ascending: false })
-        .limit(100);
-      const { data: profiles } = await supabase.from('profiles').select('id, full_name');
-      setNames(Object.fromEntries((profiles || []).map((p) => [p.id, p.full_name])));
-      setRows(logs || []);
-      setLoading(false);
+      try {
+        const res = await callAdminUsersFunction('audit');
+        setRows(res.logs || []);
+        setNames(Object.fromEntries((res.profiles || []).map((p) => [p.id, p.full_name || p.email])));
+      } catch (e) {
+        setMsg(getFriendlyErrorMessage(e, 'خطا در دریافت تاریخچه'));
+      } finally {
+        setLoading(false);
+      }
     })();
   }, []);
 
   const fmtValue = (row, value) => {
-    if (row.action === 'role_changed' && value) return roleLabel(value, lang);
+    if (row.action === 'role_changed' && value) return String(value).split(',').map((v) => roleLabel(v, lang)).join('، ');
     if ((row.action === 'activated' || row.action === 'deactivated') && value != null) return value === 'true' ? t.actions.activated : t.actions.deactivated;
     return value || '—';
   };
@@ -46,6 +48,7 @@ export default function AuditLogPanel({ lang = 'fa' }) {
   return (
     <div className="admin-panel" dir={dir} lang={lang}>
       <header className="admin-header"><div><h2>{t.title}</h2><p>{t.subtitle}</p></div></header>
+      {msg && <div className="admin-msg error">{msg}</div>}
       {loading ? <p className="hint">{t.loading}</p> : rows.length === 0 ? <p className="hint">{t.empty}</p> : (
         <div className="table-wrap">
           <table className="user-table">

@@ -5,6 +5,7 @@ import { formatJalaliDate } from '../../lib/formatters';
 import JalaliDateInput from '../JalaliDateInput';
 import SharedFilesPanel from '../shared/SharedFilesPanel';
 import './ReferralPanel.css';
+import { getFriendlyErrorMessage, getTechnicalErrorMessage } from '../../lib/errorMessages';
 
 const STATUS_LABELS = { open: 'باز', in_progress: 'در حال انجام', answered: 'پاسخ داده‌شده', done: 'انجام شده', cancelled: 'لغو شده' };
 const PRIORITY_LABELS = { 1: 'فوری', 2: 'عادی', 3: 'کم‌اهمیت' };
@@ -27,7 +28,7 @@ export default function ReferralPanel({ sourceModule, title = 'ارجاعات', 
   async function load() {
     setLoading(true); setError('');
     try { setRows(await fetchModuleReferrals({ module: sourceModule, relatedOrderId, relatedDocumentId, status: statusFilter })); }
-    catch (e) { setError(e.message || 'خطا در دریافت ارجاعات'); }
+    catch (e) { setError(getFriendlyErrorMessage(e, 'خطا در دریافت ارجاعات')); }
     finally { setLoading(false); }
   }
 
@@ -48,8 +49,19 @@ export default function ReferralPanel({ sourceModule, title = 'ارجاعات', 
       setMessageText('');
       setDetailMessages(await fetchReferralMessages(detail.id));
       await load();
-    } catch (e) { setError(e.message || 'خطا در ثبت پاسخ'); }
+    } catch (e) { setError(getFriendlyErrorMessage(e, 'خطا در ثبت پاسخ')); }
     finally { setBusy(false); }
+  }
+
+  function openLeaveRequest() {
+    setForm({
+      targetModule: 'office',
+      title: 'درخواست مرخصی',
+      description: `نوع مرخصی: \nتاریخ/ساعت شروع: \nتاریخ/ساعت پایان: \nعلت درخواست: \nاین درخواست ابتدا توسط اداری بررسی و سپس برای تأیید نهایی مدیر کل پیگیری می‌شود.`,
+      priority: 2,
+      dueDate: '',
+    });
+    setShowForm(true);
   }
 
   async function submit(e) {
@@ -59,7 +71,7 @@ export default function ReferralPanel({ sourceModule, title = 'ارجاعات', 
       setShowForm(false);
       setForm({ targetModule: defaultTarget, title: '', description: '', priority: 2, dueDate: '' });
       await load();
-    } catch (e) { setError(e.message || 'خطا در ثبت ارجاع'); }
+    } catch (e) { setError(getFriendlyErrorMessage(e, 'خطا در ثبت ارجاع')); }
     finally { setBusy(false); }
   }
 
@@ -70,7 +82,7 @@ export default function ReferralPanel({ sourceModule, title = 'ارجاعات', 
     }
     setBusy(true);
     try { await updateReferralStatus(row.id, status); await load(); }
-    catch (e) { setError(e.message || 'خطا در تغییر وضعیت'); }
+    catch (e) { setError(getFriendlyErrorMessage(e, 'خطا در تغییر وضعیت')); }
     finally { setBusy(false); }
   }
 
@@ -81,12 +93,12 @@ export default function ReferralPanel({ sourceModule, title = 'ارجاعات', 
       await updateReferralStatus(responseModal.row.id, responseModal.status, responseModal.response);
       setResponseModal(null);
       await load();
-    } catch (e) { setError(e.message || 'خطا در ثبت پاسخ ارجاع'); }
+    } catch (e) { setError(getFriendlyErrorMessage(e, 'خطا در ثبت پاسخ ارجاع')); }
     finally { setBusy(false); }
   }
 
   const referralSection = <section className={compact ? 'referral-panel compact' : 'referral-panel'}>
-    <header className="referral-panel-header"><div><h2><Link2 size={18} /> {title}</h2><p>{activeCount} ارجاع فعال</p></div><div className="referral-actions"><button type="button" onClick={load}><RefreshCw size={14} /> به‌روزرسانی</button><button type="button" className="primary" onClick={() => setShowForm((v) => !v)}>＋ ارجاع جدید</button></div></header>
+    <header className="referral-panel-header"><div><h2><Link2 size={18} /> {title}</h2><p>{activeCount} ارجاع فعال</p></div><div className="referral-actions"><button type="button" onClick={load}><RefreshCw size={14} /> به‌روزرسانی</button><button type="button" className="leave-request-btn" onClick={openLeaveRequest}>درخواست مرخصی</button><button type="button" className="primary" onClick={() => setShowForm((v) => !v)}>＋ ارجاع جدید</button></div></header>
     <div className="referral-toolbar"><select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}><option value="active">فعال‌ها</option><option value="all">همه</option><option value="done">انجام‌شده</option><option value="cancelled">لغوشده</option></select></div>
     {showForm && <form className="referral-form" onSubmit={submit}><label><span>مقصد</span><select value={form.targetModule} onChange={(e) => setForm({ ...form, targetModule: e.target.value })}>{Object.entries(MODULE_LABELS_FA).filter(([k]) => k !== sourceModule).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label><label><span>اولویت</span><select value={form.priority} onChange={(e) => setForm({ ...form, priority: Number(e.target.value) })}><option value={1}>فوری</option><option value={2}>عادی</option><option value={3}>کم‌اهمیت</option></select></label><label><span>موعد شمسی</span><JalaliDateInput value={form.dueDate} onChange={(value) => setForm({ ...form, dueDate: value })} /></label><label className="wide"><span>عنوان</span><input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} required /></label><label className="wide"><span>شرح</span><textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></label><div className="wide referral-submit"><button disabled={busy} type="submit">ثبت ارجاع</button></div></form>}
     {error && <div className="referral-error">{error}</div>}

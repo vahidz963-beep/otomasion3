@@ -98,7 +98,7 @@ export function useAccountingData() {
         .order('rule_key', { ascending: true }),
       supabase
         .from('finance_bank_accounts')
-        .select('id, account_name, bank_name, account_number, iban, currency, opening_balance, account_usage, is_active')
+        .select('*')
         .order('account_usage', { ascending: true }),
       supabase
         .from('finance_cashboxes')
@@ -152,7 +152,7 @@ export function useAccountingData() {
         .from('v_app_inventory_catalog')
         .select('item_id, item_code, item_name_fa, item_name_en, category, item_group, item_group_label, is_produced_item, unit, current_qty, available_for_sale_qty, unit_price_estimate, effective_sale_price, last_sale_unit_price')
         .order('item_name_fa', { ascending: true })
-        .limit(300),
+        .limit(800),
       supabase
         .from('v_warehouse_kardex')
         .select('item_id, item_code, item_name_fa, tx_id, transaction_type, direction, quantity, doc_number, document_status, note, created_at, running_balance')
@@ -219,6 +219,25 @@ export function useAccountingData() {
   }, []);
 
   useEffect(() => { fetchData(); }, [fetchData]);
+
+  useEffect(() => {
+    let timer;
+    const scheduleRefetch = () => {
+      clearTimeout(timer);
+      timer = setTimeout(fetchData, 500);
+    };
+    const channel = supabase
+      .channel('accounting-live-sync')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'finance_documents' }, scheduleRefetch)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'finance_document_items' }, scheduleRefetch)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'finance_payments' }, scheduleRefetch)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'warehouse_items' }, scheduleRefetch)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'warehouse_transactions' }, scheduleRefetch)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'warehouse_documents' }, scheduleRefetch)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'production_output' }, scheduleRefetch)
+      .subscribe();
+    return () => { clearTimeout(timer); supabase.removeChannel(channel); };
+  }, [fetchData]);
 
   return useMemo(() => ({ ...state, refetch: fetchData }), [state, fetchData]);
 }
@@ -289,11 +308,13 @@ export function useFinanceDocumentBundle(documentId) {
     events: [],
     referrals: [],
     ioDocuments: [],
+    party: null,
+    order: null,
   });
 
   const fetchBundle = useCallback(async () => {
     if (!documentId) {
-      setState({ loading: false, error: null, document: null, items: [], allocations: [], payments: [], events: [], referrals: [], ioDocuments: [] });
+      setState({ loading: false, error: null, document: null, items: [], allocations: [], payments: [], events: [], referrals: [], ioDocuments: [], party: null, order: null });
       return;
     }
 
@@ -345,7 +366,30 @@ export function useFinanceDocumentBundle(documentId) {
       }
     }
 
-    const firstError = [documentRes, itemsRes, allocationsRes, eventsRes, referralsRes, ioRes].find((r) => r.error)?.error;
+    let party = null;
+    let order = null;
+    let partyError = null;
+    let orderError = null;
+    if (documentRes.data?.party_id) {
+      const partyRes = await supabase
+        .from('finance_parties')
+        .select('id, display_name, party_type, phone, email, address, national_id, economic_code')
+        .eq('id', documentRes.data.party_id)
+        .maybeSingle();
+      party = partyRes.data || null;
+      partyError = partyRes.error;
+    }
+    if (documentRes.data?.related_order_id) {
+      const orderRes = await supabase
+        .from('v_order_tracking')
+        .select('id, order_code, customer_name, contact_phone, customer_city, title_fa')
+        .eq('id', documentRes.data.related_order_id)
+        .maybeSingle();
+      order = orderRes.data || null;
+      orderError = orderRes.error;
+    }
+
+    const firstError = [documentRes, itemsRes, allocationsRes, eventsRes, referralsRes, ioRes, { error: partyError }, { error: orderError }].find((r) => r.error)?.error;
 
     setState({
       loading: false,
@@ -357,6 +401,8 @@ export function useFinanceDocumentBundle(documentId) {
       events: eventsRes.data || [],
       referrals: referralsRes.data || [],
       ioDocuments: ioRes.data || [],
+      party,
+      order,
     });
   }, [documentId]);
 

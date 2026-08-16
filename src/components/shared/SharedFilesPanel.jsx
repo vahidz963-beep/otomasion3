@@ -3,6 +3,7 @@ import { Download, FileUp, RefreshCw, Share2, Trash2 } from 'lucide-react';
 import { deleteSharedFile, downloadSharedFile, fetchSharedFiles, uploadSharedFile } from '../../lib/sharedFilesApi';
 import { formatJalaliDateTime, formatNumber } from '../../lib/formatters';
 import './SharedFilesPanel.css';
+import { getFriendlyErrorMessage, getTechnicalErrorMessage } from '../../lib/errorMessages';
 
 const MODULE_LABEL = {
   orders: 'سفارش‌ها', sales: 'فروش', rnd: 'R&D', production: 'تولید', warehouse: 'انبار', accounting: 'مالی', admin: 'اداری/مدیریت', office: 'اداری', manual: 'دستی'
@@ -37,7 +38,7 @@ export default function SharedFilesPanel({ sourceModule = 'manual', relatedOrder
   async function load() {
     setLoading(true); setError('');
     try { setRows(await fetchSharedFiles({ sourceModule, relatedOrderId, relatedRecordId })); }
-    catch (e) { setError(e.message || 'خطا در دریافت فایل‌ها'); }
+    catch (e) { setError(getFriendlyErrorMessage(e, 'خطا در دریافت فایل‌ها')); }
     finally { setLoading(false); }
   }
 
@@ -52,7 +53,7 @@ export default function SharedFilesPanel({ sourceModule = 'manual', relatedOrder
       setConfirmDelete(null);
       await load();
     } catch (e) {
-      setError(e.message || 'خطا در حذف فایل');
+      setError(getFriendlyErrorMessage(e, 'خطا در حذف فایل'));
     } finally {
       setBusy(false);
     }
@@ -61,7 +62,7 @@ export default function SharedFilesPanel({ sourceModule = 'manual', relatedOrder
   async function handleDownload(row) {
     setError('');
     try { await downloadSharedFile(row); }
-    catch (e) { setError(e.message || 'خطا در دانلود فایل'); }
+    catch (e) { setError(getFriendlyErrorMessage(e, 'خطا در دانلود فایل')); }
   }
 
   async function submit(e) {
@@ -74,7 +75,7 @@ export default function SharedFilesPanel({ sourceModule = 'manual', relatedOrder
       setFolder(sourceModule || 'manual');
       await load();
     } catch (e) {
-      setError(e.message || 'خطا در ثبت فایل');
+      setError(getFriendlyErrorMessage(e, 'خطا در ثبت فایل'));
     } finally { setBusy(false); }
   }
 

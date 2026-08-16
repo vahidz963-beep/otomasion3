@@ -8,6 +8,7 @@ export const MODULE_LABELS_FA = {
   production: 'تولید',
   rnd: 'R&D',
   admin: 'مدیر کل',
+  office: 'اداری',
 };
 
 export const TARGET_ROLE_BY_MODULE = {
@@ -18,6 +19,7 @@ export const TARGET_ROLE_BY_MODULE = {
   production: 'production',
   rnd: 'rnd',
   admin: 'admin',
+  office: 'office_admin',
 };
 
 function assertNoError({ error }, fallbackMessage) {

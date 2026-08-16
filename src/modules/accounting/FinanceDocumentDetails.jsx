@@ -1,6 +1,7 @@
 import { Banknote, FileText, History, Link2, Printer, ReceiptText } from 'lucide-react';
-import { openPrintableDocument } from '../../lib/financeApi';
+import { openOfficialFinancePrint } from '../../lib/financeApi';
 import { formatJalaliDate, formatToman } from '../../lib/formatters';
+import { formatRial, rialToPersianWords } from '../../lib/persianNumbers';
 
 const DOC_LABELS = {
   sales_proforma: 'پیش‌فاکتور فروش',
@@ -33,35 +34,113 @@ function date(value) {
   return formatJalaliDate(value);
 }
 
-function printDocument(bundle) {
-  const d = bundle.document;
-  const rows = bundle.items.map((item) => `
-    <tr>
-      <td>${item.description_fa}</td>
-      <td>${new Intl.NumberFormat('fa-IR').format(Number(item.quantity || 0))}</td>
-      <td>${item.unit || ''}</td>
-      <td class="money">${money(item.unit_price)}</td>
-      <td>${new Intl.NumberFormat('fa-IR').format(Number(item.tax_rate || 0))}٪</td>
-      <td class="money">${money(item.line_total)}</td>
-    </tr>
-  `).join('');
+function esc(value) {
+  return String(value ?? '').replace(/[&<>\"]/g, (ch) => {
+    if (ch === '&') return '&amp;';
+    if (ch === '<') return '&lt;';
+    if (ch === '>') return '&gt;';
+    return '&quot;';
+  });
+}
 
-  openPrintableDocument(d.doc_number, `
-    <h1>${DOC_LABELS[d.document_type] || d.document_type} ${d.doc_number}</h1>
-    <div class="meta">
-      <div><b>تاریخ:</b> ${date(d.issue_date)}</div>
-      <div><b>سررسید:</b> ${date(d.due_date)}</div>
-      <div><b>نوع:</b> ${d.is_official ? 'رسمی' : 'غیررسمی'}</div>
-      <div><b>وضعیت:</b> ${STATUS_LABELS[d.status] || d.status}</div>
-    </div>
-    <table>
-      <thead><tr><th>شرح</th><th>تعداد</th><th>واحد</th><th>فی</th><th>مالیات</th><th>جمع</th></tr></thead>
-      <tbody>${rows}</tbody>
-    </table>
-    <h2>جمع کل: ${money(d.total_amount)}</h2>
-    <p>پرداخت‌شده: ${money(d.paid_amount)} | مانده: ${money(d.balance_amount)}</p>
-    <div class="footer"><span>امضای فروش</span><span>امضای مالی</span><span>مهر شرکت</span></div>
-  `);
+function shortCode(value) {
+  return value ? String(value).slice(0, 8) : '—';
+}
+
+function printDocument(bundle, variant = 'company') {
+  const d = bundle.document;
+  const party = bundle.party || {};
+  const order = bundle.order || {};
+  const itemDiscountTotal = bundle.items.reduce((sum, item) => sum + Number(item.discount_amount || 0), 0);
+  const discountTotal = Number(d.discount_amount || 0) + itemDiscountTotal;
+  const rows = bundle.items.map((item, index) => {
+    const qty = Number(item.quantity || 0);
+    const unitPrice = Number(item.unit_price || 0);
+    const gross = qty * unitPrice;
+    const finalAmount = Number(item.line_total || 0);
+    return `
+      <tr class="${index % 2 === 1 ? 'alt' : ''}">
+        <td>${index + 1}</td>
+        <td class="desc">${esc(item.description_fa)}</td>
+        <td>${new Intl.NumberFormat('fa-IR').format(qty)}</td>
+        <td>${esc(item.unit || '')}</td>
+        <td class="money">${formatRial(unitPrice)}</td>
+        <td class="money">${formatRial(gross)}</td>
+        <td class="money">${formatRial(item.discount_amount || 0)}</td>
+        <td class="money">${formatRial(finalAmount)}</td>
+      </tr>
+    `;
+  }).join('');
+
+  const companyReportLabel = d.document_type === 'sales_proforma'
+    ? '( پیش‌فاکتور فروش )'
+    : d.document_type === 'purchase_invoice'
+      ? '( فاکتور خرید )'
+      : d.document_type === 'expense_invoice'
+        ? '( سند هزینه )'
+        : '( فاکتور فروش )';
+  const reportLabel = variant === 'official' ? 'صورت‌حساب فروش کالا و خدمات' : companyReportLabel;
+  const sellerBlock = variant === 'official' ? `
+      <div class="section-label">مشخصات فروشنده</div>
+      <section class="box-row">
+        <div class="box-grid four">
+          <div class="field"><b>شرکت:</b> پیشرو الکترونیک آریامن پارس</div>
+          <div class="field"><b>شماره اقتصادی:</b> 14009467259</div>
+          <div class="field"><b>شماره ثبت:</b> 13452</div>
+          <div class="field"><b>کد پستی:</b> 75169 - 13817</div>
+          <div class="field" style="grid-column:1/-1"><b>نشانی:</b> بوشهر، بهمنی، نخلج فارس، پردیس فناوری · <b>تلفن:</b> 09173742966</div>
+        </div>
+      </section>` : '';
+
+  openOfficialFinancePrint({
+    title: `${DOC_LABELS[d.document_type] || d.document_type} ${d.doc_number}`,
+    reportLabel,
+    subtitle: 'بوشهر، بهمنی، نخلج فارس، پردیس فناوری',
+    body: `
+      <div class="section-label">مشخصات فاکتور</div>
+      <section class="box-row">
+        <div class="box-grid four">
+          <div class="field"><b>شماره فاکتور:</b><br><span dir="ltr">${esc(d.doc_number)}</span></div>
+          <div class="field"><b>تاریخ:</b> ${date(d.issue_date)}</div>
+          <div class="field"><b>سررسید:</b> ${date(d.due_date)}</div>
+          <div class="field"><b>وضعیت:</b> ${STATUS_LABELS[d.status] || d.status}</div>
+        </div>
+      </section>
+      ${sellerBlock}
+      <div class="section-label">مشخصات خریدار</div>
+      <section class="box-row">
+        <div class="box-grid two">
+          <div class="field"><b>نام شخص حقیقی / حقوقی:</b> ${esc(party.display_name || order.customer_name || '—')}</div>
+          <div class="field"><b>شناسه / کد:</b> ${esc(party.national_id || party.economic_code || shortCode(party.id || d.party_id))}</div>
+          <div class="field"><b>تلفن تماس:</b> ${esc(party.phone || order.contact_phone || '—')}</div>
+          <div class="field"><b>سفارش:</b> ${esc(order.order_code || d.related_order_id || '—')}</div>
+          <div class="field" style="grid-column:1/-1"><b>نشانی:</b> ${esc(party.address || order.customer_city || '—')}</div>
+        </div>
+      </section>
+      <div class="section-label">${variant === 'official' ? 'مشخصات کالا یا خدمات مورد معامله' : 'جزئیات اقلام'}</div>
+      <table class="official-table">
+        <thead><tr><th>ردیف</th><th>شرح کالا / خدمات</th><th>تعداد</th><th>واحد</th><th>مبلغ واحد</th><th>مبلغ کل</th><th>تخفیف</th><th>مبلغ نهایی</th></tr></thead>
+        <tbody>${rows || '<tr><td colspan="8">ردیفی ثبت نشده است.</td></tr>'}</tbody>
+      </table>
+      <div class="notes-box"><b>توضیحات:</b> ${esc(d.description || d.print_note || '—')}</div>
+      <section class="totals-wrap">
+        <table class="totals-table">
+          <tbody>
+            <tr><td>مبلغ کل فاکتور</td><td class="money">${formatRial(d.subtotal_amount)}</td></tr>
+            <tr><td>تخفیف</td><td class="money">${formatRial(discountTotal)}</td></tr>
+            <tr><td>مالیات</td><td class="money">${formatRial(d.tax_amount)}</td></tr>
+            <tr><td>قابل پرداخت</td><td class="money">${formatRial(d.total_amount)}</td></tr>
+            <tr><td>مانده فاکتور</td><td class="money">${formatRial(d.balance_amount)}</td></tr>
+          </tbody>
+        </table>
+        <div class="amount-words">
+          <b>مبلغ به حروف:</b> ${rialToPersianWords(d.total_amount)}
+          <br><b>مانده حساب نهایی:</b> ${formatRial(d.balance_amount)} ${Number(d.balance_amount || 0) > 0 ? 'بدهکار می‌باشد.' : 'تسویه می‌باشد.'}
+        </div>
+      </section>
+      <section class="signatures"><span>امضاء فروشنده</span><span>امضاء خریدار</span><span>امضاء تحویل‌گیرنده</span></section>
+    `,
+  });
 }
 
 export default function FinanceDocumentDetails({
@@ -75,6 +154,7 @@ export default function FinanceDocumentDetails({
   onReturn,
   onNewPayment,
   onNewReferral,
+  onClose,
 }) {
   const d = bundle.document;
 
@@ -94,7 +174,7 @@ export default function FinanceDocumentDetails({
           <h2>{d.doc_number}</h2>
           <p>{d.description || 'بدون توضیح'}</p>
         </div>
-        <span className={`status-badge ${d.status}`}>{STATUS_LABELS[d.status] || d.status}</span>
+        <div className="detail-header-actions"><span className={`status-badge ${d.status}`}>{STATUS_LABELS[d.status] || d.status}</span>{onClose && <button type="button" className="detail-close-btn" onClick={onClose}>×</button>}</div>
       </header>
 
       <div className="detail-actions">
@@ -105,7 +185,7 @@ export default function FinanceDocumentDetails({
         <button disabled={busy || d.status === 'void'} onClick={() => onVoid(d.id)}>ابطال</button>
         <button disabled={busy} onClick={() => onNewPayment(d.id)}><Banknote size={14} /> دریافت/پرداخت</button>
         <button disabled={busy} onClick={() => onNewReferral(d.id)}><Link2 size={14} /> ارجاع</button>
-        <button onClick={() => printDocument(bundle)}><Printer size={14} /> چاپ/PDF</button>
+        <button onClick={() => printDocument(bundle, 'company')}><Printer size={14} /> چاپ شرکتی</button><button onClick={() => printDocument(bundle, 'official')}><Printer size={14} /> چاپ رسمی</button>
       </div>
 
       {loading && <p className="muted">در حال دریافت جزئیات...</p>}

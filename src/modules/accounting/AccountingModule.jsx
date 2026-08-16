@@ -23,6 +23,7 @@ import { useAccountingData, useFinanceDocumentBundle, usePartyStatement } from '
 import ReferralPanel from '../../components/referrals/ReferralPanel';
 import JalaliDateInput from '../../components/JalaliDateInput';
 import { formatJalaliDate, formatToman } from '../../lib/formatters';
+import { formatRial, rialToPersianWords } from '../../lib/persianNumbers';
 import {
   closeFiscalPeriod,
   closeFiscalYear,
@@ -37,6 +38,7 @@ import {
   downloadCsv,
   downloadExcelHtml,
   openPrintableDocument,
+  openOfficialFinancePrint,
   postFinanceDocument,
   reopenFiscalPeriod,
   reopenFiscalYear,
@@ -50,6 +52,8 @@ import {
   archiveFinanceInvestment,
   createFinanceParty,
   createFinanceOrderCost,
+  createFinanceBankAccount,
+  updateFinanceBankAccount,
 } from '../../lib/financeApi';
 import {
   FinanceCheckForm,
@@ -61,6 +65,7 @@ import {
 } from './AccountingForms';
 import FinanceDocumentDetails from './FinanceDocumentDetails';
 import './AccountingModule.css';
+import { getFriendlyErrorMessage, getTechnicalErrorMessage } from '../../lib/errorMessages';
 
 const COPY = {
   fa: {
@@ -161,6 +166,7 @@ export default function AccountingModule({ lang = 'fa' }) {
   const [investmentModal, setInvestmentModal] = useState(null);
   const [partyModal, setPartyModal] = useState(null);
   const [orderCostModal, setOrderCostModal] = useState(null);
+  const [accountModal, setAccountModal] = useState(null);
 
   const data = useAccountingData();
   const selectedParty = useMemo(() => data.parties.find((p) => p.party_id === selectedPartyId), [data.parties, selectedPartyId]);
@@ -189,21 +195,36 @@ export default function AccountingModule({ lang = 'fa' }) {
       await fn();
       setNotice(successMessage);
       setModal(null);
+      setInvestmentModal(null);
+      setPartyModal(null);
+      setOrderCostModal(null);
+      setAccountModal(null);
       await data.refetch();
       documentBundle.refetch?.();
     } catch (e) {
-      setNotice(e.message || 'خطا در اجرای عملیات');
+      setNotice(getFriendlyErrorMessage(e, 'خطا در اجرای عملیات'));
     } finally {
       setBusy(false);
     }
   }
 
-  const submitDocument = (payload) => runAction(
-    () => payload.documentId
-      ? updateFinanceDocument(payload.documentId, payload)
-      : createFinanceDocument(payload),
-    payload.documentId ? 'سند مالی ویرایش شد.' : 'سند مالی با شماره خودکار ثبت شد.'
-  );
+  function submitDocument(payload) {
+    const existing = payload.documentId ? (documentBundle.document || data.documents.find((d) => d.id === payload.documentId)) : null;
+    if (existing && !['draft', 'pending_approval'].includes(existing.status)) {
+      setConfirmAction({
+        type: 'edit_document',
+        id: payload.documentId,
+        payload,
+        title: 'ویرایش فاکتور تأییدشده',
+        message: 'این فاکتور قبلاً تأیید/ثبت شده است. آیا مایل هستید بعد از ویرایش، اسناد مرتبط مثل خروج/ورود انبار و سندهای مربوط نیز متناسب با فاکتور اصلاح شوند؟ دلیل ویرایش را وارد کنید.',
+      });
+      return;
+    }
+    runAction(
+      () => payload.documentId ? updateFinanceDocument(payload.documentId, payload) : createFinanceDocument(payload),
+      payload.documentId ? 'سند مالی ویرایش شد.' : 'سند مالی با شماره خودکار ثبت شد.'
+    );
+  }
   const submitOrderInvoice = (orderId) => runAction(() => createSalesInvoiceFromOrder(orderId), 'فاکتور فروش از سفارش ساخته شد.');
   const submitPayment = (payload) => runAction(() => createFinancePayment(payload), 'دریافت/پرداخت ثبت و سند حسابداری آن ایجاد شد.');
   const submitCheck = (payload) => runAction(() => createFinanceCheck(payload), 'چک با کد داخلی ثبت شد.');
@@ -230,6 +251,7 @@ export default function AccountingModule({ lang = 'fa' }) {
           <button type="button" className="primary" onClick={() => setModal('orderInvoice')}><FileText size={16} /> فاکتور از سفارش</button>
           <button type="button" onClick={() => setModal('document')}><FileText size={16} /> فاکتور جدید</button>
           <button type="button" onClick={() => setModal('payment')}><Banknote size={16} /> دریافت/پرداخت</button>
+          <button type="button" onClick={data.refetch}><RefreshCcw size={16} /> به‌روزرسانی</button>
         </div>
       </header>
 
@@ -252,10 +274,12 @@ export default function AccountingModule({ lang = 'fa' }) {
         setConfirmAction(null);
         if (action.type === 'void') runAction(() => voidFinanceDocument(action.id, reason), 'سند باطل شد و از لیست فعال حذف شد.');
         if (action.type === 'return') runAction(() => createSalesReturnFromInvoice(action.id, reason), 'فاکتور برگشتی ساخته شد.');
+        if (action.type === 'edit_document') runAction(() => updateFinanceDocument(action.id, { ...action.payload, syncLinkedDocuments: true, edit_reason: reason }), 'فاکتور و اسناد مرتبط با آن ویرایش و همگام شد.');
       }} />}
       {investmentModal && <InvestmentModal initial={investmentModal.item} busy={busy} onClose={() => setInvestmentModal(null)} onSubmit={(payload) => runAction(() => investmentModal.item ? updateFinanceInvestment(investmentModal.item.id, payload) : createFinanceInvestment(payload), investmentModal.item ? 'سرمایه‌گذاری ویرایش شد.' : 'سرمایه‌گذاری ثبت شد.')} />}
       {partyModal && <PartyModal busy={busy} onClose={() => setPartyModal(null)} onSubmit={(payload) => runAction(() => createFinanceParty(payload), 'شخص جدید ثبت و با بانک مشتریان هماهنگ شد.')} />}
       {orderCostModal && <OrderCostModal order={orderCostModal.order} busy={busy} onClose={() => setOrderCostModal(null)} onSubmit={(payload) => runAction(() => createFinanceOrderCost(payload), 'هزینه سفارش ثبت شد و در سود سفارش لحاظ می‌شود.')} />}
+      {accountModal && <BankAccountModal initial={accountModal.account} busy={busy} onClose={() => setAccountModal(null)} onSubmit={(payload) => runAction(() => accountModal.account ? updateFinanceBankAccount(accountModal.account.id || accountModal.account.account_id, payload) : createFinanceBankAccount(payload), accountModal.account ? 'اطلاعات حساب/کارت ویرایش شد.' : 'حساب/کارت بانکی اضافه شد.')} />}
 
       <nav className="accounting-tabs">
         {Object.entries(t.tabs).map(([key, label]) => <button key={key} className={tab === key ? 'active' : ''} onClick={() => setTab(key)}>{label}</button>)}
@@ -263,12 +287,12 @@ export default function AccountingModule({ lang = 'fa' }) {
 
       {notice && <div className="accounting-message">{notice}</div>}
       {data.loading && <div className="accounting-message">{t.loading}</div>}
-      {!data.loading && data.error && <div className="accounting-message error">{t.error}<br /><small dir="ltr">{data.error.message}</small></div>}
+      {!data.loading && data.error && <div className="accounting-message error">{getFriendlyErrorMessage(data.error, t.error)}<br /><small dir="ltr">{getTechnicalErrorMessage(data.error)}</small></div>}
 
       {!data.loading && tab === 'overview' && <Overview kpis={kpis} dashboard={data.dashboard} docs={activeDocuments} profit={data.profitability} payments={data.paymentLedger} checks={data.checks} lang={lang} t={t} setTab={setTab} />}
-      {!data.loading && tab === 'documents' && <DocumentsSection docs={activeDocuments} selectedDocument={selectedDocument} documentBundle={documentBundle} lang={lang} t={t} busy={busy} onSelect={setSelectedDocumentId} onPost={(id) => runAction(() => postFinanceDocument(id), 'سند حسابداری فاکتور ثبت شد.')} onEdit={(id) => setModal({ type: 'document', documentId: id })} onConvert={(id) => runAction(() => convertProformaToInvoice(id), 'پیش‌فاکتور به فاکتور تبدیل شد و به فاکتور فروش منتقل شد.')} onVoid={(id) => setConfirmAction({ type: 'void', id, title: 'ابطال فاکتور', message: 'آیا از ابطال این سند مطمئن هستید؟ بعد از ابطال از لیست فعال حذف می‌شود.' })} onReturn={(id) => setConfirmAction({ type: 'return', id, title: 'فاکتور برگشتی', message: 'دلیل و توضیح ایجاد فاکتور برگشتی را وارد کنید.' })} onNewPayment={(id) => setModal({ type: 'payment', documentId: id })} onNewReferral={(id) => setModal({ type: 'referral', documentId: id })} />}
+      {!data.loading && tab === 'documents' && <DocumentsSection docs={activeDocuments} selectedDocument={selectedDocument} documentBundle={documentBundle} lang={lang} t={t} busy={busy} onSelect={setSelectedDocumentId} onCloseDetails={() => setSelectedDocumentId(null)} onPost={(id) => runAction(() => postFinanceDocument(id), 'سند حسابداری فاکتور ثبت شد.')} onEdit={(id) => setModal({ type: 'document', documentId: id })} onConvert={(id) => runAction(() => convertProformaToInvoice(id), 'پیش‌فاکتور به فاکتور تبدیل شد و به فاکتور فروش منتقل شد.')} onVoid={(id) => setConfirmAction({ type: 'void', id, title: 'ابطال فاکتور', message: 'آیا از ابطال این سند مطمئن هستید؟ بعد از ابطال از لیست فعال حذف می‌شود.' })} onReturn={(id) => setConfirmAction({ type: 'return', id, title: 'فاکتور برگشتی', message: 'دلیل و توضیح ایجاد فاکتور برگشتی را وارد کنید.' })} onNewPayment={(id) => setModal({ type: 'payment', documentId: id })} onNewReferral={(id) => setModal({ type: 'referral', documentId: id })} />}
       {!data.loading && tab === 'parties' && <PartiesSection parties={filteredParties} allParties={data.parties} filter={partyFilter} setFilter={setPartyFilter} selectedPartyId={selectedPartyId} setSelectedPartyId={setSelectedPartyId} selectedParty={selectedParty} statement={statement} statementFlowFilter={statementFlowFilter} setStatementFlowFilter={setStatementFlowFilter} lang={lang} t={t} onNewParty={() => setPartyModal({})} />}
-      {!data.loading && tab === 'cashflow' && <CashFlowSection accounts={data.treasuryAccounts} ledger={data.paymentLedger} investments={data.investments} lang={lang} onNewPayment={() => setModal('payment')} onNewInvestment={() => setInvestmentModal({})} onEditInvestment={(item) => setInvestmentModal({ item })} onArchiveInvestment={(item) => runAction(() => archiveFinanceInvestment(item.id), 'سرمایه‌گذاری آرشیو شد.')} />}
+      {!data.loading && tab === 'cashflow' && <CashFlowSection accounts={data.treasuryAccounts} bankAccounts={data.bankAccounts} ledger={data.paymentLedger} investments={data.investments} lang={lang} onNewPayment={() => setModal('payment')} onNewAccount={() => setAccountModal({})} onEditAccount={(account) => setAccountModal({ account })} onNewInvestment={() => setInvestmentModal({})} onEditInvestment={(item) => setInvestmentModal({ item })} onArchiveInvestment={(item) => runAction(() => archiveFinanceInvestment(item.id), 'سرمایه‌گذاری آرشیو شد.')} />}
       {!data.loading && tab === 'checks' && <ChecksSection checks={data.checks} parties={data.parties} accounts={data.bankAccounts} lang={lang} busy={busy} onNewCheck={() => setModal('check')} onSettle={(payload) => runAction(() => settleFinanceCheck(payload), 'وضعیت چک و گردش بانک ثبت شد.')} onChangeStatus={(id, status) => runAction(() => updateFinanceCheckStatus(id, status), 'وضعیت چک تغییر کرد.')} />}
       {!data.loading && tab === 'itemKardex' && <ItemKardexSection stock={data.stock} rows={data.itemKardex} lastSales={data.itemLastSales} />}
       {!data.loading && tab === 'profitability' && <ProfitCard rows={data.profitability} lang={lang} t={t} full onAddCost={(order) => setOrderCostModal({ order })} orderCosts={data.orderCosts} />}
@@ -300,11 +324,17 @@ function FinanceKPI({ label, value, icon: Icon, accent, lang }) {
   return <div className={`finance-kpi ${accent}`}><Icon size={20} /><span>{label}</span><strong>{formatMoney(value, lang)}</strong></div>;
 }
 
-function DocumentsSection({ docs, documentBundle, lang, t, busy, onSelect, onPost, onEdit, onConvert, onVoid, onReturn, onNewPayment, onNewReferral }) {
-  return <div className="accounting-grid document-workspace finance-doc-split">
-    <DocumentsCard title="پیش‌فاکتورها" docs={docs.filter(d => d.document_type === 'sales_proforma' && !docs.some(inv => inv.converted_from_document_id === d.id && inv.status !== 'void'))} lang={lang} t={t} full kind="proforma" onSelect={onSelect} busy={busy} onConvert={onConvert} onVoid={onVoid} />
-    <DocumentsCard title="فاکتورهای ثبت‌شده" docs={docs.filter(d => d.document_type !== 'sales_proforma')} lang={lang} t={t} full kind="invoice" onSelect={onSelect} busy={busy} onVoid={onVoid} onReturn={onReturn} />
-    <FinanceDocumentDetails bundle={documentBundle} loading={documentBundle.loading} busy={busy} onPost={onPost} onEdit={onEdit} onConvert={onConvert} onVoid={onVoid} onReturn={onReturn} onNewPayment={onNewPayment} onNewReferral={onNewReferral} />
+function DocumentsSection({ docs, documentBundle, lang, t, busy, onSelect, onCloseDetails, onPost, onEdit, onConvert, onVoid, onReturn, onNewPayment, onNewReferral }) {
+  const proformas = docs.filter(d => d.document_type === 'sales_proforma' && !docs.some(inv => inv.converted_from_document_id === d.id && inv.status !== 'void'));
+  const salesInvoices = docs.filter(d => ['sales_invoice', 'sales_return'].includes(d.document_type));
+  const purchaseInvoices = docs.filter(d => ['purchase_invoice', 'purchase_return', 'expense_invoice'].includes(d.document_type));
+  const otherDocs = docs.filter(d => !['sales_proforma','sales_invoice','sales_return','purchase_invoice','purchase_return','expense_invoice'].includes(d.document_type));
+  return <div className="accounting-grid document-workspace finance-doc-split document-modal-workspace">
+    <DocumentsCard title="پیش‌فاکتورهای فروش" docs={proformas} lang={lang} t={t} full kind="proforma" onSelect={onSelect} busy={busy} onConvert={onConvert} onVoid={onVoid} />
+    <DocumentsCard title="فاکتورهای فروش" docs={salesInvoices} lang={lang} t={t} full kind="sales" onSelect={onSelect} busy={busy} onVoid={onVoid} onReturn={onReturn} />
+    <DocumentsCard title="فاکتورهای خرید و هزینه" docs={purchaseInvoices} lang={lang} t={t} full kind="purchase" onSelect={onSelect} busy={busy} onVoid={onVoid} />
+    {otherDocs.length > 0 && <DocumentsCard title="سایر اسناد مالی" docs={otherDocs} lang={lang} t={t} full kind="other" onSelect={onSelect} busy={busy} onVoid={onVoid} />}
+    {documentBundle.document && <div className="finance-detail-modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onCloseDetails?.()}><div className="finance-detail-modal"><FinanceDocumentDetails bundle={documentBundle} loading={documentBundle.loading} busy={busy} onPost={onPost} onEdit={onEdit} onConvert={onConvert} onVoid={onVoid} onReturn={onReturn} onNewPayment={onNewPayment} onNewReferral={onNewReferral} onClose={onCloseDetails} /></div></div>}
   </div>;
 }
 
@@ -312,9 +342,9 @@ function DocumentsCard({ title, docs, lang, t, full, onSelect, busy, onConvert, 
   const [sort, setSort] = useState({ key: 'issue_date', dir: 'desc' });
   const rows = useMemo(() => sortRows(docs, sort), [docs, sort]);
   const th = (key, label) => <th><button className="sort-th" onClick={() => setSort(nextSort(sort, key))}>{label}<span>{sort.key === key ? (sort.dir === 'asc' ? '▲' : '▼') : '↕'}</span></button></th>;
-  return <section className="finance-card">
+  return <section className="finance-card invoice-list-card">
     <div className="finance-card-header between"><CardHeader icon={FileText} title={title} bare />{full && <button className="mini-btn" onClick={() => exportDocuments(rows, lang)}>{t.exportCsv}</button>}</div>
-    {rows.length === 0 ? <Empty t={t} /> : <div className="table-scroll limited-list"><table className="finance-table"><thead><tr>{th('doc_number','شماره')}{th('document_type','نوع')}{th('status','وضعیت')}{th('party_name','شخص')}{th('order_code','سفارش')}{th('total_amount','مبلغ')}{th('balance_amount','مانده')}{full && <th>عملیات</th>}</tr></thead><tbody>{rows.map((d) => <tr key={d.id} className={d.is_overdue ? 'overdue' : ''}><td dir="ltr">{d.doc_number}</td><td>{docLabel(d.document_type, lang)}</td><td><StatusBadge status={d.status} lang={lang} /></td><td>{d.party_name || '—'}</td><td dir="ltr">{d.order_code || '—'}</td><td>{formatMoney(d.total_amount, lang)}</td><td className={Number(d.balance_amount) > 0 ? 'negative-soft' : 'positive'}>{formatMoney(d.balance_amount, lang)}</td>{full && <td className="actions-cell"><button disabled={busy} onClick={() => onSelect?.(d.id)}>جزئیات</button>{d.document_type === 'sales_proforma' && <button disabled={busy} onClick={() => onConvert?.(d.id)}>تبدیل</button>}{d.document_type === 'sales_invoice' && <button disabled={busy} onClick={() => onReturn?.(d.id)}>برگشتی</button>}<button disabled={busy || d.status === 'void'} onClick={() => onVoid?.(d.id)}>ابطال</button><button onClick={() => printSimpleDocument(d, lang)}>PDF</button></td>}</tr>)}</tbody></table></div>}
+    {rows.length === 0 ? <Empty t={t} /> : <div className="table-scroll limited-list"><table className="finance-table"><thead><tr>{th('doc_number','شماره')}{th('document_type','نوع')}{th('status','وضعیت')}{th('party_name','شخص')}{th('order_code','سفارش')}{th('total_amount','مبلغ')}{th('balance_amount','مانده')}{full && <th>عملیات</th>}</tr></thead><tbody>{rows.map((d) => <tr key={d.id} className={d.is_overdue ? 'overdue clickable-row' : 'clickable-row'} onClick={() => onSelect?.(d.id)}><td dir="ltr">{d.doc_number}</td><td>{docLabel(d.document_type, lang)}</td><td><StatusBadge status={d.status} lang={lang} /></td><td>{d.party_name || '—'}</td><td dir="ltr">{d.order_code || '—'}</td><td>{formatMoney(d.total_amount, lang)}</td><td className={Number(d.balance_amount) > 0 ? 'negative-soft' : 'positive'}>{formatMoney(d.balance_amount, lang)}</td>{full && <td className="actions-cell" onClick={(e)=>e.stopPropagation()}><button disabled={busy} onClick={() => onSelect?.(d.id)}>جزئیات</button>{d.document_type === 'sales_proforma' && <button disabled={busy} onClick={() => onConvert?.(d.id)}>تبدیل</button>}{d.document_type === 'sales_invoice' && <button disabled={busy} onClick={() => onReturn?.(d.id)}>برگشتی</button>}<button disabled={busy || d.status === 'void'} onClick={() => onVoid?.(d.id)}>ابطال</button><button onClick={() => printSimpleDocument(d, lang)}>PDF</button></td>}</tr>)}</tbody></table></div>}
   </section>;
 }
 
@@ -329,7 +359,7 @@ function PartiesSection({ parties, allParties, filter, setFilter, selectedPartyI
 }
 
 function StatementTable({ rows, lang }) {
-  return <div className="table-scroll"><table className="finance-table compact"><thead><tr><th>تاریخ</th><th>شماره</th><th>نوع</th><th>بدهکار</th><th>بستانکار</th><th>مانده</th></tr></thead><tbody>{rows.map((r, i) => <tr key={`${r.ref_number}-${i}`}><td>{formatDate(r.entry_date, lang)}</td><td dir="ltr">{r.ref_number}</td><td>{entryTypeLabel(r.entry_type, lang)}</td><td>{formatMoney(r.debit_amount, lang)}</td><td>{formatMoney(r.credit_amount, lang)}</td><td className={Number(r.running_balance) >= 0 ? 'positive' : 'negative'}>{formatMoney(r.running_balance, lang)}</td></tr>)}</tbody></table></div>;
+  return <div className="table-scroll"><table className="finance-table compact"><thead><tr><th>تاریخ</th><th>شماره</th><th>نوع</th><th>شرح</th><th>بدهکار</th><th>بستانکار</th><th>تشخیص</th><th>مانده</th></tr></thead><tbody>{rows.map((r, i) => <tr key={`${r.ref_number}-${i}`}><td>{formatDate(r.entry_date, lang)}</td><td dir="ltr">{r.ref_number}</td><td>{entryTypeLabel(r.entry_type, lang)}</td><td>{r.description || '—'}</td><td>{formatMoney(r.debit_amount, lang)}</td><td>{formatMoney(r.credit_amount, lang)}</td><td>{Number(r.running_balance) >= 0 ? 'بدهکار' : 'بستانکار'}</td><td className={Number(r.running_balance) >= 0 ? 'positive' : 'negative'}>{formatMoney(r.running_balance, lang)}</td></tr>)}</tbody></table></div>;
 }
 
 function BalanceTable({ parties, lang }) {
@@ -339,15 +369,45 @@ function BalanceTable({ parties, lang }) {
   return <div className="table-scroll limited-list"><table className="finance-table"><thead><tr>{th('display_name','شخص')}{th('party_type','نوع')}{th('balance','وضعیت')}{th('total_debit','بدهکار')}{th('total_credit','بستانکار')}{th('balance','مانده')}</tr></thead><tbody>{rows.map((p) => <tr key={p.party_id}><td>{p.display_name}</td><td>{partyTypeLabel(p.party_type, lang)}</td><td>{Number(p.balance) > 0 ? 'بدهکار' : 'بستانکار'}</td><td>{Number(p.balance) > 0 ? formatMoney(p.balance, lang) : '—'}</td><td>{Number(p.balance) < 0 ? formatMoney(Math.abs(p.balance), lang) : '—'}</td><td className={Number(p.balance) >= 0 ? 'positive' : 'negative'}>{formatMoney(p.balance, lang)}</td></tr>)}</tbody></table></div>;
 }
 
-function CashFlowSection({ accounts, ledger, investments, lang, onNewPayment, onNewInvestment, onEditInvestment, onArchiveInvestment }) {
+function CashFlowSection({ accounts, bankAccounts = [], ledger, investments, lang, onNewPayment, onNewAccount, onEditAccount, onNewInvestment, onEditInvestment, onArchiveInvestment }) {
   const [filters, setFilters] = useState({ accountId: 'all', direction: 'all', from: '', to: '', q: '' });
   const [sort, setSort] = useState({ key: 'payment_date', dir: 'desc' });
+  const detailsById = useMemo(() => Object.fromEntries((bankAccounts || []).map((a) => [a.id, a])), [bankAccounts]);
+  const enrichedAccounts = useMemo(() => accounts.map((a) => ({ ...a, ...(detailsById[a.account_id] || {}) })), [accounts, detailsById]);
   const filtered = useMemo(() => sortRows(ledger.filter((r) => (filters.accountId === 'all' || r.account_id === filters.accountId) && (filters.direction === 'all' || r.direction === filters.direction) && (!filters.from || r.payment_date >= filters.from) && (!filters.to || r.payment_date <= filters.to) && (!filters.q || `${r.payment_number || ''} ${r.party_name || ''} ${r.description || ''}`.includes(filters.q))), sort), [ledger, filters, sort]);
   const th = (key, label) => <th><button className="sort-th" onClick={() => setSort(nextSort(sort, key))}>{label}<span>{sort.key === key ? (sort.dir === 'asc' ? '▲' : '▼') : '↕'}</span></button></th>;
-  return <div className="accounting-grid cashflow-layout">
-    <section className="finance-card"><div className="finance-card-header between"><CardHeader icon={Banknote} title="صندوق و گردش بانک" bare /><button className="mini-btn" onClick={onNewPayment}>＋ دریافت/پرداخت</button></div><div className="cash-account-grid">{accounts.map((a) => <article key={`${a.account_kind}-${a.account_id}`}><span>{a.account_kind === 'bank' ? a.bank_name : 'صندوق'}</span><b>{a.account_name}</b><strong>{formatMoney(a.current_balance, lang)}</strong><small>واریز {formatMoney(a.total_receipts, lang)} · برداشت {formatMoney(a.total_payments, lang)}</small></article>)}</div><div className="toolbar-line"><select value={filters.accountId} onChange={(e)=>setFilters({...filters,accountId:e.target.value})}><option value="all">همه حساب‌ها</option>{accounts.map(a=><option key={a.account_id} value={a.account_id}>{a.account_name}</option>)}</select><select value={filters.direction} onChange={(e)=>setFilters({...filters,direction:e.target.value})}><option value="all">همه گردش‌ها</option><option value="receipt">واریزی</option><option value="payment">برداشت</option></select><input value={filters.q} onChange={(e)=>setFilters({...filters,q:e.target.value})} placeholder="جست‌وجو..." /></div><div className="table-scroll limited-list tall"><table className="finance-table"><thead><tr>{th('payment_date','تاریخ')}{th('payment_number','شماره')}{th('account_name','حساب')}{th('party_name','شخص')}{th('direction','نوع')}{th('method','روش')}{th('amount','مبلغ')}<th>شرح</th></tr></thead><tbody>{filtered.map(r=><tr key={r.id}><td>{formatDate(r.payment_date, lang)}</td><td dir="ltr">{r.payment_number}</td><td>{r.account_name || '—'}</td><td>{r.party_name || '—'}</td><td className={r.direction==='receipt'?'receipt-text':'payment-text'}>{r.direction === 'receipt' ? 'واریز' : 'برداشت'}</td><td>{r.method}</td><td className={r.direction==='receipt'?'receipt-text':'payment-text'}>{formatMoney(r.amount, lang)}</td><td>{r.description || '—'}</td></tr>)}</tbody></table></div></section>
-    <section className="finance-card"><div className="finance-card-header between"><CardHeader icon={WalletCards} title="سرمایه‌گذاری‌ها" bare /><button className="mini-btn" onClick={onNewInvestment}>＋ سرمایه‌گذاری</button></div>{investments.length === 0 ? <Empty t={{noData:'سرمایه‌گذاری ثبت نشده است.'}}/> : <div className="investment-list">{investments.map(i=><article key={i.id}><div><b>{i.title_fa}</b><span>{investmentType(i.asset_type)} · {formatDate(i.acquisition_date, lang)}</span></div><strong>{formatMoney(i.current_estimated_value, lang)}</strong><div><button onClick={()=>onEditInvestment(i)}>ویرایش</button><button onClick={()=>onArchiveInvestment(i)}>آرشیو</button></div></article>)}</div>}</section>
+  return <div className="accounting-grid cashflow-layout finance-cashflow-full">
+    <section className="finance-card cashflow-main-card full-width"><div className="finance-card-header between"><CardHeader icon={Banknote} title="صندوق و گردش حساب" bare /><div className="actions-cell"><button className="mini-btn" onClick={onNewAccount}>＋ افزودن حساب/کارت</button><button className="mini-btn" onClick={onNewPayment}>＋ دریافت/پرداخت</button></div></div><div className="cash-account-grid bank-card-grid">{enrichedAccounts.map((a) => <BankFlipCard key={`${a.account_kind}-${a.account_id}`} account={a} lang={lang} onEdit={onEditAccount} />)}</div><div className="toolbar-line"><select value={filters.accountId} onChange={(e)=>setFilters({...filters,accountId:e.target.value})}><option value="all">همه حساب‌ها</option>{enrichedAccounts.map(a=><option key={a.account_id} value={a.account_id}>{a.account_name}</option>)}</select><select value={filters.direction} onChange={(e)=>setFilters({...filters,direction:e.target.value})}><option value="all">همه گردش‌ها</option><option value="receipt">واریزی</option><option value="payment">برداشت</option></select><input value={filters.q} onChange={(e)=>setFilters({...filters,q:e.target.value})} placeholder="جست‌وجوی شماره، شخص، شرح..." /></div><div className="table-scroll limited-list tall"><table className="finance-table"><thead><tr>{th('payment_date','تاریخ')}{th('payment_number','شماره')}{th('account_name','حساب')}{th('party_name','شخص')}{th('direction','نوع')}{th('method','روش')}{th('amount','مبلغ')}<th>شرح</th></tr></thead><tbody>{filtered.map(r=><tr key={r.id}><td>{formatDate(r.payment_date, lang)}</td><td dir="ltr">{r.payment_number}</td><td>{r.account_name || '—'}</td><td>{r.party_name || '—'}</td><td className={r.direction==='receipt'?'receipt-text':'payment-text'}>{r.direction === 'receipt' ? 'واریز' : 'برداشت'}</td><td>{r.method}</td><td className={r.direction==='receipt'?'receipt-text':'payment-text'}>{formatMoney(r.amount, lang)}</td><td>{r.description || '—'}</td></tr>)}</tbody></table></div></section>
+    <section className="finance-card investment-full-card full-width"><div className="finance-card-header between"><CardHeader icon={WalletCards} title="سرمایه‌گذاری‌ها" bare /><button className="mini-btn" onClick={onNewInvestment}>＋ سرمایه‌گذاری</button></div>{investments.length === 0 ? <Empty t={{noData:'سرمایه‌گذاری ثبت نشده است.'}}/> : <div className="investment-list investment-list-full">{investments.map(i=><article key={i.id}><div><b>{i.title_fa}</b><span>{investmentType(i.asset_type)} · {formatDate(i.acquisition_date, lang)}</span></div><strong>{formatMoney(i.current_estimated_value, lang)}</strong><div><button onClick={()=>onEditInvestment(i)}>ویرایش</button><button onClick={()=>onArchiveInvestment(i)}>آرشیو</button></div></article>)}</div>}</section>
   </div>;
+}
+
+function BankFlipCard({ account, lang, onEdit }) {
+  const [flipped, setFlipped] = useState(false);
+  const isBank = account.account_kind === 'bank';
+  const cardNumber = account.card_number || 'ثبت نشده';
+  const groupedCard = String(cardNumber).replace(/\s+/g, '').replace(/(.{4})/g, '$1 ').trim();
+  return <article className={`bank-flip-card ${flipped ? 'flipped' : ''} ${isBank ? 'bank' : 'cash'}`} onClick={() => setFlipped((v) => !v)} title="برای نمایش پشت کارت کلیک کنید">
+    <div className="bank-card-inner">
+      <div className="bank-card-face bank-card-front">
+        <span>{isBank ? (account.bank_name || 'بانک') : 'صندوق'}</span>
+        <b>{account.account_name}</b>
+        <strong>{formatMoney(account.current_balance, lang)}</strong>
+        <small>واریز {formatMoney(account.total_receipts, lang)} · برداشت {formatMoney(account.total_payments, lang)}</small>
+        <em>{isBank ? 'کلیک برای مشخصات حساب' : 'گردش صندوق'}</em>
+      </div>
+      <div className="bank-card-face bank-card-back">
+        <b>{account.account_holder_name || account.account_name}</b>
+        <small>بانک: {account.bank_name || '—'}</small>
+        <small>شماره کارت: <span dir="ltr">{groupedCard}</span></small>
+        <small>شماره حساب: <span dir="ltr">{account.account_number || '—'}</span></small>
+        <small>شبا: <span dir="ltr">{account.iban || '—'}</span></small>
+        <small>شعبه: {account.branch_name || '—'}</small>
+        <small>نوع: {account.account_usage === 'official' ? 'رسمی' : account.account_usage === 'unofficial' ? 'غیررسمی' : 'صندوق'}</small>
+        {isBank && <button type="button" onClick={(e)=>{e.stopPropagation(); onEdit?.(account);}}>ویرایش اطلاعات</button>}
+      </div>
+    </div>
+  </article>;
 }
 
 function ChecksSection({ checks, accounts, lang, busy, onNewCheck, onSettle, onChangeStatus }) {
@@ -360,12 +420,12 @@ function ChecksSection({ checks, accounts, lang, busy, onNewCheck, onSettle, onC
 function ItemKardexSection({ stock, rows, lastSales = [] }) {
   const [query, setQuery] = useState('');
   const [group, setGroup] = useState('all');
-  const [selectedId, setSelectedId] = useState('');
+  const [selectedItem, setSelectedItem] = useState(null);
   const lastSaleByItem = useMemo(() => Object.fromEntries(lastSales.map((s) => [s.warehouse_item_id, s])), [lastSales]);
   const groups = useMemo(() => [...new Set(stock.map((i) => productionItemLabel(i)).filter(Boolean))], [stock]);
   const filteredStock = stock.filter(i => `${i.item_code||''} ${i.item_name_fa||''} ${i.category||''}`.toLowerCase().includes(query.toLowerCase()) && (group === 'all' || productionItemLabel(i) === group));
-  const itemRows = rows.filter(r => r.item_id === selectedId);
-  return <section className="finance-card"><CardHeader icon={PackageCheck} title="کاردکس کالاها - فقط مشاهده حسابداری" /><div className="toolbar-line"><input value={query} onChange={(e)=>setQuery(e.target.value)} placeholder="جست‌وجوی کالا..."/><select value={group} onChange={(e)=>setGroup(e.target.value)}><option value="all">همه گروه‌ها</option>{groups.map(g=><option key={g} value={g}>{g}</option>)}</select><select value={selectedId} onChange={(e)=>setSelectedId(e.target.value)}><option value="">انتخاب کالا برای کاردکس</option>{filteredStock.map(i=><option key={i.item_id} value={i.item_id}>{i.item_code} · {i.item_name_fa}</option>)}</select></div><div className="table-scroll limited-list"><table className="finance-table compact"><thead><tr><th>کد</th><th>کالا</th><th>گروه</th><th>موجودی</th><th>قیمت مرجع</th><th>آخرین فروش</th><th>عملیات</th></tr></thead><tbody>{filteredStock.map(i=>{const sale=lastSaleByItem[i.item_id]; return <tr key={i.item_id}><td dir="ltr">{i.item_code}</td><td>{i.item_name_fa}</td><td>{productionItemLabel(i)}</td><td>{formatNumber(i.current_qty || i.available_for_sale_qty, 'fa')} {i.unit}</td><td>{formatMoney(i.unit_price_estimate, 'fa')}</td><td>{sale ? formatMoney(sale.last_sale_unit_price, 'fa') : '—'}</td><td><button className="mini-btn" onClick={()=>setSelectedId(i.item_id)}>نمایش کاردکس</button></td></tr>})}</tbody></table></div>{selectedId ? <div className="table-scroll limited-list tall"><table className="finance-table"><thead><tr><th>تاریخ</th><th>سند</th><th>نوع</th><th>مقدار</th><th>مانده</th><th>یادداشت</th></tr></thead><tbody>{itemRows.map(r=><tr key={r.tx_id}><td>{formatDate(r.created_at, 'fa')}</td><td dir="ltr">{r.doc_number||'—'}</td><td>{r.direction==='out'?'خروج':'ورود'}</td><td>{formatNumber(r.quantity,'fa')}</td><td>{formatNumber(r.running_balance,'fa')}</td><td>{r.note||'—'}</td></tr>)}</tbody></table></div> : <Empty t={{noData:'یک کالا را انتخاب کنید.'}}/>}</section>;
+  const itemRows = rows.filter(r => r.item_id === selectedItem?.item_id);
+  return <section className="finance-card"><CardHeader icon={PackageCheck} title="کاردکس کالاها - فقط مشاهده حسابداری" /><div className="toolbar-line"><input value={query} onChange={(e)=>setQuery(e.target.value)} placeholder="جست‌وجوی کالا..."/><select value={group} onChange={(e)=>setGroup(e.target.value)}><option value="all">همه گروه‌ها</option>{groups.map(g=><option key={g} value={g}>{g}</option>)}</select></div><div className="table-scroll limited-list"><table className="finance-table compact"><thead><tr><th>کد</th><th>کالا</th><th>گروه</th><th>موجودی</th><th>قیمت مرجع</th><th>آخرین فروش</th><th>عملیات</th></tr></thead><tbody>{filteredStock.map(i=>{const sale=lastSaleByItem[i.item_id]; return <tr key={i.item_id} className="clickable-row" onClick={()=>setSelectedItem(i)}><td dir="ltr">{i.item_code}</td><td>{i.item_name_fa}</td><td>{productionItemLabel(i)}</td><td>{formatNumber(i.current_qty || i.available_for_sale_qty, 'fa')} {i.unit}</td><td>{formatMoney(i.unit_price_estimate, 'fa')}</td><td>{sale ? formatMoney(sale.last_sale_unit_price, 'fa') : '—'}</td><td><button className="mini-btn" onClick={(e)=>{e.stopPropagation();setSelectedItem(i);}}>نمایش کاردکس</button></td></tr>})}</tbody></table></div>{selectedItem && <div className="finance-detail-modal-backdrop" onMouseDown={(e)=>e.target===e.currentTarget&&setSelectedItem(null)}><div className="finance-detail-modal kardex-modal"><header className="kardex-modal-head"><div><span className="detail-eyebrow">کاردکس کالا</span><h2>{selectedItem.item_code} · {selectedItem.item_name_fa}</h2><p>موجودی: {formatNumber(selectedItem.current_qty || selectedItem.available_for_sale_qty, 'fa')} {selectedItem.unit} · قیمت مرجع: {formatMoney(selectedItem.unit_price_estimate, 'fa')}</p></div><button className="detail-close-btn" onClick={()=>setSelectedItem(null)}>×</button></header>{itemRows.length ? <div className="table-scroll limited-list tall"><table className="finance-table"><thead><tr><th>تاریخ</th><th>سند</th><th>نوع</th><th>مقدار</th><th>مانده</th><th>مشتری/خریدار</th><th>قیمت/ارزش</th><th>شرح</th></tr></thead><tbody>{itemRows.map(r=><tr key={r.tx_id}><td>{formatDate(r.created_at, 'fa')}</td><td dir="ltr">{r.doc_number||'—'}</td><td>{r.direction==='out'?'خروج':'ورود'}</td><td>{formatNumber(r.quantity,'fa')}</td><td>{formatNumber(r.running_balance,'fa')}</td><td>{r.customer_name || r.party_name || '—'}</td><td>{r.unit_price ? formatMoney(r.unit_price, 'fa') : r.line_total ? formatMoney(r.line_total, 'fa') : '—'}</td><td>{r.note||'—'}</td></tr>)}</tbody></table></div> : <Empty t={{noData:'کاردکسی برای این کالا ثبت نشده است.'}}/>}</div></div>}</section>;
 }
 
 function FinanceConfirmModal({ action, busy, onClose, onConfirm }) {
@@ -381,6 +441,29 @@ function CheckSettleModal({ check, accounts, busy, onClose, onSubmit }) {
 function InvestmentModal({ initial, busy, onClose, onSubmit }) {
   const [form, setForm] = useState({ asset_type: initial?.asset_type || 'gold', title_fa: initial?.title_fa || '', acquisition_date: initial?.acquisition_date || new Date().toISOString().slice(0,10), quantity: initial?.quantity || 1, unit: initial?.unit || 'عدد', purchase_amount: initial?.purchase_amount || 0, current_estimated_value: initial?.current_estimated_value || initial?.purchase_amount || 0, location: initial?.location || '', notes: initial?.notes || '', status: initial?.status || 'active' });
   return <FinanceModal title={initial?'ویرایش سرمایه‌گذاری':'ثبت سرمایه‌گذاری'} onClose={onClose}><div className="finance-form-grid"><label className="finance-field"><span>نوع</span><select value={form.asset_type} onChange={(e)=>setForm({...form,asset_type:e.target.value})}><option value="gold">طلا</option><option value="silver">نقره</option><option value="land">زمین</option><option value="currency">ارز</option><option value="equipment">تجهیزات</option><option value="stock">سهام</option><option value="other">سایر</option></select></label><label className="finance-field"><span>عنوان</span><input value={form.title_fa} onChange={(e)=>setForm({...form,title_fa:e.target.value})} /></label><label className="finance-field"><span>تاریخ خرید</span><JalaliDateInput value={form.acquisition_date} onChange={(v)=>setForm({...form,acquisition_date:v})}/></label><label className="finance-field"><span>مقدار</span><input type="number" value={form.quantity} onChange={(e)=>setForm({...form,quantity:e.target.value})}/></label><label className="finance-field"><span>واحد</span><input value={form.unit} onChange={(e)=>setForm({...form,unit:e.target.value})}/></label><label className="finance-field"><span>مبلغ خرید ریال</span><input type="number" value={form.purchase_amount} onChange={(e)=>setForm({...form,purchase_amount:e.target.value})}/></label><label className="finance-field"><span>ارزش روز ریال</span><input type="number" value={form.current_estimated_value} onChange={(e)=>setForm({...form,current_estimated_value:e.target.value})}/></label><label className="finance-field"><span>محل نگهداری</span><input value={form.location} onChange={(e)=>setForm({...form,location:e.target.value})}/></label><label className="finance-field full"><span>یادداشت</span><textarea value={form.notes} onChange={(e)=>setForm({...form,notes:e.target.value})}/></label></div><div className="finance-form-actions"><button onClick={onClose}>انصراف</button><button disabled={busy || !form.title_fa} onClick={()=>onSubmit(form)}>ذخیره</button></div></FinanceModal>;
+}
+
+
+function BankAccountModal({ initial, busy, onClose, onSubmit }) {
+  const [form, setForm] = useState({
+    account_name: initial?.account_name || '',
+    bank_name: initial?.bank_name || '',
+    account_number: initial?.account_number || '',
+    card_number: initial?.card_number || '',
+    iban: initial?.iban || '',
+    branch_name: initial?.branch_name || '',
+    account_holder_name: initial?.account_holder_name || '',
+    account_usage: initial?.account_usage === 'cash' ? 'official' : (initial?.account_usage || 'official'),
+    opening_balance: initial?.opening_balance || 0,
+    currency: initial?.currency || 'IRR',
+    notes: initial?.notes || '',
+    is_active: initial?.is_active !== false,
+  });
+  function submit(e) {
+    e.preventDefault();
+    onSubmit(form);
+  }
+  return <FinanceModal title={initial ? 'ویرایش حساب / کارت بانکی' : 'افزودن حساب / کارت بانکی'} onClose={onClose}><form onSubmit={submit}><div className="finance-form-grid"><label className="finance-field"><span>عنوان حساب/کارت</span><input value={form.account_name} onChange={(e)=>setForm({...form,account_name:e.target.value})} placeholder="مثلاً حساب بانک ملی شرکت" required /></label><label className="finance-field"><span>نام بانک</span><input value={form.bank_name} onChange={(e)=>setForm({...form,bank_name:e.target.value})} placeholder="بانک ایران، ملی، صادرات..." /></label><label className="finance-field"><span>صاحب حساب</span><input value={form.account_holder_name} onChange={(e)=>setForm({...form,account_holder_name:e.target.value})} placeholder="نام صاحب حساب" /></label><label className="finance-field"><span>نوع حساب</span><select value={form.account_usage} onChange={(e)=>setForm({...form,account_usage:e.target.value})}><option value="official">رسمی</option><option value="unofficial">غیررسمی / داخلی</option></select></label><label className="finance-field"><span>شماره کارت</span><input dir="ltr" value={form.card_number} onChange={(e)=>setForm({...form,card_number:e.target.value})} placeholder="---- ---- ---- ----" /></label><label className="finance-field"><span>شماره حساب</span><input dir="ltr" value={form.account_number} onChange={(e)=>setForm({...form,account_number:e.target.value})} /></label><label className="finance-field"><span>شماره شبا</span><input dir="ltr" value={form.iban} onChange={(e)=>setForm({...form,iban:e.target.value})} placeholder="IR..." /></label><label className="finance-field"><span>شعبه</span><input value={form.branch_name} onChange={(e)=>setForm({...form,branch_name:e.target.value})} /></label><label className="finance-field"><span>مانده اول دوره ریال</span><input type="number" value={form.opening_balance} onChange={(e)=>setForm({...form,opening_balance:e.target.value})} /></label><label className="finance-field"><span>ارز</span><select value={form.currency} onChange={(e)=>setForm({...form,currency:e.target.value})}><option value="IRR">ریال</option><option value="USD">دلار</option><option value="EUR">یورو</option><option value="AED">درهم</option></select></label><label className="finance-field"><span>وضعیت</span><select value={form.is_active ? 'true' : 'false'} onChange={(e)=>setForm({...form,is_active:e.target.value === 'true'})}><option value="true">فعال</option><option value="false">غیرفعال</option></select></label><label className="finance-field full"><span>یادداشت / اطلاعات تکمیلی</span><textarea value={form.notes} onChange={(e)=>setForm({...form,notes:e.target.value})} placeholder="اطلاعات کارت‌خوان، توضیح حساب، محدودیت استفاده و..." /></label></div><div className="finance-form-actions"><button type="button" onClick={onClose}>انصراف</button><button type="submit" disabled={busy || !form.account_name.trim()}>{busy ? 'در حال ذخیره...' : 'ذخیره حساب/کارت'}</button></div></form></FinanceModal>;
 }
 
 function TreasurySection({ payments, checks, accounts, lang, t, busy, onChangeCheckStatus }) {
@@ -476,8 +559,56 @@ function exportBalances(parties, filter, lang) {
   downloadExcelHtml(`party-balances-${new Date().toISOString().slice(0, 10)}.xls`, ['شخص', 'نوع', 'مانده'], rows.map((p) => [p.display_name, partyTypeLabel(p.party_type, lang), p.balance]), 'گزارش بدهکاران و بستانکاران');
 }
 function printSimpleDocument(d, lang) {
-  openPrintableDocument(d.doc_number, `<h1>${docLabel(d.document_type, lang)} ${d.doc_number}</h1><div class="meta"><div><b>شخص:</b> ${d.party_name || '—'}</div><div><b>سفارش:</b> ${d.order_code || '—'}</div><div><b>مبلغ:</b> <span class="money">${formatMoney(d.total_amount, lang)}</span></div><div><b>مانده:</b> <span class="money">${formatMoney(d.balance_amount, lang)}</span></div></div><div class="footer"><span>امضای فروش</span><span>امضای مالی</span><span>مهر شرکت</span></div>`);
+  openOfficialFinancePrint({
+    title: `${docLabel(d.document_type, lang)} ${d.doc_number}`,
+    reportLabel: docLabel(d.document_type, lang),
+    subtitle: 'بوشهر، بهمنی، نخلج فارس، پردیس فناوری',
+    body: `<div class="section-label">خلاصه سند</div><section class="box-row"><div class="box-grid four"><div class="field"><b>شماره:</b><br><span dir="ltr">${htmlSafe(d.doc_number)}</span></div><div class="field"><b>شخص:</b> ${htmlSafe(d.party_name || '—')}</div><div class="field"><b>سفارش:</b> ${htmlSafe(d.order_code || '—')}</div><div class="field"><b>وضعیت:</b> ${STATUS_LABELS[d.status]?.[lang] || d.status}</div></div></section><section class="statement-summary"><div><span>مبلغ</span><strong class="money">${formatRial(d.total_amount)}</strong></div><div><span>پرداخت</span><strong class="money">${formatRial(d.paid_amount)}</strong></div><div><span>مانده</span><strong class="money">${formatRial(d.balance_amount)}</strong></div><div><span>مبلغ به حروف</span><strong>${rialToPersianWords(d.total_amount)}</strong></div></section><section class="signatures"><span>امضاء فروشنده</span><span>امضاء مالی</span><span>مهر شرکت</span></section>`,
+  });
+}
+function htmlSafe(value) {
+  return String(value ?? '').replace(/[&<>\"]/g, (ch) => {
+    if (ch === '&') return '&amp;';
+    if (ch === '<') return '&lt;';
+    if (ch === '>') return '&gt;';
+    return '&quot;';
+  });
 }
 function printStatement(party, rows, lang) {
-  openPrintableDocument(`صورت‌حساب ${party.display_name}`, `<h1>صورت‌حساب ${party.display_name}</h1><table><thead><tr><th>تاریخ</th><th>شماره</th><th>نوع</th><th>بدهکار</th><th>بستانکار</th><th>مانده</th></tr></thead><tbody>${rows.map((r) => `<tr><td>${formatDate(r.entry_date, lang)}</td><td>${r.ref_number}</td><td>${entryTypeLabel(r.entry_type, lang)}</td><td class="money">${formatMoney(r.debit_amount, lang)}</td><td class="money">${formatMoney(r.credit_amount, lang)}</td><td class="money">${formatMoney(r.running_balance, lang)}</td></tr>`).join('')}</tbody></table>`);
+  const totalDebit = rows.reduce((sum, r) => sum + Number(r.debit_amount || 0), 0);
+  const totalCredit = rows.reduce((sum, r) => sum + Number(r.credit_amount || 0), 0);
+  const lastBalance = rows.length ? Number(rows[rows.length - 1].running_balance || 0) : Number(party.balance || 0);
+  const bodyRows = rows.map((r, index) => {
+    const balance = Number(r.running_balance || 0);
+    return `<tr class="${index % 2 === 1 ? 'alt' : ''}"><td>${index + 1}</td><td>${formatDate(r.entry_date, lang)}</td><td class="desc">${htmlSafe(r.description || entryTypeLabel(r.entry_type, lang))}</td><td class="money">${Number(r.debit_amount || 0) ? formatRial(r.debit_amount) : '۰'}</td><td class="money">${Number(r.credit_amount || 0) ? formatRial(r.credit_amount) : '۰'}</td><td class="status-cell">${balance >= 0 ? 'بدهکار' : 'بستانکار'}</td><td class="money">${formatRial(Math.abs(balance))}</td><td dir="ltr">${htmlSafe(r.ref_number || '—')}</td></tr>`;
+  }).join('');
+
+  openOfficialFinancePrint({
+    title: `صورت‌حساب ${party.display_name}`,
+    reportLabel: `صورت حساب ${party.display_name}`,
+    subtitle: 'بوشهر، بهمنی، نخلج فارس، پردیس فناوری',
+    body: `
+      <section class="box-row">
+        <div class="box-grid four">
+          <div class="field"><b>کد:</b> ${htmlSafe(String(party.party_id || '').slice(0, 8) || '—')}</div>
+          <div class="field"><b>عنوان:</b> ${htmlSafe(party.display_name || '—')}</div>
+          <div class="field"><b>نوع شخص:</b> ${partyTypeLabel(party.party_type, lang)}</div>
+          <div class="field"><b>تلفن:</b> ${htmlSafe(party.phone || party.email || '—')}</div>
+        </div>
+      </section>
+      <section class="statement-summary">
+        <div><span>جمع بدهکار</span><strong class="money">${formatRial(totalDebit)}</strong></div>
+        <div><span>جمع بستانکار</span><strong class="money">${formatRial(totalCredit)}</strong></div>
+        <div><span>تشخیص نهایی</span><strong>${lastBalance >= 0 ? 'بدهکار' : 'بستانکار'}</strong></div>
+        <div><span>مانده نهایی</span><strong class="money">${formatRial(Math.abs(lastBalance))}</strong></div>
+      </section>
+      <table class="official-table">
+        <thead><tr><th>ردیف</th><th>تاریخ</th><th>شرح</th><th>بدهکار</th><th>بستانکار</th><th>تشخیص</th><th>مانده</th><th>شماره</th></tr></thead>
+        <tbody>${bodyRows || '<tr><td colspan="8">گردشی برای این شخص ثبت نشده است.</td></tr>'}</tbody>
+      </table>
+      <div class="continued">${rows.length > 18 ? 'ادامه دارد ...' : ''}</div>
+      <div class="notes-box"><b>مانده به حروف:</b> ${rialToPersianWords(Math.abs(lastBalance))} ${lastBalance >= 0 ? 'بدهکار می‌باشد.' : 'بستانکار می‌باشد.'}</div>
+      <section class="signatures"><span>امضاء حسابداری</span><span>امضاء تأییدکننده</span><span>مهر شرکت</span></section>
+    `,
+  });
 }

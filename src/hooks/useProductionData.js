@@ -66,5 +66,26 @@ export function useProductionData() {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
+  useEffect(() => {
+    let timer;
+    const scheduleRefetch = () => {
+      clearTimeout(timer);
+      timer = setTimeout(fetchData, 500);
+    };
+    const channel = supabase
+      .channel('production-live-sync')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'production_orders' }, scheduleRefetch)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'production_order_stages' }, scheduleRefetch)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'production_boms' }, scheduleRefetch)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'production_bom_items' }, scheduleRefetch)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'production_material_usage' }, scheduleRefetch)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'production_output' }, scheduleRefetch)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'warehouse_items' }, scheduleRefetch)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'warehouse_documents' }, scheduleRefetch)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'warehouse_document_lines' }, scheduleRefetch)
+      .subscribe();
+    return () => { clearTimeout(timer); supabase.removeChannel(channel); };
+  }, [fetchData]);
+
   return useMemo(() => ({ ...state, refetch: fetchData }), [state, fetchData]);
 }

@@ -19,6 +19,7 @@ import {
 import { useOrdersData, useOrderDetails } from '../../hooks/useOrdersData';
 import ReferralPanel from '../../components/referrals/ReferralPanel';
 import JalaliDateInput from '../../components/JalaliDateInput';
+import ProductPicker from '../../components/ProductPicker';
 import { formatJalaliDate, formatJalaliDateTime, formatNumber, formatToman } from '../../lib/formatters';
 import {
   cancelOrder,
@@ -41,6 +42,7 @@ import {
   createWorkflowTemplateWithSteps,
 } from '../../lib/orderApi';
 import './OrdersModule.css';
+import { getFriendlyErrorMessage, getTechnicalErrorMessage } from '../../lib/errorMessages';
 
 const PATH_LABELS = { trading: 'بازرگانی', rnd: 'R&D', production: 'تولید مستقیم' };
 const DELIVERY_LABELS = { cancelled: 'لغو شده', closed: 'بسته‌شده', late: 'عقب‌افتاده', due_soon: 'نزدیک تحویل', on_track: 'طبق برنامه' };
@@ -99,7 +101,7 @@ export default function OrdersModule({ lang = 'fa' }) {
       await data.refetch();
       await details.refetch?.();
     } catch (e) {
-      setNotice(e.message || 'خطا در اجرای عملیات');
+      setNotice(getFriendlyErrorMessage(e, 'خطا در اجرای عملیات'));
     } finally {
       setBusy(false);
     }
@@ -173,7 +175,7 @@ export default function OrdersModule({ lang = 'fa' }) {
 
       {notice && <div className={`orders-message ${notice.includes('خطا') ? 'error' : ''}`}>{notice}</div>}
       {data.loading && <div className="orders-message">در حال دریافت اطلاعات سفارش‌ها...</div>}
-      {data.error && <div className="orders-message error">{data.error.message}</div>}
+      {data.error && <div className="orders-message error">{getFriendlyErrorMessage(data.error, 'دریافت اطلاعات سفارش‌ها با خطا روبه‌رو شد.')}<br /><small dir="ltr">{getTechnicalErrorMessage(data.error)}</small></div>}
 
       {modal === 'order' && <OrderModal templates={data.templates} templateSteps={data.templateSteps} customers={data.customers} stock={data.stock} busy={busy} initialCustomerId={orderPrefill.customerId} onClose={() => setModal(null)} onSubmit={(payload) => runAction(() => createOrderWithItems(payload), 'سفارش جدید ثبت شد.')} />}
       {modal === 'followup' && <FollowupModal customers={data.customers} orders={activeOrders} busy={busy} initial={followupPrefill} onClose={() => setModal(null)} onSubmit={(payload) => runAction(() => createCrmFollowup(payload), 'پیگیری CRM ثبت شد و در فهرست پیگیری‌های باز قرار گرفت.')} />}
@@ -391,7 +393,13 @@ function stageStepsForOrder(order, templateSteps) {
 
 function OrderDetailPanel({ order, details, busy, onClose, onSetStage, onProforma, onInvoice, onReserve, onReferral, onCancelOrder }) {
   if (!order) return <section className="orders-card"><div className="orders-empty">یک سفارش را انتخاب کنید.</div></section>;
-  return <section className="orders-card detail-card"><CardTitle icon={FileText} title={`جزئیات ${order.order_code}`} action={onClose ? <button onClick={onClose}>بستن ×</button> : null} /><div className="detail-mini-grid"><Info label="مشتری" value={order.customer_name} /><Info label="مرحله" value={order.current_stage_name_fa} /><Info label="تاریخ ثبت" value={formatDate(order.registered_at)} /><Info label="پیشرفت" value={`${formatNumber(order.progress_percent || 0)}٪`} /><Info label="تحویل" value={daysText(order.days_to_delivery, order.delivery_status)} /><Info label="مالی" value={FINANCE_LABELS[order.financial_status] || order.financial_status} /><Info label="انبار" value={STOCK_LABELS[order.stock_status] || order.stock_status} /><Info label="مانده" value={formatMoney(order.balance_amount)} /></div><div className="detail-actions"><button disabled={busy} onClick={() => onProforma(order.id)}>پیش‌فاکتور</button><button disabled={busy} onClick={() => onInvoice(order.id)}>فاکتور</button><button disabled={busy} onClick={() => onReserve(order.id)}>رزرو انبار</button><button disabled={busy} onClick={() => onReferral(order.id, 'accounting', 'accountant', 'مالی')}>ارجاع مالی</button><button disabled={busy} onClick={() => onReferral(order.id, 'warehouse', 'warehouse', 'انبار')}>ارجاع انبار</button><button disabled={busy} onClick={() => onReferral(order.id, 'admin', 'admin', 'مدیر کل')}>ارجاع مدیر کل</button><button className="danger" disabled={busy || order.delivery_status === 'cancelled'} onClick={() => onCancelOrder(order.id)}>لغو سفارش</button></div><section className="detail-block"><h3>تغییر مرحله</h3>{details.stages.length === 0 ? <p className="muted">مرحله‌ای ثبت نشده است.</p> : <div className="stage-buttons">{details.stages.map((s) => <button key={s.id} disabled={busy || s.status === 'current' || order.delivery_status === 'cancelled'} className={s.status} onClick={() => onSetStage(s.stage_key)}>{s.stage_order}. {s.stage_name_fa}</button>)}</div>}</section><section className="detail-block"><h3>وضعیت موجودی اقلام</h3>{details.stock.length === 0 ? <p className="muted">قلم انباری ندارد.</p> : <div className="orders-table-wrap"><table><thead><tr><th>قلم</th><th>کد</th><th>درخواست</th><th>قابل فروش</th><th>وضعیت</th></tr></thead><tbody>{details.stock.map((s) => <tr key={s.order_item_id}><td>{s.item_name_fa}</td><td dir="ltr">{s.warehouse_item_code || '—'}</td><td>{formatNumber(s.requested_qty)}</td><td>{formatNumber(s.available_for_sale_qty)}</td><td>{s.stock_status}</td></tr>)}</tbody></table></div>}</section><section className="detail-block"><h3>تاریخچه</h3>{details.events.length === 0 ? <p className="muted">رویدادی ثبت نشده است.</p> : <div className="orders-timeline order-history-scroll">{details.events.map((e) => <article key={e.id}><strong>{e.title}</strong><small>{formatDateTime(e.created_at)} · {e.description || ''}</small></article>)}</div>}</section><ReferralPanel compact sourceModule="orders" relatedOrderId={order.id} title="ارجاعات همین سفارش" defaultTarget="accounting" /></section>;
+  return <section className="orders-card detail-card"><CardTitle icon={FileText} title={`جزئیات ${order.order_code}`} action={onClose ? <button onClick={onClose}>بستن ×</button> : null} />
+    <div className="detail-mini-grid"><Info label="مشتری" value={order.customer_name} /><Info label="مرحله" value={order.current_stage_name_fa} /><Info label="تاریخ ثبت" value={formatDate(order.registered_at)} /><Info label="پیشرفت" value={`${formatNumber(order.progress_percent || 0)}٪`} /><Info label="تحویل" value={daysText(order.days_to_delivery, order.delivery_status)} /><Info label="مالی" value={FINANCE_LABELS[order.financial_status] || order.financial_status} /><Info label="انبار" value={STOCK_LABELS[order.stock_status] || order.stock_status} /><Info label="مانده" value={formatMoney(order.balance_amount)} /></div>
+    <div className="detail-actions"><button disabled={busy} onClick={() => onProforma(order.id)}>پیش‌فاکتور</button><button disabled={busy} onClick={() => onInvoice(order.id)}>فاکتور</button><button disabled={busy} onClick={() => onReserve(order.id)}>رزرو انبار</button><button disabled={busy} onClick={() => onReferral(order.id, 'accounting', 'accountant', 'مالی')}>ارجاع مالی</button><button disabled={busy} onClick={() => onReferral(order.id, 'warehouse', 'warehouse', 'انبار')}>ارجاع انبار</button><button disabled={busy} onClick={() => onReferral(order.id, 'admin', 'admin', 'مدیر کل')}>ارجاع مدیر کل</button><button className="danger" disabled={busy || order.delivery_status === 'cancelled'} onClick={() => onCancelOrder(order.id)}>لغو سفارش</button></div>
+    <section className="detail-block"><h3>تغییر مرحله فروش/سفارش</h3>{details.stages.length === 0 ? <p className="muted">مرحله‌ای ثبت نشده است.</p> : <div className="stage-buttons">{details.stages.map((s) => <button key={s.id} disabled={busy || s.status === 'current' || order.delivery_status === 'cancelled'} className={s.status} onClick={() => onSetStage(s.stage_key)}>{s.stage_order}. {s.stage_name_fa}</button>)}</div>}</section>
+    {(details.production?.length > 0 || details.rnd?.length > 0) && <section className="detail-block live-linked-progress"><h3>پیشرفت آنلاین تولید / R&D</h3>{details.production?.map((p) => <article key={p.id}><b>{p.code} · {p.product_name_fa}</b><span>{p.current_stage_name_fa || '—'} · پیشرفت {formatNumber(p.progress_percent)}٪ · تولید {formatNumber(p.quantity_produced || p.output_registered_qty || 0)} از {formatNumber(p.quantity_planned || 0)} · کد انبار {p.output_item_code || '—'}</span></article>)}{details.rnd?.map((r) => <article key={r.id}><b>{r.code} · {r.title_fa}</b><span>{r.current_stage_name_fa || '—'} · پیشرفت {formatNumber(r.progress_percent)}٪ · هزینه {formatMoney(r.actual_total_cost)}</span></article>)}</section>}
+    <section className="detail-block"><h3>وضعیت موجودی اقلام</h3>{details.stock.length === 0 ? <p className="muted">قلم انباری ندارد.</p> : <div className="orders-table-wrap"><table><thead><tr><th>قلم</th><th>کد</th><th>درخواست</th><th>قابل فروش</th><th>وضعیت</th></tr></thead><tbody>{details.stock.map((s) => <tr key={s.order_item_id}><td>{s.item_name_fa}</td><td dir="ltr">{s.warehouse_item_code || '—'}</td><td>{formatNumber(s.requested_qty)}</td><td>{formatNumber(s.available_for_sale_qty)}</td><td>{s.stock_status}</td></tr>)}</tbody></table></div>}</section>
+    <section className="detail-block"><h3>تاریخچه</h3>{details.events.length === 0 ? <p className="muted">رویدادی ثبت نشده است.</p> : <div className="orders-timeline order-history-scroll">{details.events.map((e) => <article key={e.id}><strong>{e.title}</strong><small>{formatDateTime(e.created_at)} · {e.description || ''}</small></article>)}</div>}</section><ReferralPanel compact sourceModule="orders" relatedOrderId={order.id} title="ارجاعات همین سفارش" defaultTarget="accounting" /></section>;
 }
 
 function ListSection({ orders, query, setQuery, pathFilter, setPathFilter, deliveryFilter, setDeliveryFilter, onSelect, onCancel, onExcel, onPrint }) {
@@ -560,9 +568,9 @@ function OrderModal({ templates, templateSteps = [], customers, stock, busy, ini
     });
   }
 
-  return <Modal title="ثبت سفارش جدید" onClose={onClose}>
-    <form onSubmit={submit}>
-      <div className="form-grid">
+  return <Modal title="ثبت سفارش جدید" onClose={onClose} className="order-create-modal">
+    <form onSubmit={submit} className="order-create-form">
+      <div className="form-grid order-create-grid">
         <label><span>نوع مشتری</span><select value={customerMode} onChange={(e) => setCustomerMode(e.target.value)}><option value="existing" disabled={customers.length === 0}>مشتری موجود</option><option value="new">مشتری/سرنخ جدید</option></select></label>
         {customerMode === 'existing'
           ? <label><span>مشتری</span><select value={form.customer_id} onChange={(e) => chooseCustomer(e.target.value)}>{customers.map((c) => <option key={c.id} value={c.id}>{c.company_name}</option>)}</select></label>
@@ -575,7 +583,7 @@ function OrderModal({ templates, templateSteps = [], customers, stock, busy, ini
         <label><span>تاریخ ثبت شمسی</span><JalaliDateInput value={form.registered_at} onChange={(value) => setForm({ ...form, registered_at: value })} /></label>
         <label><span>موعد تحویل شمسی</span><JalaliDateInput value={form.expected_delivery_date} onChange={(value) => setForm({ ...form, expected_delivery_date: value })} /></label>
         <label><span>اولویت</span><select value={form.priority} onChange={(e) => setForm({ ...form, priority: Number(e.target.value) })}><option value={1}>فوری</option><option value={2}>عادی</option><option value={3}>کم‌اهمیت</option></select></label>
-        <label className="full"><span>عنوان</span><input value={form.title_fa} onChange={(e) => setForm({ ...form, title_fa: e.target.value })} required /></label>
+        <label className="half order-title-field"><span>عنوان</span><input value={form.title_fa} onChange={(e) => setForm({ ...form, title_fa: e.target.value })} required /></label>
         <label className="full"><span>شرح</span><textarea value={form.description_fa} onChange={(e) => setForm({ ...form, description_fa: e.target.value })} /></label>
       </div>
 
@@ -596,7 +604,16 @@ function OrderModal({ templates, templateSteps = [], customers, stock, busy, ini
 
 function ItemEditor({ items, setItems, stock }) {
   function update(i, patch) { setItems((rows) => rows.map((r, idx) => idx === i ? { ...r, ...patch } : r)); }
-  return <div className="item-editor"><table><thead><tr><th>شرح</th><th>کد انبار</th><th>تعداد</th><th>واحد</th><th>فی ریال</th><th></th></tr></thead><tbody>{items.map((item, i) => <tr key={i}><td><input value={item.item_name_fa} onChange={(e) => update(i, { item_name_fa: e.target.value })} /></td><td><select value={item.warehouse_item_code} onChange={(e) => { const st = stock.find((s) => s.item_code === e.target.value); update(i, { warehouse_item_code: e.target.value, item_name_fa: st?.item_name_fa || item.item_name_fa, unit: st?.unit || item.unit, unit_price: st?.effective_sale_price ?? st?.unit_price_estimate ?? item.unit_price }); }}><option value="">بدون کد</option>{stock.map((s) => <option key={s.item_id} value={s.item_code}>{s.item_code} · {s.item_name_fa} · {s.item_group_label || s.category || 'کالا'} · قابل فروش {formatNumber(s.available_for_sale_qty)} · قیمت {formatMoney(s.effective_sale_price ?? s.unit_price_estimate ?? 0)}</option>)}</select></td><td><input type="number" value={item.quantity} onChange={(e) => update(i, { quantity: e.target.value })} /></td><td><input value={item.unit} onChange={(e) => update(i, { unit: e.target.value })} /></td><td><input type="number" value={item.unit_price} onChange={(e) => update(i, { unit_price: e.target.value })} /></td><td><button type="button" onClick={() => setItems((rows) => rows.filter((_, idx) => idx !== i))}>×</button></td></tr>)}</tbody></table><button type="button" onClick={() => setItems((rows) => [...rows, { item_name_fa: 'ردیف جدید', warehouse_item_code: '', quantity: 1, unit: 'عدد', unit_price: 0 }])}>＋ افزودن قلم</button></div>;
+  function selectStock(i, selected) {
+    update(i, {
+      warehouse_item_code: selected?.item_code || '',
+      item_name_fa: selected?.item_name_fa || items[i]?.item_name_fa || '',
+      item_name_en: selected?.item_name_en || items[i]?.item_name_en || null,
+      unit: selected?.unit || items[i]?.unit || 'عدد',
+      unit_price: selected?.effective_sale_price ?? selected?.unit_price_estimate ?? items[i]?.unit_price ?? 0,
+    });
+  }
+  return <div className="item-editor searchable-items"><table><thead><tr><th>شرح</th><th>کد/نام کالا</th><th>تعداد</th><th>واحد</th><th>فی ریال</th><th></th></tr></thead><tbody>{items.map((item, i) => <tr key={i}><td><input value={item.item_name_fa} onChange={(e) => update(i, { item_name_fa: e.target.value })} /></td><td><ProductPicker items={stock} value={item.warehouse_item_code || ''} onSelect={(selected) => selectStock(i, selected)} placeholder="کد یا نام کالا را بنویس..." /></td><td><input type="number" value={item.quantity} onChange={(e) => update(i, { quantity: e.target.value })} /></td><td><input value={item.unit} onChange={(e) => update(i, { unit: e.target.value })} /></td><td><input type="number" value={item.unit_price} onChange={(e) => update(i, { unit_price: e.target.value })} /></td><td><button type="button" onClick={() => setItems((rows) => rows.filter((_, idx) => idx !== i))}>×</button></td></tr>)}</tbody></table><button type="button" onClick={() => setItems((rows) => [...rows, { item_name_fa: 'ردیف جدید', warehouse_item_code: '', quantity: 1, unit: 'عدد', unit_price: 0 }])}>＋ افزودن قلم</button></div>;
 }
 
 function FollowupModal({ customers, orders, busy, initial = {}, onClose, onSubmit }) {
@@ -638,7 +655,7 @@ function CustomerModal({ initialCustomer, busy, onClose, onSubmit }) {
   return <Modal title={initialCustomer ? 'ویرایش اطلاعات مشتری' : 'ثبت مشتری / سرنخ CRM'} onClose={onClose}><form onSubmit={submit}><div className="form-grid"><label><span>نام شرکت/مشتری</span><input value={form.company_name} onChange={(e) => setForm({ ...form, company_name: e.target.value })} required /></label><label><span>نام شخص تماس</span><input value={form.contact_person_name} onChange={(e) => setForm({ ...form, contact_person_name: e.target.value })} /></label><label><span>تلفن</span><input value={form.contact_phone} onChange={(e) => setForm({ ...form, contact_phone: e.target.value })} /></label><label><span>ایمیل</span><input type="email" value={form.contact_email} onChange={(e) => setForm({ ...form, contact_email: e.target.value })} /></label><label><span>شهر</span><input value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} /></label><label><span>روش ارتباط</span><select value={form.preferred_contact_channel} onChange={(e) => setForm({ ...form, preferred_contact_channel: e.target.value })}>{Object.entries(CHANNEL_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label><label><span>روش جذب</span><input value={form.acquisition_source} onChange={(e) => setForm({ ...form, acquisition_source: e.target.value })} placeholder="سایت، معرفی، نمایشگاه..." /></label><label><span>وضعیت CRM</span><select value={form.crm_status} onChange={(e) => setForm({ ...form, crm_status: e.target.value })}>{Object.entries(CRM_STATUS_LABELS).filter(([k]) => k !== 'inactive').map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label><label><span>امتیاز سرنخ</span><input type="number" min="0" max="100" value={form.lead_score} onChange={(e) => setForm({ ...form, lead_score: e.target.value })} /></label><label><span>پیگیری بعدی شمسی</span><JalaliDateInput value={form.next_follow_up_at} onChange={(value) => setForm({ ...form, next_follow_up_at: value })} /></label><label className="full"><span>آدرس</span><textarea value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} /></label></div><div className="modal-actions"><button type="button" onClick={onClose}>انصراف</button><button type="submit" disabled={busy}>{busy ? 'در حال ذخیره...' : initialCustomer ? 'ذخیره ویرایش' : 'ثبت مشتری'}</button></div></form></Modal>;
 }
 
-function Modal({ title, onClose, children }) { return <div className="orders-modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}><div className="orders-modal"><header><h3>{title}</h3><button onClick={onClose}>×</button></header><div>{children}</div></div></div>; }
+function Modal({ title, onClose, children, className = '' }) { return <div className="orders-modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}><div className={`orders-modal ${className}`.trim()}><header><h3>{title}</h3><button onClick={onClose}>×</button></header><div>{children}</div></div></div>; }
 function CardTitle({ icon: Icon, title, action }) { return <div className="card-title-row"><span><Icon size={18} /> <b>{title}</b></span>{action}</div>; }
 function Info({ label, value }) { return <div className="info"><span>{label}</span><b>{value || '—'}</b></div>; }
 function Empty({ text = 'داده‌ای برای نمایش نیست.' }) { return <div className="orders-empty">{text}</div>; }

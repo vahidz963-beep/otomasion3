@@ -15,6 +15,7 @@ const initialState = {
   unmatched: [],
   inactiveItems: [],
   referrals: [],
+  shipments: [],
 };
 
 function firstError(results) {
@@ -27,7 +28,7 @@ export function useWarehouseData() {
   const fetchData = useCallback(async () => {
     setState((s) => ({ ...s, loading: true, error: null }));
 
-    const [stockRes, docsRes, snapshotsRes, matchedRes, unmatchedRes, inactiveRes, referralsRes] = await Promise.all([
+    const [stockRes, docsRes, snapshotsRes, matchedRes, unmatchedRes, inactiveRes, referralsRes, shipmentsRes] = await Promise.all([
       supabase
         .from('v_warehouse_current_stock')
         .select('item_id, item_code, item_name_fa, item_name_en, item_group, category, unit, location, reorder_point, min_stock_threshold, unit_price_estimate, price_currency, current_qty, total_in, total_out, last_movement_at, last_synced_at, is_low_stock, stock_value_estimate')
@@ -64,6 +65,11 @@ export function useWarehouseData() {
         .or('source_module.eq.warehouse,target_module.eq.warehouse')
         .order('created_at', { ascending: false })
         .limit(100),
+      supabase
+        .from('v_warehouse_shipment_overview')
+        .select('*')
+        .order('shipment_date', { ascending: false })
+        .limit(500),
     ]);
 
     const draftDocuments = (docsRes.data || []).filter((d) => d.status === 'draft');
@@ -102,10 +108,30 @@ export function useWarehouseData() {
       unmatched: unmatchedRes.data || [],
       inactiveItems: inactiveRes.data || [],
       referrals: referralsRes.data || [],
+      shipments: shipmentsRes.error ? [] : (shipmentsRes.data || []),
     });
   }, []);
 
   useEffect(() => { fetchData(); }, [fetchData]);
+
+  useEffect(() => {
+    let timer;
+    const scheduleRefetch = () => {
+      clearTimeout(timer);
+      timer = setTimeout(fetchData, 500);
+    };
+    const channel = supabase
+      .channel('warehouse-live-sync')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'warehouse_items' }, scheduleRefetch)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'warehouse_transactions' }, scheduleRefetch)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'warehouse_documents' }, scheduleRefetch)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'warehouse_document_lines' }, scheduleRefetch)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'production_output' }, scheduleRefetch)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'finance_documents' }, scheduleRefetch)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'warehouse_shipments' }, scheduleRefetch)
+      .subscribe();
+    return () => { clearTimeout(timer); supabase.removeChannel(channel); };
+  }, [fetchData]);
 
   return useMemo(() => ({ ...state, refetch: fetchData }), [state, fetchData]);
 }
@@ -150,6 +176,21 @@ export function useWarehouseDocumentLines(documentId) {
   }, [documentId]);
 
   useEffect(() => { fetchLines(); }, [fetchLines]);
+
+  useEffect(() => {
+    if (!documentId) return undefined;
+    let timer;
+    const scheduleRefetch = () => {
+      clearTimeout(timer);
+      timer = setTimeout(fetchLines, 400);
+    };
+    const channel = supabase
+      .channel(`warehouse-doc-lines-${documentId}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'warehouse_document_lines', filter: `document_id=eq.${documentId}` }, scheduleRefetch)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'warehouse_documents', filter: `id=eq.${documentId}` }, scheduleRefetch)
+      .subscribe();
+    return () => { clearTimeout(timer); supabase.removeChannel(channel); };
+  }, [documentId, fetchLines]);
 
   return useMemo(() => ({ ...state, refetch: fetchLines }), [state, fetchLines]);
 }

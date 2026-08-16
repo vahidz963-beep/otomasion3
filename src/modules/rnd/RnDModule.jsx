@@ -7,6 +7,7 @@ import { formatJalaliDate, formatJalaliDateTime, formatNumber, formatToman } fro
 import { useRndData } from '../../hooks/useRndData';
 import { acceptRndOrder, createInternalRndProject, createRndStep, createRndTemplate, deleteRndCost, downloadRndExcel, openRndPrintable, rndSafe, saveRndCost, saveRndTest, setRndStage, updateRndStep, updateRndTemplate } from '../../lib/rndApi';
 import './RnDModule.css';
+import { getFriendlyErrorMessage, getTechnicalErrorMessage } from '../../lib/errorMessages';
 
 const STATUS_LABELS = { requested: 'درخواست‌شده', design: 'طراحی', prototyping: 'نمونه‌سازی', testing: 'تست', revision_needed: 'نیازمند اصلاح', approved: 'تأیید نهایی', sent_to_production: 'ارسال به تولید', rejected: 'رد/لغو', archived: 'آرشیو' };
 const STAGE_STATUS_LABELS = { pending: 'در انتظار', in_progress: 'در حال انجام', completed: 'انجام‌شده', failed: 'ناموفق', skipped: 'ردشده' };
@@ -47,7 +48,7 @@ export default function RnDModule({ lang = 'fa' }) {
   async function runAction(fn, ok) {
     setBusy(true); setNotice('');
     try { await fn(); setNotice(ok); setModal(null); await data.refetch(); }
-    catch (e) { setNotice(e.message || 'خطا در عملیات R&D'); }
+    catch (e) { setNotice(getFriendlyErrorMessage(e, 'خطا در عملیات R&D')); }
     finally { setBusy(false); }
   }
 
@@ -64,7 +65,7 @@ export default function RnDModule({ lang = 'fa' }) {
 
   return <div className="rnd-page" dir="rtl" lang={lang}>
     <header className="rnd-hero"><div><div className="eyebrow">R&D · Projects · Tests · Costs</div><h1>R&D</h1><p>دریافت پروژه از سفارش یا پروژه داخلی، مدیریت مراحل، هزینه‌ها، تست‌ها و فایل‌های اشتراکی برای همه واحدها.</p></div><div className="rnd-actions"><button className="primary" onClick={() => setModal({ type:'internal' })}><Plus size={16}/> پروژه R&D</button><button onClick={() => setTab('flow')}><ListChecks size={16}/> مراحل پروژه</button><button onClick={data.refetch}><RefreshCw size={16}/> به‌روزرسانی</button></div></header>
-    {notice && <div className="rnd-message">{notice}</div>}{data.loading && <div className="rnd-message">در حال دریافت اطلاعات R&D...</div>}{data.error && <div className="rnd-message error">{data.error.message}</div>}
+    {notice && <div className="rnd-message">{notice}</div>}{data.loading && <div className="rnd-message">در حال دریافت اطلاعات R&D...</div>}{data.error && <div className="rnd-message error">{getFriendlyErrorMessage(data.error, 'دریافت اطلاعات R&D با خطا روبه‌رو شد.')}<br /><small dir="ltr">{getTechnicalErrorMessage(data.error)}</small></div>}
     <nav className="rnd-tabs">{[['overview','نمای کلی'],['incoming','تأیید سفارش‌ها'],['flow','مراحل پروژه'],['projects','پروژه‌ها'],['costs','هزینه‌ها'],['tests','تست‌ها'],['refs','ارجاع و اسناد'],['settings','تنظیم مراحل']].map(([k,l])=><button key={k} className={tab===k?'active':''} onClick={()=>setTab(k)}>{l}</button>)}</nav>
 
     {!data.loading && tab==='overview' && <Overview kpis={kpis} projects={data.projects} incoming={data.incomingOrders} setTab={setTab} onSelect={setSelectedId}/>} 

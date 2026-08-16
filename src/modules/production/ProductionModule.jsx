@@ -16,6 +16,7 @@ import {
   X,
 } from 'lucide-react';
 import JalaliDateInput from '../../components/JalaliDateInput';
+import ProductPicker from '../../components/ProductPicker';
 import ReferralPanel from '../../components/referrals/ReferralPanel';
 import { formatJalaliDate, formatJalaliDateTime, formatNumber, formatToman } from '../../lib/formatters';
 import { useProductionData } from '../../hooks/useProductionData';
@@ -43,6 +44,7 @@ import {
   voidProductionDocument,
 } from '../../lib/productionApi';
 import './ProductionModule.css';
+import { getFriendlyErrorMessage, getTechnicalErrorMessage } from '../../lib/errorMessages';
 
 const STATUS_LABELS = {
   draft: 'پیش‌نویس', planned: 'برنامه‌ریزی‌شده', in_progress: 'در حال تولید', qc_pending: 'در انتظار QC', qc_rejected: 'رد QC', completed: 'تکمیل‌شده', delivered_to_warehouse: 'تحویل انبار', cancelled: 'لغوشده',
@@ -94,7 +96,7 @@ export default function ProductionModule({ lang = 'fa' }) {
       setModal(null);
       await data.refetch();
     } catch (e) {
-      setNotice(e.message || 'خطا در عملیات تولید');
+      setNotice(getFriendlyErrorMessage(e, 'خطا در عملیات تولید'));
     } finally {
       setBusy(false);
     }
@@ -127,7 +129,7 @@ export default function ProductionModule({ lang = 'fa' }) {
 
     {notice && <div className="production-message">{notice}</div>}
     {data.loading && <div className="production-message">در حال دریافت اطلاعات تولید...</div>}
-    {data.error && <div className="production-message error">{data.error.message}</div>}
+    {data.error && <div className="production-message error">{getFriendlyErrorMessage(data.error, 'دریافت اطلاعات تولید با خطا روبه‌رو شد.')}<br /><small dir="ltr">{getTechnicalErrorMessage(data.error)}</small></div>}
 
     <nav className="production-tabs">
       {[
@@ -196,12 +198,16 @@ function FlowSection({ orders, stages, selectedOrder, selectedStages, selectedPl
 }
 
 function ProductionDetail({ order, stages, plan, qc, docs, materials, busy, onClose, onSetStage, onPlan, onQc, onDocument, onPrepareMaterials, onIssueAllMaterials, onIssueMaterial, onOutput }) {
+  const allStagesDone = stages.length === 0 ? Number(order.progress_percent || 0) >= 100 : stages.every((s) => s.status === 'completed');
+  const hasOutput = Number(order.output_registered_qty || order.quantity_produced || 0) > 0;
+  const outputLabel = hasOutput ? 'اصلاح خروجی انبار' : 'ثبت خروجی به انبار';
   return <section className="production-card detail-card"><CardTitle icon={FileText} title={`جزئیات ${order.code}`} action={<button onClick={onClose}>بستن ×</button>} />
     <div className="detail-mini-grid"><Info label="مشتری" value={order.customer_name} /><Info label="محصول" value={order.product_name_fa} /><Info label="وضعیت" value={STATUS_LABELS[order.status] || order.status} /><Info label="مرحله" value={order.current_stage_name_fa} /><Info label="پیشرفت" value={`${formatNumber(order.progress_percent)}٪`} /><Info label="موعد" value={daysText(order.days_to_delivery, order.delivery_status)} /><Info label="روز کاری" value={order.work_days} /><Info label="نفرساعت" value={order.total_man_hours} /><Info label="هزینه" value={formatMoney(order.estimated_total_cost)} /></div>
-    <div className="detail-actions"><button onClick={() => onPlan(order)}>برنامه‌ریزی</button><button onClick={() => onQc(order)}>ثبت QC</button><button onClick={() => onDocument(order)}>سند تولید</button><button onClick={() => onPrepareMaterials(order)}>آماده‌سازی مواد</button><button onClick={() => onIssueAllMaterials(order)}>صدور همه مواد</button><button onClick={() => onOutput(order)}>ثبت خروجی به انبار</button></div>
+    <div className="detail-actions"><button onClick={() => onPlan(order)}>برنامه‌ریزی</button><button onClick={() => onQc(order)}>ثبت QC</button><button onClick={() => onDocument(order)}>سند تولید</button><button onClick={() => onPrepareMaterials(order)}>آماده‌سازی مواد</button><button onClick={() => onIssueAllMaterials(order)}>درخواست خروج همه مواد</button><button disabled={busy || !allStagesDone} title={!allStagesDone ? 'ثبت خروجی فقط بعد از تکمیل همه مراحل تولید فعال می‌شود.' : ''} onClick={() => onOutput(order)}>{outputLabel}</button></div>
+    {!allStagesDone && <p className="production-note warning">ثبت خروجی به انبار فقط بعد از تکمیل مرحله نهایی تولید فعال می‌شود.</p>}
     <section className="detail-block"><h3>مراحل تولید</h3><div className="stage-buttons">{stages.map((s) => <button key={s.id} disabled={busy} className={s.status} onClick={() => onSetStage(s, s.status === 'completed' ? 'in_progress' : 'completed')}>{s.order_index}. {stageName(s)} · {STAGE_STATUS_LABELS[s.status] || s.status}</button>)}</div></section>
     <section className="detail-block"><h3>برنامه تولید</h3>{plan ? <div className="detail-mini-grid"><Info label="شروع" value={formatDate(plan.planned_start)} /><Info label="پایان" value={formatDate(plan.planned_end)} /><Info label="روز کاری" value={plan.work_days} /><Info label="نیرو" value={plan.labor_people} /><Info label="ساعت نفر" value={plan.total_man_hours} /><Info label="شرح" value={plan.delivery_note} /></div> : <p className="muted">هنوز برنامه‌ریزی ثبت نشده است.</p>}</section>
-    <section className="detail-block"><h3>مواد مصرفی تولید</h3>{materials?.length ? <div className="production-table-wrap"><table><thead><tr><th>کد</th><th>کالا</th><th>درخواست</th><th>صادرشده</th><th>موجودی</th><th>وضعیت</th><th>عملیات</th></tr></thead><tbody>{materials.map(m => <tr key={m.id}><td dir="ltr">{m.item_code}</td><td>{m.item_name_fa}</td><td>{formatNumber(m.quantity_requested)} {m.unit}</td><td>{m.quantity_issued ? `${formatNumber(m.quantity_issued)} ${m.unit}` : "—"}</td><td>{formatNumber(m.current_qty)}</td><td>{m.status}</td><td><button disabled={busy || m.status === "issued"} onClick={() => onIssueMaterial(m)}>صدور</button></td></tr>)}</tbody></table></div> : <p className="muted">مواد مصرفی هنوز آماده نشده است. ابتدا فرمول تولید را به سفارش تولید وصل کنید و «آماده‌سازی مواد» را بزنید.</p>}</section><section className="detail-block"><h3>QC و اسناد</h3><div className="production-timeline compact">{qc.map((q) => <article key={q.id}><strong>{QC_LABELS[q.result] || q.result}</strong><small>{formatDateTime(q.checked_at)} · رد: {q.quantity_rejected || 0} · {q.rejection_reason || ''}</small></article>)}{docs.map((d) => <article key={d.id}><strong>{d.doc_number || '—'} · {d.title_fa}</strong><small>{d.document_type} · {formatDate(d.created_at)}</small></article>)}</div></section>
+    <section className="detail-block"><h3>مواد مصرفی تولید</h3>{materials?.length ? <div className="production-table-wrap"><table><thead><tr><th>کد</th><th>کالا</th><th>درخواست</th><th>تأیید انبار</th><th>موجودی</th><th>وضعیت سند</th><th>عملیات</th></tr></thead><tbody>{materials.map(m => { const docStatus = m.warehouse_document_status || (m.status === 'issued' ? 'final' : ''); const issued = m.status === 'issued' || docStatus === 'final'; const requested = m.warehouse_document_id && !issued; return <tr key={m.id}><td dir="ltr">{m.item_code}</td><td>{m.item_name_fa}</td><td>{formatNumber(m.quantity_requested)} {m.unit}</td><td>{m.quantity_issued ? `${formatNumber(m.quantity_issued)} ${m.unit}` : requested ? 'در انتظار تأیید انبار' : '—'}</td><td>{formatNumber(m.current_qty)}</td><td>{issued ? 'تأیید شده' : requested ? `${m.warehouse_document_number || 'سند موقت'} · در انتظار انبار` : 'آماده درخواست'}</td><td><button disabled={busy || issued || requested} onClick={() => onIssueMaterial(m)}>{issued ? 'خارج شد' : requested ? 'در انتظار انبار' : 'خروج از انبار'}</button></td></tr>; })}</tbody></table></div> : <p className="muted">مواد مصرفی هنوز آماده نشده است. با هر بار زدن «آماده‌سازی مواد»، آخرین فرمول تولید به این بخش منتقل می‌شود.</p>}</section><section className="detail-block"><h3>QC و اسناد</h3><div className="production-timeline compact">{qc.map((q) => <article key={q.id}><strong>{QC_LABELS[q.result] || q.result}</strong><small>{formatDateTime(q.checked_at)} · رد: {q.quantity_rejected || 0} · {q.rejection_reason || ''}</small></article>)}{docs.map((d) => <article key={d.id}><strong>{d.doc_number || '—'} · {d.title_fa}</strong><small>{d.document_type} · {formatDate(d.created_at)}</small></article>)}</div></section>
   </section>;
 }
 
@@ -282,9 +288,17 @@ function DocumentModal({ order, orders, busy, onClose, onSubmit }) {
 }
 
 function OutputModal({ order, stock, busy, onClose, onSubmit }) {
-  const [form,setForm]=useState({ productionOrderId: order?.id || '', warehouseItemId: order?.output_warehouse_item_id || '', quantity: order?.quantity_planned || 1 });
-  const finished = stock.filter(s => (s.category || s.item_group || '').toLowerCase().includes('finished') || (s.item_group_label || '').includes('تولید'));
-  return <Modal title="ثبت خروجی تولید در انبار" onClose={onClose}><form onSubmit={(e)=>{e.preventDefault();onSubmit({productionOrderId: form.productionOrderId, warehouseItemId: form.warehouseItemId, quantity: form.quantity})}}><div className="form-grid"><label><span>سفارش تولید</span><input readOnly value={order?.code || '—'} /></label><label><span>کالای انبار</span><select value={form.warehouseItemId} onChange={e=>setForm({...form,warehouseItemId:e.target.value})}><option value="">خودکار از فرمول تولید / انتخاب نشده</option>{finished.map(s=><option key={s.item_id} value={s.item_id}>{s.item_code} · {s.item_name_fa}</option>)}</select></label><label><span>تعداد تولیدشده</span><input type="number" value={form.quantity} onChange={e=>setForm({...form,quantity:e.target.value})} required /></label></div><div className="note">با ثبت خروجی، تعداد تولیدشده به موجودی انبار اضافه می‌شود.</div><div className="modal-actions"><button type="button" onClick={onClose}>انصراف</button><button disabled={busy || Number(form.quantity)<=0} type="submit">ثبت خروجی در انبار</button></div></form></Modal>}
+  const existingQty = Number(order?.output_registered_qty || order?.quantity_produced || 0);
+  const hasOutput = existingQty > 0;
+  const [confirmed,setConfirmed]=useState(!hasOutput);
+  const [form,setForm]=useState({ productionOrderId: order?.id || '', warehouseItemId: order?.output_warehouse_item_id || '', quantity: existingQty || order?.quantity_planned || 1 });
+  const finished = stock.filter(s => (s.category || s.item_group || '').toLowerCase().includes('finished') || (s.item_group_label || '').includes('تولید') || s.is_produced_item);
+  const title = hasOutput ? 'اصلاح خروجی ثبت‌شده در انبار' : 'ثبت خروجی تولید در انبار';
+  return <Modal title={title} onClose={onClose}><form onSubmit={(e)=>{e.preventDefault(); if (hasOutput && !confirmed) return; onSubmit({productionOrderId: form.productionOrderId, warehouseItemId: form.warehouseItemId, quantity: form.quantity})}}>
+    {hasOutput && !confirmed && <div className="confirm-box production-confirm"><b>این تولید قبلاً خروجی انبار دارد.</b><p>برای این سفارش مقدار {formatNumber(existingQty)} {order?.unit || 'عدد'} ثبت شده است. آیا می‌خواهید مقدار خروجی را اصلاح کنید؟</p><div className="confirm-actions"><button type="button" onClick={onClose}>خیر</button><button type="button" onClick={()=>setConfirmed(true)}>بله، اصلاح مقدار</button></div></div>}
+    {(!hasOutput || confirmed) && <><div className="form-grid"><label><span>سفارش تولید</span><input readOnly value={order?.code || '—'} /></label><label><span>کالای انبار</span><ProductPicker items={finished} value={form.warehouseItemId} onSelect={(selected)=>setForm({...form,warehouseItemId:selected?.item_id || ''})} placeholder="کد یا نام محصول تولیدی را بنویس..." /></label><label><span>تعداد تولیدشده</span><input type="number" value={form.quantity} onChange={e=>setForm({...form,quantity:e.target.value})} required /></label></div><div className="note">اگر کالای انبار انتخاب نشود، سیستم از فرمول تولید استفاده می‌کند و در صورت نیاز محصول نهایی را با کد چهاررقمی جدید در انبار می‌سازد.</div><div className="modal-actions"><button type="button" onClick={onClose}>انصراف</button><button disabled={busy || Number(form.quantity)<=0} type="submit">{hasOutput ? 'ثبت اصلاح خروجی' : 'ثبت خروجی در انبار'}</button></div></>}
+  </form></Modal>}
+
 function Modal({ title, onClose, children }) { return <div className="production-modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}><div className="production-modal"><header><h3>{title}</h3><button onClick={onClose}><X size={18}/></button></header><div>{children}</div></div></div>; }
 function CardTitle({ icon: Icon, title, action }) { return <div className="production-card-title"><span><Icon size={18} /> <b>{title}</b></span>{action}</div>; }
 function Kpi({ icon, label, value, danger, warning, success }) { return <div className={`production-kpi ${danger ? 'danger' : warning ? 'warning' : success ? 'success' : ''}`}><i>{icon}</i><span>{label}</span><b>{value}</b></div>; }

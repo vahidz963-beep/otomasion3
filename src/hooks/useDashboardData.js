@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabase } from '../lib/supabaseClient';
+import { getFriendlyErrorMessage } from '../lib/errorMessages';
 
 const completedStages = new Set(['closed', 'delivered']);
 
@@ -58,6 +59,7 @@ export function useDashboardData(filters) {
     checks: [],
     payments: [],
     finance: {},
+    receivableForecast: [],
     health: null,
     queryErrors: [],
   });
@@ -65,7 +67,7 @@ export function useDashboardData(filters) {
   const fetchData = useCallback(async () => {
     setState((s) => ({ ...s, loading: true, error: null }));
 
-    const [ordersRes, financeRes, paymentsRes, stockRes, referralsRes, productionRes, rndRes, checksRes, healthRes] = await Promise.all([
+    const [ordersRes, financeRes, paymentsRes, stockRes, referralsRes, productionRes, rndRes, checksRes, forecastRes, healthRes] = await Promise.all([
       supabase
         .from('v_order_lifecycle_overview')
         .select('id, order_code, customer_name, sales_path, current_stage, current_stage_name_fa, progress_percent, delivery_status, days_to_delivery, financial_status, stock_status, registered_at, expected_delivery_date')
@@ -93,18 +95,22 @@ export function useDashboardData(filters) {
         .limit(100),
       supabase
         .from('v_production_order_overview')
-        .select('id, code, product_name_fa, customer_name, status, progress_percent, current_stage_name_fa, delivery_status, days_to_delivery, planned_end')
+        .select('id, code, source_order_id, product_name_fa, customer_name, status, progress_percent, current_stage_name_fa, delivery_status, days_to_delivery, planned_end')
         .order('updated_at', { ascending: false })
         .limit(100),
       supabase
         .from('v_rnd_project_overview')
-        .select('id, code, title_fa, customer_name, requester_name, status, progress_percent, current_stage_name_fa, delivery_status, days_to_delivery')
+        .select('id, code, source_order_id, title_fa, customer_name, requester_name, status, progress_percent, current_stage_name_fa, delivery_status, days_to_delivery')
         .order('updated_at', { ascending: false })
         .limit(100),
       supabase
         .from('finance_checks')
         .select('id, internal_check_code, check_type, status, due_date, amount, bank_name, owner_name')
         .order('due_date', { ascending: true })
+        .limit(80),
+      supabase
+        .from('v_finance_receivable_forecast')
+        .select('*')
         .limit(80),
       supabase.rpc('fn_system_health_report'),
     ]);
@@ -117,19 +123,22 @@ export function useDashboardData(filters) {
     const production = okArray(productionRes);
     const rnd = okArray(rndRes);
     const checks = okArray(checksRes);
+    const forecast = forecastRes?.error ? [] : (forecastRes.data || []);
     const health = healthRes?.error ? null : healthRes.data;
 
     const trend = buildTrends({ orders, payments, dateFrom: filters.dateFrom, dateTo: filters.dateTo });
     const activeOrders = orders.filter((o) => !['closed', 'cancelled'].includes(o.delivery_status));
-    const completedOrders = orders.filter((o) => o.delivery_status === 'closed');
+    const productionCompletedOrderIds = new Set(production.filter((p) => ['completed','delivered_to_warehouse'].includes(p.status)).map((p) => p.source_order_id).filter(Boolean));
+    const rndCompletedOrderIds = new Set(rnd.filter((r) => ['approved','sent_to_production','archived'].includes(r.status)).map((r) => r.source_order_id).filter(Boolean));
+    const completedOrders = orders.filter((o) => o.delivery_status === 'closed' || productionCompletedOrderIds.has(o.id) || rndCompletedOrderIds.has(o.id));
     const cancelledOrders = orders.filter((o) => o.delivery_status === 'cancelled');
     const activeProduction = production.filter((p) => !['completed', 'delivered_to_warehouse', 'cancelled'].includes(p.status));
     const activeRnd = rnd.filter((p) => !['approved', 'sent_to_production', 'archived', 'rejected'].includes(p.status));
     const dueChecks = checks.filter((c) => !['cleared', 'cancelled'].includes(c.status) && c.due_date && new Date(c.due_date) <= new Date(Date.now() + 7 * 86400000));
 
-    const queryErrors = [ordersRes, financeRes, paymentsRes, stockRes, referralsRes, productionRes, rndRes, checksRes, healthRes]
+    const queryErrors = [ordersRes, financeRes, paymentsRes, stockRes, referralsRes, productionRes, rndRes, checksRes, forecastRes, healthRes]
       .filter((r) => r?.error)
-      .map((r) => r.error.message);
+      .map((r) => getFriendlyErrorMessage(r.error, 'یکی از منابع داده داشبورد آماده نیست.'));
 
     setState({
       loading: false,
@@ -159,6 +168,7 @@ export function useDashboardData(filters) {
       checks,
       payments,
       finance,
+      receivableForecast: forecast,
       health,
       queryErrors,
     });

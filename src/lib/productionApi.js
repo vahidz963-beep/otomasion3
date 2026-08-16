@@ -236,7 +236,7 @@ export async function issueProductionMaterial(usageId, quantity) {
     p_usage_id: usageId,
     p_quantity: quantity ? Number(quantity) : null,
   });
-  assertNoError(res, 'خطا در صدور مواد تولید از انبار');
+  assertNoError(res, 'خطا در ثبت درخواست خروج مواد تولید از انبار');
   return res.data;
 }
 
@@ -244,6 +244,6 @@ export async function issueAllProductionMaterials(productionOrderId) {
   const res = await supabase.rpc('fn_production_issue_all_materials', {
     p_production_order_id: productionOrderId,
   });
-  assertNoError(res, 'خطا در صدور همه مواد تولید');
+  assertNoError(res, 'خطا در ثبت درخواست خروج همه مواد تولید');
   return res.data;
 }

@@ -74,7 +74,8 @@ export default function Dashboard({ lang = 'fa' }) {
 
         {isAdmin && <section className="health-card"><HealthReport health={data.health} /></section>}
 
-        {(canSales || canFinance || isAdmin) && <section className="dashboard-main-grid">
+        {(canSales || canFinance || isAdmin) && <>
+        <section className="dashboard-main-grid">
           {canSales && <ChartCard title="روند سفارش‌ها" empty={data.ordersTrend.length === 0}>
             <ResponsiveContainer width="100%" height={250}>
               <LineChart data={data.ordersTrend}>
@@ -101,7 +102,9 @@ export default function Dashboard({ lang = 'fa' }) {
               </BarChart>
             </ResponsiveContainer>
           </ChartCard>}
-        </section>}
+        </section>
+        {(isAdmin || canFinance || canSales) && <ForecastTable rows={data.receivableForecast || []} />}
+        </>}
 
         <section className="dashboard-tables-grid">
           {visibleTables.map((table) => <InfoTable key={table.title} {...table} />)}
@@ -109,6 +112,12 @@ export default function Dashboard({ lang = 'fa' }) {
       </>}
     </div>
   </div>;
+}
+
+
+function ForecastTable({ rows }) {
+  const total = rows.reduce((sum, row) => sum + Number(row.expected_amount || 0), 0);
+  return <section className="dashboard-table-card forecast-table-card full-width"><div className="forecast-head"><div><h2>پیش‌بینی وصولی ۱۰ روز آینده</h2><p>سفارش‌ها و فاکتورهایی که در روزهای آینده احتمال واریز دارند.</p></div><strong>{formatMoney(total)}</strong></div>{rows.length === 0 ? <div className="empty-chart small">وصولی نزدیک ثبت نشده است.</div> : <div className="dash-table-wrap"><table><thead><tr><th>مشتری</th><th>سفارش</th><th>تاریخ پیش‌بینی پرداخت</th><th>مبلغ قابل وصول</th><th>مرحله / پیشرفت</th><th>وضعیت</th></tr></thead><tbody>{rows.map((r) => <tr key={r.document_id}><td>{r.customer_name || '—'}</td><td dir="ltr">{r.order_code || r.doc_number || '—'}</td><td>{formatJalaliDate(r.expected_payment_date)}</td><td>{formatMoney(r.expected_amount)}</td><td>{r.current_stage_name_fa || '—'} · {formatNumber(r.progress_percent)}٪</td><td>{r.forecast_status === 'very_near' ? 'خیلی نزدیک' : r.forecast_status === 'near' ? 'نزدیک' : 'آینده'}</td></tr>)}</tbody></table></div>}</section>;
 }
 
 function ExecKpi({ icon: Icon, title, value, accent }) {

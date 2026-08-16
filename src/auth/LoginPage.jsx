@@ -3,6 +3,7 @@ import { Cpu, Globe, LogIn } from 'lucide-react';
 import { useAuth } from './AuthProvider';
 import { supabase } from '../lib/supabaseClient';
 import './LoginPage.css';
+import { getFriendlyErrorMessage, getTechnicalErrorMessage } from '../lib/errorMessages';
 
 const COPY = {
   fa: {
@@ -60,7 +61,7 @@ export default function LoginPage() {
     }
     const redirectTo = `${window.location.origin}/reset-password`;
     const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo });
-    if (error) setFormError(error.message);
+    if (error) setFormError(getFriendlyErrorMessage(error, 'ورود انجام نشد. اطلاعات را بررسی کنید.'));
     else setNotice(t.resetSent);
   }
 

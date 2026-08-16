@@ -90,39 +90,83 @@ export function useOrdersData() {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
+  useEffect(() => {
+    let timer;
+    const scheduleRefetch = () => {
+      clearTimeout(timer);
+      timer = setTimeout(fetchData, 500);
+    };
+    const channel = supabase
+      .channel('orders-live-sync')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'warehouse_items' }, scheduleRefetch)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'warehouse_transactions' }, scheduleRefetch)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'warehouse_documents' }, scheduleRefetch)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'finance_documents' }, scheduleRefetch)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'production_orders' }, scheduleRefetch)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'production_order_stages' }, scheduleRefetch)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'rnd_projects' }, scheduleRefetch)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'rnd_project_stages' }, scheduleRefetch)
+      .subscribe();
+    return () => { clearTimeout(timer); supabase.removeChannel(channel); };
+  }, [fetchData]);
+
   return useMemo(() => ({ ...state, refetch: fetchData }), [state, fetchData]);
 }
 
 export function useOrderDetails(orderId) {
-  const [state, setState] = useState({ loading: false, error: null, stages: [], events: [], stock: [], documents: [], referrals: [] });
+  const [state, setState] = useState({ loading: false, error: null, stages: [], events: [], stock: [], documents: [], referrals: [], production: [], rnd: [] });
 
   const fetchDetails = useCallback(async () => {
     if (!orderId) {
-      setState({ loading: false, error: null, stages: [], events: [], stock: [], documents: [], referrals: [] });
+      setState({ loading: false, error: null, stages: [], events: [], stock: [], documents: [], referrals: [], production: [], rnd: [] });
       return;
     }
     setState((s) => ({ ...s, loading: true, error: null }));
 
-    const [stagesRes, eventsRes, stockRes, docsRes, referralsRes] = await Promise.all([
+    const [stagesRes, eventsRes, stockRes, docsRes, referralsRes, productionRes, rndRes] = await Promise.all([
       supabase.from('order_stage_instances').select('id, stage_key, stage_order, stage_name_fa, stage_name_en, responsible_role, status, started_at, completed_at, notes').eq('order_id', orderId).order('stage_order', { ascending: true }),
       supabase.from('order_events').select('id, event_type, title, description, old_stage, new_stage, metadata, created_at').eq('order_id', orderId).order('created_at', { ascending: false }),
       supabase.from('v_order_stock_status').select('order_item_id, item_name_fa, warehouse_item_code, warehouse_item_id, requested_qty, available_for_sale_qty, current_qty, reserved_qty, stock_unit, stock_status').eq('order_id', orderId),
       supabase.from('v_finance_document_summary').select('id, doc_number, document_type, status, issue_date, due_date, total_amount, paid_amount, balance_amount').eq('related_order_id', orderId).order('issue_date', { ascending: false }),
       supabase.from('automation_referrals').select('id, referral_number, source_module, target_module, priority, status, title_fa, due_date, created_at').eq('related_order_id', orderId).order('created_at', { ascending: false }),
+      supabase.from('v_production_order_overview').select('*').eq('source_order_id', orderId).order('updated_at', { ascending: false }),
+      supabase.from('v_rnd_project_overview').select('id, code, title_fa, status, progress_percent, current_stage_name_fa, actual_total_cost, updated_at').eq('source_order_id', orderId).order('updated_at', { ascending: false }),
     ]);
 
     setState({
       loading: false,
-      error: firstError([stagesRes, eventsRes, stockRes, docsRes, referralsRes]),
+      error: firstError([stagesRes, eventsRes, stockRes, docsRes, referralsRes, productionRes, rndRes]),
       stages: stagesRes.data || [],
       events: eventsRes.data || [],
       stock: stockRes.data || [],
       documents: docsRes.data || [],
       referrals: referralsRes.data || [],
+      production: productionRes.error ? [] : (productionRes.data || []),
+      rnd: rndRes.error ? [] : (rndRes.data || []),
     });
   }, [orderId]);
 
   useEffect(() => { fetchDetails(); }, [fetchDetails]);
+
+  useEffect(() => {
+    if (!orderId) return undefined;
+    let timer;
+    const scheduleRefetch = () => {
+      clearTimeout(timer);
+      timer = setTimeout(fetchDetails, 400);
+    };
+    const channel = supabase
+      .channel(`order-detail-live-${orderId}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'order_events', filter: `order_id=eq.${orderId}` }, scheduleRefetch)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'finance_documents' }, scheduleRefetch)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'warehouse_transactions' }, scheduleRefetch)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'production_orders' }, scheduleRefetch)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'production_order_stages' }, scheduleRefetch)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'rnd_projects' }, scheduleRefetch)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'rnd_project_stages' }, scheduleRefetch)
+      .subscribe();
+    return () => { clearTimeout(timer); supabase.removeChannel(channel); };
+  }, [orderId, fetchDetails]);
 
   return useMemo(() => ({ ...state, refetch: fetchDetails }), [state, fetchDetails]);
 }
