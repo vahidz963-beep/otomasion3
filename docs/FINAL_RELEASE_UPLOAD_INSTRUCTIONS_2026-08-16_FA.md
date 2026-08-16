@@ -86,9 +86,9 @@ https://automation.aryaman-co.ir/reset-password
 ## متغیرهای محیطی لازم در Netlify
 
 ```txt
-VITE_SUPABASE_URL=https://wsmtxzkdmdkdqjlbkezx.supabase.co
+VITE_SUPABASE_URL=https://YOUR-PROJECT.supabase.co
 VITE_SUPABASE_ANON_KEY=<anon/publishable key>
-SUPABASE_URL=https://wsmtxzkdmdkdqjlbkezx.supabase.co
+SUPABASE_URL=https://YOUR-PROJECT.supabase.co
 SUPABASE_ANON_KEY=<anon/publishable key>
 SUPABASE_SERVICE_ROLE_KEY=<service role key>
 ```
