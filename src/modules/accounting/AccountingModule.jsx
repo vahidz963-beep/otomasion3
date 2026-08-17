@@ -189,6 +189,8 @@ export default function AccountingModule({ lang = 'fa' }) {
   const selectedParty = useMemo(() => data.parties.find((p) => p.party_id === selectedPartyId), [data.parties, selectedPartyId]);
   const statement = usePartyStatement(selectedPartyId, statementFlowFilter);
   const documentBundle = useFinanceDocumentBundle(selectedDocumentId);
+  const modalDocumentId = typeof modal === 'object' && modal?.type === 'document' ? modal.documentId : null;
+  const editDocumentBundle = useFinanceDocumentBundle(modalDocumentId);
   const statementDocumentBundle = useFinanceDocumentBundle(statementDetail?.type === 'document' ? statementDetail.documentId : null);
   const selectedDocument = useMemo(() => data.documents.find((d) => d.id === selectedDocumentId), [data.documents, selectedDocumentId]);
   const activeDocuments = useMemo(() => data.documents.filter((d) => d.status !== 'void'), [data.documents]);
@@ -238,7 +240,7 @@ export default function AccountingModule({ lang = 'fa' }) {
         id: payload.documentId,
         payload,
         title: 'ویرایش فاکتور تأییدشده',
-        message: 'این فاکتور قبلاً تأیید/ثبت شده است. آیا مایل هستید بعد از ویرایش، اسناد مرتبط مثل خروج/ورود انبار و سندهای مربوط نیز متناسب با فاکتور اصلاح شوند؟ دلیل ویرایش را وارد کنید.',
+        message: 'این فاکتور قبلاً تأیید یا سند حسابداری آن ثبت شده است. با تأیید شما، سند حسابداری قبلی باطل و سند جدید براساس اطلاعات اصلاح‌شده ثبت می‌شود؛ سند خروج انبار قبلی هم لغو و سند جدید صادر می‌شود. دلیل اصلاح را وارد کنید.',
       });
       return;
     }
@@ -293,10 +295,12 @@ export default function AccountingModule({ lang = 'fa' }) {
 
       {modal && (() => {
         const modalType = typeof modal === 'string' ? modal : modal.type;
-        const modalDocumentId = typeof modal === 'object' ? modal.documentId : null;
+        const activeEditBundle = modalDocumentId ? editDocumentBundle : documentBundle;
         return (
           <FinanceModal title={modalTitle(modalType)} onClose={() => setModal(null)}>
-            {modalType === 'document' && <FinanceDocumentForm parties={data.parties} orders={data.orders} stock={data.stock} initialDocument={modalDocumentId ? documentBundle.document : null} initialItems={modalDocumentId ? documentBundle.items : []} busy={busy} onCancel={() => setModal(null)} onSubmit={submitDocument} />}
+            {modalType === 'document' && modalDocumentId && activeEditBundle.loading && <p className="muted">در حال دریافت اطلاعات فاکتور برای ویرایش...</p>}
+            {modalType === 'document' && (!modalDocumentId || (!activeEditBundle.loading && activeEditBundle.document)) && <FinanceDocumentForm parties={data.parties} orders={data.orders} stock={data.stock} initialDocument={modalDocumentId ? activeEditBundle.document : null} initialItems={modalDocumentId ? activeEditBundle.items : []} busy={busy} onCancel={() => setModal(null)} onSubmit={submitDocument} />}
+            {modalType === 'document' && modalDocumentId && !activeEditBundle.loading && activeEditBundle.error && <div className="accounting-message error">{getFriendlyErrorMessage(activeEditBundle.error, 'خطا در دریافت فاکتور برای ویرایش')}</div>}
             {modalType === 'orderInvoice' && <OrderInvoiceForm orders={data.orders} busy={busy} onCancel={() => setModal(null)} onSubmit={submitOrderInvoice} />}
             {modalType === 'payment' && <FinancePaymentForm parties={data.parties} documents={activeDocuments} accounts={data.bankAccounts} initialDocumentId={modalDocumentId} busy={busy} onCancel={() => setModal(null)} onSubmit={submitPayment} />}
             {modalType === 'check' && <FinanceCheckForm parties={data.parties} busy={busy} onCancel={() => setModal(null)} onSubmit={submitCheck} />}
@@ -336,7 +340,7 @@ export default function AccountingModule({ lang = 'fa' }) {
       {!data.loading && tab === 'parties' && <PartiesSection parties={filteredParties} allParties={data.parties} payments={data.payments} filter={partyFilter} setFilter={setPartyFilter} selectedPartyId={selectedPartyId} setSelectedPartyId={setSelectedPartyId} selectedParty={selectedParty} statement={statement} statementFlowFilter={statementFlowFilter} setStatementFlowFilter={setStatementFlowFilter} lang={lang} t={t} onNewParty={() => setPartyModal({})} onImportParties={() => setPartyImportModal(true)} onDownloadTemplate={downloadPartyImportTemplate} onOpenStatementDocument={(documentId, row) => setStatementDetail({ type: 'document', documentId, row })} onOpenStatementPayment={(payment, row) => setStatementDetail({ type: 'payment', payment, row })} />}
       {!data.loading && tab === 'cashflow' && <CashFlowSection accounts={data.treasuryAccounts} bankAccounts={data.bankAccounts} ledger={data.paymentLedger} investments={data.investments} lang={lang} onNewPayment={() => setModal('payment')} onNewAccount={() => setAccountModal({})} onEditAccount={(account) => setAccountModal({ account })} onDeleteAccount={(account) => setAccountDeleteModal({ account })} isAdmin={isAdmin} onNewInvestment={() => setInvestmentModal({})} onEditInvestment={(item) => setInvestmentModal({ item })} onArchiveInvestment={(item) => runAction(() => archiveFinanceInvestment(item.id), 'سرمایه‌گذاری آرشیو شد.')} />}
       {!data.loading && tab === 'checks' && <ChecksSection checks={data.checks} parties={data.parties} accounts={data.bankAccounts} lang={lang} busy={busy} onNewCheck={() => setModal('check')} onSettle={(payload) => runAction(() => settleFinanceCheck(payload), 'وضعیت چک و گردش بانک ثبت شد.')} onChangeStatus={(id, status) => runAction(() => updateFinanceCheckStatus(id, status), 'وضعیت چک تغییر کرد.')} />}
-      {!data.loading && tab === 'itemKardex' && <ItemKardexSection stock={data.stock} rows={data.itemKardex} lastSales={data.itemLastSales} />}
+      {!data.loading && tab === 'itemKardex' && <ItemKardexSection stock={data.stock} rows={data.itemKardex} lastSales={data.itemLastSales} lang={lang} />}
       {!data.loading && tab === 'profitability' && <ProfitCard rows={data.profitability} lang={lang} t={t} full onAddCost={(order) => setOrderCostModal({ order })} orderCosts={data.orderCosts} />}
       {!data.loading && tab === 'loans' && <LoansSection loans={data.loans || []} installments={data.loanInstallments || []} payments={data.payments || []} lang={lang} busy={busy} onNewLoan={() => setLoanModal({})} onPayInstallment={(installment) => setLoanPaymentModal({ installment })} />}
       {!data.loading && tab === 'fiscal' && <FiscalSection fiscalYears={data.fiscalYears} fiscalPeriods={data.fiscalPeriods} lang={lang} busy={busy} onClosePeriod={(id) => runAction(() => closeFiscalPeriod(id), 'ماه مالی بسته شد.')} onReopenPeriod={(id) => runAction(() => reopenFiscalPeriod(id), 'ماه مالی بازگشایی شد.')} onCloseYear={(id) => runAction(() => closeFiscalYear(id), 'سال مالی بسته شد.')} onReopenYear={(id) => runAction(() => reopenFiscalYear(id), 'سال مالی بازگشایی شد.')} />}
@@ -381,21 +385,21 @@ function DocumentsSection({ docs, selectedDocument, documentBundle, lang, t, bus
     order: documentBundle.document ? documentBundle.order : null,
   } : documentBundle;
   return <div className="accounting-grid document-workspace finance-doc-split document-modal-workspace">
-    <DocumentsCard title="پیش‌فاکتورهای فروش" docs={proformas} lang={lang} t={t} full kind="proforma" onSelect={onSelect} busy={busy} onConvert={onConvert} onVoid={onVoid} />
-    <DocumentsCard title="فاکتورهای فروش" docs={salesInvoices} lang={lang} t={t} full kind="sales" onSelect={onSelect} busy={busy} onVoid={onVoid} onReturn={onReturn} />
-    <DocumentsCard title="فاکتورهای خرید و هزینه" docs={purchaseInvoices} lang={lang} t={t} full kind="purchase" onSelect={onSelect} busy={busy} onVoid={onVoid} />
-    {otherDocs.length > 0 && <DocumentsCard title="سایر اسناد مالی" docs={otherDocs} lang={lang} t={t} full kind="other" onSelect={onSelect} busy={busy} onVoid={onVoid} />}
+    <DocumentsCard title="پیش‌فاکتورهای فروش" docs={proformas} lang={lang} t={t} full kind="proforma" onSelect={onSelect} onEdit={onEdit} busy={busy} onConvert={onConvert} onVoid={onVoid} />
+    <DocumentsCard title="فاکتورهای فروش" docs={salesInvoices} lang={lang} t={t} full kind="sales" onSelect={onSelect} onEdit={onEdit} busy={busy} onVoid={onVoid} onReturn={onReturn} />
+    <DocumentsCard title="فاکتورهای خرید و هزینه" docs={purchaseInvoices} lang={lang} t={t} full kind="purchase" onSelect={onSelect} onEdit={onEdit} busy={busy} onVoid={onVoid} />
+    {otherDocs.length > 0 && <DocumentsCard title="سایر اسناد مالی" docs={otherDocs} lang={lang} t={t} full kind="other" onSelect={onSelect} onEdit={onEdit} busy={busy} onVoid={onVoid} />}
     {selectedDocument && <div className="finance-detail-modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onCloseDetails?.()}><div className="finance-detail-modal"><FinanceDocumentDetails bundle={quickBundle} loading={documentBundle.loading} busy={busy} onPost={onPost} onEdit={onEdit} onConvert={onConvert} onVoid={onVoid} onReturn={onReturn} onNewPayment={onNewPayment} onNewReferral={onNewReferral} onClose={onCloseDetails} /></div></div>}
   </div>;
 }
 
-function DocumentsCard({ title, docs, lang, t, full, onSelect, busy, onConvert, onVoid, onReturn }) {
+function DocumentsCard({ title, docs, lang, t, full, onSelect, onEdit, busy, onConvert, onVoid, onReturn }) {
   const [sort, setSort] = useState({ key: 'issue_date', dir: 'desc' });
   const rows = useMemo(() => sortRows(docs, sort), [docs, sort]);
   const th = (key, label) => <th><button className="sort-th" onClick={() => setSort(nextSort(sort, key))}>{label}<span>{sort.key === key ? (sort.dir === 'asc' ? '▲' : '▼') : '↕'}</span></button></th>;
   return <section className="finance-card invoice-list-card">
     <div className="finance-card-header between"><CardHeader icon={FileText} title={title} bare />{full && <button className="mini-btn" onClick={() => exportDocuments(rows, lang)}>{t.exportCsv}</button>}</div>
-    {rows.length === 0 ? <Empty t={t} /> : <div className="table-scroll limited-list"><table className="finance-table"><thead><tr>{th('doc_number','شماره')}{th('issue_date','تاریخ')}{th('document_type','نوع')}{th('status','وضعیت')}{th('party_name','شخص')}{th('order_code','سفارش')}{th('total_amount','مبلغ')}{th('balance_amount','مانده')}{full && <th>عملیات</th>}</tr></thead><tbody>{rows.map((d) => <tr key={d.id} className={d.is_overdue ? 'overdue clickable-row' : 'clickable-row'} onClick={() => onSelect?.(d.id)}><td dir="ltr">{d.doc_number}</td><td>{formatDate(d.issue_date, lang)}</td><td>{docLabel(d.document_type, lang)}</td><td><StatusBadge status={d.status} lang={lang} /></td><td>{d.party_name || '—'}</td><td dir="ltr">{d.order_code || '—'}</td><td>{formatMoney(d.total_amount, lang)}</td><td className={Number(d.balance_amount) > 0 ? 'negative-soft' : 'positive'}>{formatMoney(d.balance_amount, lang)}</td>{full && <td className="actions-cell" onClick={(e)=>e.stopPropagation()}><button disabled={busy} onClick={() => onSelect?.(d.id)}>جزئیات</button>{d.document_type === 'sales_proforma' && <button disabled={busy} onClick={() => onConvert?.(d.id)}>تبدیل</button>}{d.document_type === 'sales_invoice' && <button disabled={busy} onClick={() => onReturn?.(d.id)}>برگشتی</button>}<button disabled={busy || d.status === 'void'} onClick={() => onVoid?.(d.id)}>ابطال</button><button onClick={() => printSimpleDocument(d, lang)}>PDF</button></td>}</tr>)}</tbody></table></div>}
+    {rows.length === 0 ? <Empty t={t} /> : <div className="table-scroll limited-list"><table className="finance-table"><thead><tr>{th('doc_number','شماره')}{th('issue_date','تاریخ')}{th('document_type','نوع')}{th('status','وضعیت')}{th('party_name','شخص')}{th('order_code','سفارش')}{th('total_amount','مبلغ')}{th('balance_amount','مانده')}{full && <th>عملیات</th>}</tr></thead><tbody>{rows.map((d) => <tr key={d.id} className={d.is_overdue ? 'overdue clickable-row' : 'clickable-row'} onClick={() => onSelect?.(d.id)}><td dir="ltr">{d.doc_number}</td><td>{formatDate(d.issue_date, lang)}</td><td>{docLabel(d.document_type, lang)}</td><td><StatusBadge status={d.status} lang={lang} /></td><td>{d.party_name || '—'}</td><td dir="ltr">{d.order_code || '—'}</td><td>{formatMoney(d.total_amount, lang)}</td><td className={Number(d.balance_amount) > 0 ? 'negative-soft' : 'positive'}>{formatMoney(d.balance_amount, lang)}</td>{full && <td className="actions-cell" onClick={(e)=>e.stopPropagation()}><button disabled={busy} onClick={() => onSelect?.(d.id)}>جزئیات</button><button disabled={busy || ['void','cancelled'].includes(d.status)} title={['draft','pending_approval'].includes(d.status) ? 'ویرایش پیش‌نویس' : 'اصلاح فاکتور تأییدشده و همگام‌سازی اسناد'} onClick={() => onEdit?.(d.id)}>{['draft','pending_approval'].includes(d.status) ? 'ویرایش' : 'اصلاح'}</button>{d.document_type === 'sales_proforma' && <button disabled={busy} onClick={() => onConvert?.(d.id)}>تبدیل</button>}{d.document_type === 'sales_invoice' && <button disabled={busy} onClick={() => onReturn?.(d.id)}>برگشتی</button>}<button disabled={busy || d.status === 'void'} onClick={() => onVoid?.(d.id)}>ابطال</button><button onClick={() => printSimpleDocument(d, lang)}>PDF</button></td>}</tr>)}</tbody></table></div>}
   </section>;
 }
 
@@ -403,7 +407,7 @@ function PartiesSection({ parties, allParties, payments = [], filter, setFilter,
   return <>
     <div className="accounting-grid two parties-layout">
       <section className="finance-card"><div className="finance-card-header between"><CardHeader icon={Users} title="اشخاص مالی" bare /><div className="actions-cell party-import-actions"><button className="mini-btn" onClick={onNewParty}>＋ شخص جدید</button><button className="mini-btn" onClick={onDownloadTemplate}>قالب Excel</button><button className="mini-btn primary-soft" onClick={onImportParties}>ورود از Excel</button></div></div><div className="toolbar-line"><select value={filter} onChange={(e) => setFilter(e.target.value)}><option value="all">{t.all}</option><option value="debtors">{t.debtors}</option><option value="creditors">{t.creditors}</option><option value="settled">{t.settled}</option></select></div>{parties.length === 0 ? <Empty t={t} /> : <div className="party-list">{parties.map((p) => <button key={p.party_id} className={selectedPartyId === p.party_id ? 'party-row active' : 'party-row'} onClick={() => setSelectedPartyId(p.party_id)}><span><strong>{p.display_name}</strong><small>{partyTypeLabel(p.party_type, lang)} · {p.phone || p.email || '—'}</small></span><b className={Number(p.balance) >= 0 ? 'positive' : 'negative'}>{formatMoney(p.balance, lang)}</b></button>)}</div>}</section>
-      <section className="finance-card"><div className="finance-card-header between"><CardHeader icon={BookOpen} title={selectedParty ? `صورت‌حساب: ${selectedParty.display_name}` : 'صورت‌حساب شخص'} bare />{selectedParty && <button className="mini-btn" onClick={() => printStatement(selectedParty, statement.rows, lang)}>{t.printPdf}</button>}</div><div className="toolbar-line"><select value={statementFlowFilter} onChange={(e) => setStatementFlowFilter(e.target.value)}><option value="all">{t.all}</option><option value="debit">{t.debitOnly}</option><option value="credit">{t.creditOnly}</option></select></div>{!selectedPartyId ? <p className="muted">{t.selectParty}</p> : statement.loading ? <p className="muted">{t.loading}</p> : statement.rows.length === 0 ? <Empty t={t} /> : <StatementTable rows={statement.rows} payments={payments} lang={lang} onOpenDocument={onOpenStatementDocument} onOpenPayment={onOpenStatementPayment} />}</section>
+      <section className="finance-card"><div className="finance-card-header between"><CardHeader icon={BookOpen} title={selectedParty ? `صورت‌حساب: ${selectedParty.display_name}` : 'صورت‌حساب شخص'} bare />{selectedParty && <div className="actions-cell"><button className="mini-btn" onClick={() => printStatement(selectedParty, statement.rows, lang)}>{t.printPdf}</button><button className="mini-btn" onClick={() => exportStatement(selectedParty, statement.rows, lang)}>خروجی Excel</button></div>}</div><div className="toolbar-line"><select value={statementFlowFilter} onChange={(e) => setStatementFlowFilter(e.target.value)}><option value="all">{t.all}</option><option value="debit">{t.debitOnly}</option><option value="credit">{t.creditOnly}</option></select></div>{!selectedPartyId ? <p className="muted">{t.selectParty}</p> : statement.loading ? <p className="muted">{t.loading}</p> : statement.rows.length === 0 ? <Empty t={t} /> : <StatementTable rows={statement.rows} payments={payments} lang={lang} onOpenDocument={onOpenStatementDocument} onOpenPayment={onOpenStatementPayment} />}</section>
     </div>
     <section className="finance-card"><div className="finance-card-header between"><CardHeader icon={ListChecks} title="لیست بدهکاران و بستانکاران" bare /><button className="mini-btn" onClick={() => exportBalances(allParties, filter, lang)}>{t.exportCsv}</button></div><BalanceTable parties={parties} lang={lang} /></section>
   </>;
@@ -509,14 +513,172 @@ function BankAccountDeleteModal({ account, busy, isAdmin, onClose, onConfirm }) 
   </FinanceModal>;
 }
 
+
+function ChecksSection({ checks, accounts, lang, busy, onNewCheck, onSettle, onChangeStatus }) {
+  const [filters, setFilters] = useState({ status: 'all', type: 'all', q: '' });
+  const [sort, setSort] = useState({ key: 'due_date', dir: 'asc' });
+  const [settle, setSettle] = useState(null);
+  const filtered = useMemo(() => sortRows(checks.filter((c) => {
+    const text = `${c.internal_check_code || ''} ${c.check_number || ''} ${c.owner_name || ''} ${c.bank_name || ''} ${c.branch_name || ''}`.toLowerCase();
+    return (filters.status === 'all' || c.status === filters.status)
+      && (filters.type === 'all' || c.check_type === filters.type)
+      && (!filters.q || text.includes(filters.q.toLowerCase()));
+  }), sort), [checks, filters, sort]);
+  const th = (key, label) => <th><button className="sort-th" onClick={() => setSort(nextSort(sort, key))}>{label}<span>{sort.key === key ? (sort.dir === 'asc' ? '▲' : '▼') : '↕'}</span></button></th>;
+  const totalOpen = filtered.filter((c)=>!['cleared','cancelled'].includes(c.status)).reduce((sum,c)=>sum+Number(c.amount||0),0);
+  return <section className="finance-card checks-workspace checks-full-card"><div className="finance-card-header between"><CardHeader icon={WalletCards} title="چک‌ها" bare /><div className="actions-cell"><span className="finance-note">جمع چک‌های باز: {formatMoney(totalOpen, lang)}</span><button className="mini-btn primary-soft" onClick={onNewCheck}>＋ ثبت چک</button></div></div><div className="toolbar-line"><select value={filters.type} onChange={(e)=>setFilters({...filters,type:e.target.value})}><option value="all">همه نوع‌ها</option><option value="received">دریافتی</option><option value="issued">پرداختی</option></select><select value={filters.status} onChange={(e)=>setFilters({...filters,status:e.target.value})}><option value="all">همه وضعیت‌ها</option>{['in_hand','deposited','cleared','returned','issued','cancelled'].map(st=><option key={st} value={st}>{STATUS_LABELS[st]?.[lang]||st}</option>)}</select><input value={filters.q} onChange={(e)=>setFilters({...filters,q:e.target.value})} placeholder="شماره/بانک/صاحب/شعبه..." /></div>{filtered.length === 0 ? <Empty t={{noData:'چکی برای نمایش وجود ندارد.'}} /> : <div className="table-scroll limited-list tall"><table className="finance-table checks-table"><thead><tr>{th('internal_check_code','کد داخلی')}{th('check_type','نوع')}{th('check_number','شماره')}{th('bank_name','بانک')}{th('branch_name','شعبه')}{th('owner_name','صاحب')}{th('issue_date','تاریخ صدور')}{th('due_date','تاریخ وصول')}{th('cleared_date','تاریخ تسویه')}{th('amount','مبلغ')}{th('status','وضعیت')}<th>عملیات</th></tr></thead><tbody>{filtered.map(c=><tr key={c.id}><td dir="ltr">{c.internal_check_code||'—'}</td><td>{c.check_type==='received'?'دریافتی':'پرداختی'}</td><td dir="ltr">{c.check_number}</td><td>{c.bank_name||'—'}</td><td>{c.branch_name||'—'}</td><td>{c.owner_name||'—'}</td><td>{formatDate(c.issue_date, lang)}</td><td>{formatDate(c.due_date, lang)}</td><td>{c.cleared_date ? formatDate(c.cleared_date, lang) : '—'}</td><td>{formatMoney(c.amount, lang)}</td><td><StatusBadge status={c.status} lang={lang}/></td><td className="actions-cell"><button disabled={busy} onClick={()=>setSettle(c)}>وصول/تسویه</button><select disabled={busy} value={c.status} onChange={(e)=>onChangeStatus(c.id,e.target.value)}>{['in_hand','deposited','cleared','returned','issued','cancelled'].map(st=><option key={st} value={st}>{STATUS_LABELS[st]?.[lang]||st}</option>)}</select></td></tr>)}</tbody></table></div>}{settle&&<CheckSettleModal check={settle} accounts={accounts} busy={busy} onClose={()=>setSettle(null)} onSubmit={(payload)=>{setSettle(null);onSettle(payload)}} />}</section>;
+}
+
+function ItemKardexSection({ stock = [], rows = [], lastSales = [], lang = 'fa' }) {
+  const [filters, setFilters] = useState({ itemId: 'all', direction: 'all', q: '' });
+  const [sort, setSort] = useState({ key: 'created_at', dir: 'desc' });
+
+  const lastSaleByItem = useMemo(() => Object.fromEntries((lastSales || []).map((sale) => [sale.warehouse_item_id, sale])), [lastSales]);
+  const stockById = useMemo(() => Object.fromEntries((stock || []).map((item) => [item.item_id, item])), [stock]);
+  const query = filters.q.trim().toLowerCase();
+
+  const visibleStock = useMemo(() => {
+    const base = (stock || []).filter((item) => {
+      if (!query) return true;
+      return `${item.item_code || ''} ${item.item_name_fa || ''} ${item.item_name_en || ''} ${item.item_group || ''} ${item.category || ''}`.toLowerCase().includes(query);
+    });
+    return sortRows(base, { key: 'item_name_fa', dir: 'asc' }).slice(0, 180);
+  }, [stock, query]);
+
+  const filteredRows = useMemo(() => sortRows((rows || []).filter((row) => {
+    const item = stockById[row.item_id] || {};
+    const text = `${row.item_code || ''} ${row.item_name_fa || ''} ${item.item_name_en || ''} ${row.doc_number || ''} ${row.note || ''}`.toLowerCase();
+    return (filters.itemId === 'all' || row.item_id === filters.itemId)
+      && (filters.direction === 'all' || row.direction === filters.direction)
+      && (!query || text.includes(query));
+  }), sort), [rows, stockById, filters, query, sort]);
+
+  const selectedItem = filters.itemId === 'all' ? null : (stockById[filters.itemId] || rows.find((row) => row.item_id === filters.itemId));
+  const selectedLastSale = selectedItem ? lastSaleByItem[selectedItem.item_id] : null;
+  const totals = filteredRows.reduce((acc, row) => {
+    const qty = Number(row.quantity || 0);
+    if (row.direction === 'out' || row.transaction_type === 'issue') acc.outQty += qty;
+    else acc.inQty += qty;
+    acc.count += 1;
+    return acc;
+  }, { inQty: 0, outQty: 0, count: 0 });
+
+  const th = (key, label) => <th><button className="sort-th" onClick={() => setSort(nextSort(sort, key))}>{label}<span>{sort.key === key ? (sort.dir === 'asc' ? '▲' : '▼') : '↕'}</span></button></th>;
+  const selectedCurrentQty = Number(selectedItem?.current_qty ?? selectedItem?.running_balance ?? 0);
+  const selectedAvailableQty = Number(selectedItem?.available_for_sale_qty ?? selectedCurrentQty ?? 0);
+
+  return <div className="accounting-grid item-kardex-workspace">
+    <section className="finance-card item-kardex-header-card">
+      <div className="finance-card-header between">
+        <CardHeader icon={PackageCheck} title="کاردکس کالاها" bare />
+        <div className="actions-cell">
+          <button className="mini-btn" onClick={() => exportItemKardex(filteredRows, lang)}>خروجی Excel</button>
+          <button className="mini-btn" onClick={() => printItemKardex(selectedItem, filteredRows, lang)}><Printer size={14} /> چاپ / PDF</button>
+        </div>
+      </div>
+      <div className="toolbar-line item-kardex-toolbar">
+        <label><Search size={14} /><input value={filters.q} onChange={(e) => setFilters({ ...filters, q: e.target.value })} placeholder="جست‌وجوی کد، نام کالا، سند یا شرح..." /></label>
+        <select value={filters.itemId} onChange={(e) => setFilters({ ...filters, itemId: e.target.value })}>
+          <option value="all">همه کالاها</option>
+          {stock.map((item) => <option key={item.item_id} value={item.item_id}>{item.item_code || 'بدون کد'} · {item.item_name_fa || item.item_name_en || 'کالا'}</option>)}
+        </select>
+        <select value={filters.direction} onChange={(e) => setFilters({ ...filters, direction: e.target.value })}>
+          <option value="all">همه گردش‌ها</option>
+          <option value="in">ورود</option>
+          <option value="out">خروج</option>
+        </select>
+        <button className="mini-btn" onClick={() => setFilters({ itemId: 'all', direction: 'all', q: '' })}>پاک‌کردن فیلتر</button>
+      </div>
+      <div className="detail-grid item-kardex-kpis">
+        <Info label="تعداد گردش نمایش‌داده‌شده" value={formatNumber(totals.count, lang)} />
+        <Info label="جمع ورود" value={formatNumber(totals.inQty, lang)} highlight />
+        <Info label="جمع خروج" value={formatNumber(totals.outQty, lang)} highlight />
+        <Info label="آخرین قیمت فروش" value={selectedLastSale ? formatMoney(selectedLastSale.last_sale_unit_price, lang) : '—'} />
+      </div>
+      {selectedItem && <div className="selected-item-strip">
+        <div><span>کالای انتخاب‌شده</span><b>{selectedItem.item_name_fa || selectedItem.item_name_en || '—'}</b><small dir="ltr">{selectedItem.item_code || '—'}</small></div>
+        <div><span>گروه</span><b>{productionItemLabel(selectedItem)}</b></div>
+        <div><span>موجودی فعلی</span><b>{formatNumber(selectedCurrentQty, lang)} {selectedItem.unit || ''}</b></div>
+        <div><span>قابل فروش</span><b>{formatNumber(selectedAvailableQty, lang)} {selectedItem.unit || ''}</b></div>
+      </div>}
+    </section>
+
+    <div className="accounting-grid two item-kardex-split">
+      <section className="finance-card item-catalog-card">
+        <div className="finance-card-header between"><CardHeader icon={Search} title="انتخاب سریع کالا" bare /><span className="finance-note">{formatNumber(visibleStock.length, lang)} مورد</span></div>
+        {visibleStock.length === 0 ? <Empty t={{ noData: 'کالایی برای نمایش پیدا نشد.' }} /> : <div className="item-kardex-list">
+          <button className={filters.itemId === 'all' ? 'item-kardex-row active' : 'item-kardex-row'} onClick={() => setFilters({ ...filters, itemId: 'all' })}><span><b>همه کالاها</b><small>نمایش تمام گردش‌ها</small></span><strong>{formatNumber(rows.length, lang)}</strong></button>
+          {visibleStock.map((item) => {
+            const lastSale = lastSaleByItem[item.item_id];
+            return <button key={item.item_id} className={filters.itemId === item.item_id ? 'item-kardex-row active' : 'item-kardex-row'} onClick={() => setFilters({ ...filters, itemId: item.item_id })}>
+              <span><b>{item.item_name_fa || item.item_name_en || '—'}</b><small dir="ltr">{item.item_code || '—'} · {productionItemLabel(item)}</small></span>
+              <strong>{formatNumber(item.current_qty || 0, lang)} {item.unit || ''}</strong>
+              <em>{lastSale ? formatMoney(lastSale.last_sale_unit_price, lang) : 'بدون فروش'}</em>
+            </button>;
+          })}
+        </div>}
+      </section>
+
+      <section className="finance-card item-kardex-table-card">
+        <div className="finance-card-header between"><CardHeader icon={ListChecks} title="ریز گردش کالا" bare /><span className="finance-note">ورود و خروج‌های نهایی انبار</span></div>
+        {filteredRows.length === 0 ? <Empty t={{ noData: 'گردشی برای این فیلتر وجود ندارد.' }} /> : <div className="table-scroll limited-list tall"><table className="finance-table item-kardex-table"><thead><tr>{th('created_at','تاریخ')}{th('item_code','کد')}{th('item_name_fa','کالا')}{th('direction','نوع')}{th('quantity','تعداد')}{th('running_balance','مانده')}{th('doc_number','سند')}{th('document_status','وضعیت سند')}<th>شرح</th></tr></thead><tbody>{filteredRows.map((row) => <tr key={row.tx_id}><td>{formatDate(row.created_at, lang)}</td><td dir="ltr">{row.item_code || '—'}</td><td>{row.item_name_fa || stockById[row.item_id]?.item_name_fa || '—'}</td><td><span className={`movement-pill ${row.direction === 'out' ? 'out' : 'in'}`}>{movementLabel(row)}</span></td><td className={row.direction === 'out' ? 'payment-text' : 'receipt-text'}>{row.direction === 'out' ? '−' : '+'}{formatNumber(row.quantity, lang)}</td><td>{formatNumber(row.running_balance, lang)}</td><td dir="ltr">{row.doc_number || '—'}</td><td><StatusBadge status={row.document_status || 'final'} lang={lang} /></td><td>{row.note || '—'}</td></tr>)}</tbody></table></div>}
+      </section>
+    </div>
+  </div>;
+}
+
+function movementLabel(row) {
+  if (row.transaction_type === 'issue' || row.direction === 'out') return 'خروج';
+  if (row.transaction_type === 'receipt') return 'ورود';
+  if (row.transaction_type === 'reversal') return 'برگشت';
+  if (row.transaction_type === 'adjustment') return 'اصلاح';
+  return row.direction === 'in' ? 'ورود' : 'گردش';
+}
+
+function exportItemKardex(rows, lang) {
+  const headers = ['تاریخ', 'کد کالا', 'نام کالا', 'نوع گردش', 'تعداد', 'مانده', 'شماره سند', 'وضعیت سند', 'شرح'];
+  const body = rows.map((row) => [formatDate(row.created_at, lang), row.item_code, row.item_name_fa, movementLabel(row), row.quantity, row.running_balance, row.doc_number, row.document_status, row.note]);
+  downloadExcelHtml(`item-kardex-${new Date().toISOString().slice(0, 10)}.xls`, headers, body, 'گزارش کاردکس کالاها');
+}
+
+function printItemKardex(item, rows, lang) {
+  const title = item ? `کاردکس کالا ${item.item_name_fa || item.item_name_en || item.item_code || ''}` : 'کاردکس همه کالاها';
+  const totals = rows.reduce((acc, row) => {
+    const qty = Number(row.quantity || 0);
+    if (row.direction === 'out' || row.transaction_type === 'issue') acc.outQty += qty;
+    else acc.inQty += qty;
+    return acc;
+  }, { inQty: 0, outQty: 0 });
+  const bodyRows = rows.map((row, index) => `<tr class="${index % 2 ? 'alt' : ''}"><td>${index + 1}</td><td>${formatDate(row.created_at, lang)}</td><td dir="ltr">${htmlSafe(row.item_code || '—')}</td><td>${htmlSafe(row.item_name_fa || '—')}</td><td>${movementLabel(row)}</td><td class="money">${formatNumber(row.quantity, lang)}</td><td class="money">${formatNumber(row.running_balance, lang)}</td><td dir="ltr">${htmlSafe(row.doc_number || '—')}</td><td>${htmlSafe(row.note || '—')}</td></tr>`).join('');
+  openOfficialFinancePrint({
+    title,
+    reportLabel: 'کاردکس کالا',
+    subtitle: 'بوشهر، بهمنی، نخلج فارس، پردیس فناوری',
+    body: `
+      <section class="box-row">
+        <div class="box-grid four">
+          <div class="field"><b>کالا:</b> ${htmlSafe(item?.item_name_fa || item?.item_name_en || 'همه کالاها')}</div>
+          <div class="field"><b>کد:</b> <span dir="ltr">${htmlSafe(item?.item_code || '—')}</span></div>
+          <div class="field"><b>جمع ورود:</b> <span class="money">${formatNumber(totals.inQty, lang)}</span></div>
+          <div class="field"><b>جمع خروج:</b> <span class="money">${formatNumber(totals.outQty, lang)}</span></div>
+        </div>
+      </section>
+      <table class="official-table">
+        <thead><tr><th>ردیف</th><th>تاریخ</th><th>کد</th><th>کالا</th><th>نوع</th><th>تعداد</th><th>مانده</th><th>سند</th><th>شرح</th></tr></thead>
+        <tbody>${bodyRows || '<tr><td colspan="9">گردشی برای نمایش وجود ندارد.</td></tr>'}</tbody>
+      </table>
+    `,
+  });
+}
+
 function FinanceConfirmModal({ action, busy, onClose, onConfirm }) {
   const [reason, setReason] = useState('');
   return <FinanceModal title={action.title} onClose={onClose}><div className="confirm-finance"><p>{action.message}</p><textarea value={reason} onChange={(e)=>setReason(e.target.value)} placeholder="دلیل/شرح عملیات..." autoFocus/><div className="finance-form-actions"><button onClick={onClose}>انصراف</button><button disabled={busy || !reason.trim()} onClick={()=>onConfirm(reason)}>تأیید</button></div></div></FinanceModal>;
 }
 
 function CheckSettleModal({ check, accounts, busy, onClose, onSubmit }) {
-  const [form, setForm] = useState({ bankAccountId: accounts[0]?.id || '', status: 'cleared', note: '' });
-  return <FinanceModal title="وصول/تسویه چک" onClose={onClose}><div className="form-grid finance-form-grid"><label className="finance-field"><span>چک</span><input readOnly value={`${check.check_number} · ${formatMoney(check.amount,'fa')}`} /></label><label className="finance-field"><span>حساب مقصد/مبدأ</span><select value={form.bankAccountId} onChange={(e)=>setForm({...form,bankAccountId:e.target.value})}>{accounts.map(a=><option key={a.id} value={a.id}>{a.account_name} · {a.bank_name}</option>)}</select></label><label className="finance-field"><span>وضعیت</span><select value={form.status} onChange={(e)=>setForm({...form,status:e.target.value})}><option value="deposited">خوابانده‌شده</option><option value="cleared">پاس/وصول‌شده</option><option value="returned">برگشتی</option><option value="cancelled">لغو</option></select></label><label className="finance-field full"><span>شرح</span><textarea value={form.note} onChange={(e)=>setForm({...form,note:e.target.value})}/></label></div><div className="finance-form-actions"><button onClick={onClose}>انصراف</button><button disabled={busy || !form.bankAccountId} onClick={()=>onSubmit({checkId:check.id,bankAccountId:form.bankAccountId,status:form.status,note:form.note})}>ثبت وضعیت چک</button></div></FinanceModal>;
+  const [form, setForm] = useState({ bankAccountId: accounts[0]?.id || '', status: 'cleared', clearedDate: new Date().toISOString().slice(0,10), note: '' });
+  return <FinanceModal title="وصول/تسویه چک" onClose={onClose}><div className="form-grid finance-form-grid"><label className="finance-field"><span>چک</span><input readOnly value={`${check.check_number} · ${formatMoney(check.amount,'fa')}`} /></label><label className="finance-field"><span>حساب مقصد/مبدأ</span><select value={form.bankAccountId} onChange={(e)=>setForm({...form,bankAccountId:e.target.value})}>{accounts.map(a=><option key={a.id} value={a.id}>{a.account_name} · {a.bank_name}</option>)}</select></label><label className="finance-field"><span>وضعیت</span><select value={form.status} onChange={(e)=>setForm({...form,status:e.target.value})}><option value="deposited">خوابانده‌شده</option><option value="cleared">پاس/وصول‌شده</option><option value="returned">برگشتی</option><option value="cancelled">لغو</option></select></label><label className="finance-field"><span>تاریخ وصول/تسویه</span><JalaliDateInput value={form.clearedDate} onChange={(value)=>setForm({...form,clearedDate:value})}/></label><label className="finance-field full"><span>شرح</span><textarea value={form.note} onChange={(e)=>setForm({...form,note:e.target.value})}/></label></div><div className="finance-form-actions"><button onClick={onClose}>انصراف</button><button disabled={busy || !form.bankAccountId} onClick={()=>onSubmit({checkId:check.id,bankAccountId:form.bankAccountId,status:form.status,note:form.note,clearedDate:form.clearedDate})}>ثبت وضعیت چک</button></div></FinanceModal>;
 }
 
 function InvestmentModal({ initial, busy, onClose, onSubmit }) {
@@ -621,6 +783,7 @@ function CardHeader({ icon: Icon, title, bare }) {
   const content = <><Icon size={18} /><h2>{title}</h2></>;
   return bare ? <div className="finance-card-header inline-title">{content}</div> : <header className="finance-card-header">{content}</header>;
 }
+function Info({ label, value, highlight }) { return <div className={highlight ? 'detail-info highlight' : 'detail-info'}><span>{label}</span><strong>{value || '—'}</strong></div>; }
 function Empty({ t }) { return <div className="finance-empty">{t.noData}</div>; }
 function StatusBadge({ status, lang }) { return <span className={`status-badge ${status}`}>{STATUS_LABELS[status]?.[lang] || status}</span>; }
 
@@ -761,6 +924,21 @@ function htmlSafe(value) {
     return '&quot;';
   });
 }
+function exportStatement(party, rows, lang) {
+  const headers = ['تاریخ', 'شماره', 'نوع', 'شرح', 'بدهکار', 'بستانکار', 'تشخیص', 'مانده'];
+  const body = (rows || []).map((r) => [
+    formatDate(r.entry_date, lang),
+    r.ref_number || '—',
+    entryTypeLabel(r.entry_type, lang),
+    r.description || '—',
+    Number(r.debit_amount || 0) ? formatMoney(r.debit_amount, lang) : '0',
+    Number(r.credit_amount || 0) ? formatMoney(r.credit_amount, lang) : '0',
+    Number(r.running_balance || 0) >= 0 ? 'بدهکار' : 'بستانکار',
+    formatMoney(Math.abs(Number(r.running_balance || 0)), lang),
+  ]);
+  downloadExcelHtml(`party-statement-${new Date().toISOString().slice(0, 10)}.xls`, headers, body, `صورت‌حساب ${party?.display_name || ''}`);
+}
+
 function printStatement(party, rows, lang) {
   const totalDebit = rows.reduce((sum, r) => sum + Number(r.debit_amount || 0), 0);
   const totalCredit = rows.reduce((sum, r) => sum + Number(r.credit_amount || 0), 0);

@@ -2,6 +2,7 @@ import { supabase } from './supabaseClient';
 import { brandedExcelTableHtml, brandedReportShell, escapeHtml } from './reporting';
 
 function assertNoError({ error }, fallbackMessage) { if (error) throw new Error(error.message || fallbackMessage); }
+function isMissingRpc(error) { const msg = String(error?.message || '').toLowerCase(); return error?.code === 'PGRST202' || msg.includes('could not find the function') || msg.includes('does not exist'); }
 async function currentUserId() { const { data, error } = await supabase.auth.getUser(); if (error || !data?.user?.id) throw new Error('نشست کاربر معتبر نیست.'); return data.user.id; }
 
 export async function acceptRndOrder({ orderId, templateId, titleFa, requesterName, notes }) {
@@ -34,11 +35,20 @@ export async function saveRndCost({ projectId, item }) {
 export async function deleteRndCost(costId, projectId) { const res = await supabase.from('rnd_cost_items').delete().eq('id', costId); assertNoError(res, 'خطا در حذف هزینه'); if (projectId) await supabase.rpc('fn_rnd_recalc_costs', { p_project_id: projectId }); return true; }
 
 export async function archiveRndProject(projectId, reason = '') {
+  const rpcRes = await supabase.rpc('fn_rnd_archive_project_from_costs', {
+    p_project_id: projectId,
+    p_reason: reason || null,
+  });
+  if (!rpcRes.error) return rpcRes.data;
+  if (!isMissingRpc(rpcRes.error)) throw new Error(rpcRes.error.message || 'خطا در حذف/بایگانی پروژه R&D از هزینه‌ها');
+
+  // Backward-compatible fallback for databases where the new RPC has not been applied yet.
+  // rnd_projects has technical_notes, not notes; updating notes caused the delete/archive action to fail.
   const res = await supabase
     .from('rnd_projects')
     .update({
       status: 'archived',
-      notes: reason ? `بایگانی/حذف از هزینه‌ها: ${reason}` : 'بایگانی/حذف از هزینه‌ها',
+      technical_notes: reason ? `بایگانی/حذف از هزینه‌ها: ${reason}` : 'بایگانی/حذف از هزینه‌ها',
       updated_at: new Date().toISOString(),
     })
     .eq('id', projectId)

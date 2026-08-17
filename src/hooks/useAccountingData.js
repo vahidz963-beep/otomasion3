@@ -130,7 +130,7 @@ export function useAccountingData() {
         .limit(80),
       supabase
         .from('finance_checks')
-        .select('id, internal_check_code, check_type, status, party_id, related_payment_id, check_number, bank_name, branch_name, owner_name, due_date, amount, description, created_at')
+        .select('id, internal_check_code, check_type, status, party_id, related_payment_id, check_number, bank_name, branch_name, owner_name, issue_date, due_date, cleared_date, amount, description, created_at')
         .order('due_date', { ascending: true })
         .limit(80),
       supabase

@@ -52,7 +52,7 @@ export function brandedExcelTableHtml(title, headers, rows, subtitle = 'خروج
         <td colspan="${Math.max(headers.length - 1, 1)}" style="${metaStyle};font-size:18px">${safeTitle}<br><span style="font-size:12px;color:#a8672e">${ARYAMAN_BRAND_FA} · ${escapeHtml(subtitle)}</span></td>
       </tr>
       <tr>${headers.map((h) => `<th style="${headerStyle}">${escapeHtml(h)}</th>`).join('')}</tr>
-      ${rows.map((r) => `<tr>${r.map((c) => `<td style="${cellStyle}">${escapeHtml(c)}</td>`).join('')}</tr>`).join('')}
+      ${rows.map((r, index) => { const rowBg = index % 2 === 1 ? 'background:#f7f7f7;' : 'background:#ffffff;'; return `<tr>${r.map((c) => `<td style="${cellStyle}${rowBg}">${escapeHtml(c)}</td>`).join('')}</tr>`; }).join('')}
     </table>
   </body></html>`;
 }

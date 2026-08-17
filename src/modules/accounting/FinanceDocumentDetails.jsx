@@ -178,7 +178,7 @@ export default function FinanceDocumentDetails({
       </header>
 
       <div className="detail-actions">
-        {d.status === 'draft' && <button disabled={busy} onClick={() => onEdit(d.id)}><FileText size={14} /> ویرایش پیش‌نویس</button>}
+        {!['void', 'cancelled'].includes(d.status) && <button disabled={busy} onClick={() => onEdit(d.id)}><FileText size={14} /> {['draft', 'pending_approval'].includes(d.status) ? 'ویرایش پیش‌نویس' : 'ویرایش / اصلاح فاکتور'}</button>}
         <button disabled={busy} onClick={() => onPost(d.id)}><ReceiptText size={14} /> ثبت سند حسابداری</button>
         {d.document_type === 'sales_proforma' && <button disabled={busy} onClick={() => onConvert(d.id)}>تبدیل به فاکتور</button>}
         {d.document_type === 'sales_invoice' && <button disabled={busy} onClick={() => onReturn(d.id)}>فاکتور برگشتی</button>}

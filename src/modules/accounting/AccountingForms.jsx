@@ -39,6 +39,7 @@ function addDays(days) {
 }
 
 export function FinanceDocumentForm({ parties, orders = [], stock = [], initialDocument, initialItems, onCancel, onSubmit, busy }) {
+  const isConfirmedEdit = Boolean(initialDocument?.id) && !['draft', 'pending_approval'].includes(initialDocument?.status);
   const [document, setDocument] = useState({
     document_type: initialDocument?.document_type || 'sales_invoice',
     party_id: initialDocument?.party_id || parties[0]?.party_id || '',
@@ -96,7 +97,7 @@ export function FinanceDocumentForm({ parties, orders = [], stock = [], initialD
 
   return <form onSubmit={submit}>
     <div className="finance-form-grid">
-      <Field label="نوع سند"><select value={document.document_type} onChange={(e) => setDocument({ ...document, document_type: e.target.value })}>{DOC_TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></Field>
+      <Field label="نوع سند"><select value={document.document_type} disabled={isConfirmedEdit} title={isConfirmedEdit ? 'در اصلاح فاکتور تأییدشده، نوع سند برای جلوگیری از به‌هم‌ریختن اسناد وابسته ثابت می‌ماند.' : ''} onChange={(e) => setDocument({ ...document, document_type: e.target.value })}>{DOC_TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></Field>
       <Field label="شخص"><select value={document.party_id} onChange={(e) => setDocument({ ...document, party_id: e.target.value })}><option value="">بدون شخص</option>{parties.map((p) => <option key={p.party_id} value={p.party_id}>{p.display_name}</option>)}</select></Field>
       <Field label="سفارش مرتبط"><select value={document.related_order_id} onChange={(e) => setDocument({ ...document, related_order_id: e.target.value })}><option value="">بدون سفارش</option>{orders.map((o) => <option key={o.id} value={o.id}>{o.order_code} · {o.customer_name || '—'}</option>)}</select></Field>
       <Field label="تاریخ صدور شمسی"><JalaliDateInput value={document.issue_date} onChange={(value) => setDocument({ ...document, issue_date: value })} /></Field>
@@ -104,6 +105,8 @@ export function FinanceDocumentForm({ parties, orders = [], stock = [], initialD
       <Field label="نوع رسمی/غیررسمی"><select value={document.is_official ? 'true' : 'false'} onChange={(e) => setDocument({ ...document, is_official: e.target.value === 'true' })}><option value="true">رسمی</option><option value="false">غیررسمی</option></select></Field>
       <Field label="شرح" full><textarea value={document.description} onChange={(e) => setDocument({ ...document, description: e.target.value })} /></Field>
     </div>
+
+    {isConfirmedEdit && <div className="finance-note warning">این فاکتور قبلاً تأیید/ثبت شده است. بعد از ثبت فرم، پنجره تأیید اصلاح باز می‌شود و سپس سند حسابداری و خروج انبار وابسته دوباره همگام می‌شوند.</div>}
 
     <div className="line-editor">
       <table>
@@ -186,7 +189,7 @@ export function FinancePaymentForm({ parties, documents, accounts, initialDocume
 }
 
 export function FinanceCheckForm({ parties, onCancel, onSubmit, busy }) {
-  const [check, setCheck] = useState({ check_type: 'received', party_id: parties[0]?.party_id || '', check_number: '', bank_name: '', due_date: addDays(7), amount: '', description: '' });
+  const [check, setCheck] = useState({ check_type: 'received', party_id: parties[0]?.party_id || '', check_number: '', bank_name: '', branch_name: '', owner_name: '', issue_date: today(), due_date: addDays(7), amount: '', description: '' });
   function submit(e) {
     e.preventDefault();
     onSubmit({ ...check, party_id: check.party_id || null, status: check.check_type === 'received' ? 'in_hand' : 'issued', amount: Number(check.amount || 0) });
@@ -196,7 +199,10 @@ export function FinanceCheckForm({ parties, onCancel, onSubmit, busy }) {
     <Field label="شخص"><select value={check.party_id} onChange={(e) => setCheck({ ...check, party_id: e.target.value })}><option value="">بدون شخص</option>{parties.map((p) => <option key={p.party_id} value={p.party_id}>{p.display_name}</option>)}</select></Field>
     <Field label="شماره چک"><input value={check.check_number} onChange={(e) => setCheck({ ...check, check_number: e.target.value })} required /></Field>
     <Field label="بانک"><input value={check.bank_name} onChange={(e) => setCheck({ ...check, bank_name: e.target.value })} /></Field>
-    <Field label="سررسید شمسی"><JalaliDateInput value={check.due_date} onChange={(value) => setCheck({ ...check, due_date: value })} /></Field>
+    <Field label="شعبه"><input value={check.branch_name} onChange={(e) => setCheck({ ...check, branch_name: e.target.value })} /></Field>
+    <Field label="صاحب چک"><input value={check.owner_name} onChange={(e) => setCheck({ ...check, owner_name: e.target.value })} /></Field>
+    <Field label="تاریخ صدور شمسی"><JalaliDateInput value={check.issue_date} onChange={(value) => setCheck({ ...check, issue_date: value })} /></Field>
+    <Field label="تاریخ وصول/سررسید شمسی"><JalaliDateInput value={check.due_date} onChange={(value) => setCheck({ ...check, due_date: value })} /></Field>
     <Field label="مبلغ ریال"><input type="number" value={check.amount} onChange={(e) => setCheck({ ...check, amount: e.target.value })} required /></Field>
     <Field label="شرح" full><textarea value={check.description} onChange={(e) => setCheck({ ...check, description: e.target.value })} /></Field>
   </div><HiddenSubmit busy={busy} onCancel={onCancel} /></form>;

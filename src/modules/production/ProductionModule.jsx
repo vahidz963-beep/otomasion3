@@ -58,6 +58,11 @@ const COST_TYPE_LABELS = { material: 'متریال', labor: 'نیروی انسا
 export default function ProductionModule({ lang = 'fa' }) {
   const data = useProductionData();
   const [tab, setTab] = useState('overview');
+  const [planningMonthStart, setPlanningMonthStart] = useState(() => {
+    const fallback = new Date().toISOString().slice(0, 10);
+    if (typeof window === 'undefined') return fallback;
+    return window.localStorage.getItem('productionPlanningMonthStart') || fallback;
+  });
   const [modal, setModal] = useState(null);
   const [selectedProductionId, setSelectedProductionId] = useState(null);
   const [query, setQuery] = useState('');
@@ -103,6 +108,12 @@ export default function ProductionModule({ lang = 'fa' }) {
     }
   }
 
+  function changePlanningMonthStart(value) {
+    const next = value || planningMonthStart || new Date().toISOString().slice(0, 10);
+    setPlanningMonthStart(next);
+    if (typeof window !== 'undefined') window.localStorage.setItem('productionPlanningMonthStart', next);
+  }
+
   function exportOrders() {
     const headers = ['کد تولید', 'سفارش', 'مشتری', 'محصول', 'وضعیت', 'مرحله', 'پیشرفت', 'تعداد', 'شروع', 'پایان', 'روز مانده', 'نفرساعت'];
     const rows = filteredOrders.map((o) => [o.code, o.order_code || o.source_order_code, o.customer_name, o.product_name_fa, STATUS_LABELS[o.status] || o.status, o.current_stage_name_fa, `${o.progress_percent || 0}%`, o.quantity_planned, formatDate(o.planned_start), formatDate(o.planned_end), daysText(o.days_to_delivery, o.delivery_status), o.total_man_hours || '—']);
@@ -141,7 +152,7 @@ export default function ProductionModule({ lang = 'fa' }) {
     {!data.loading && tab === 'overview' && <Overview kpis={kpis} orders={data.productionOrders} incoming={data.incomingOrders} setTab={setTab} onSelect={setSelectedProductionId} />}
     {!data.loading && tab === 'incoming' && <IncomingOrders orders={data.incomingOrders} templates={data.templates} busy={busy} onAccept={(order) => setModal({ type: 'accept', order })} />}
     {!data.loading && tab === 'flow' && <FlowSection orders={filteredOrders} stages={data.stages} selectedOrder={selectedOrder} selectedStages={selectedStages} selectedPlan={selectedPlan} selectedQc={selectedQc} selectedDocs={selectedDocs} selectedMaterials={selectedMaterials} query={query} setQuery={setQuery} busy={busy} onSelect={setSelectedProductionId} onClose={() => setSelectedProductionId(null)} onSetStage={(stage, status) => runAction(() => setProductionStage(stage.id, status, `تغییر مرحله ${stageName(stage)}`), 'مرحله تولید تغییر کرد.')} onPlan={(order) => setModal({ type: 'plan', order })} onQc={(order) => setModal({ type: 'qc', order })} onDocument={(order) => setModal({ type: 'doc', order })} onPrepareMaterials={(order) => runAction(() => prepareProductionMaterialsFromBom({ productionOrderId: order.id }), 'مواد مصرفی از فرمول تولید آماده شد.')} onIssueAllMaterials={(order) => runAction(() => issueAllProductionMaterials(order.id), 'مواد مصرفی تولید از انبار صادر شد.')} onIssueMaterial={(usage) => runAction(() => issueProductionMaterial(usage.id), 'ردیف مواد مصرفی از انبار صادر شد.')} onOutput={(order) => setModal({ type: 'output', order })} onExport={exportOrders} onPrint={printOrders} />}
-    {!data.loading && tab === 'planning' && <PlanningSection orders={filteredOrders} plans={data.plans} busy={busy} onPlan={(order) => setModal({ type: 'plan', order })} onDeletePlan={(order)=>runAction(()=>deleteProductionPlan(order.id),'برنامه تولید از جدول زمان‌بندی حذف شد.')} />}
+    {!data.loading && tab === 'planning' && <PlanningSection orders={filteredOrders} plans={data.plans} busy={busy} monthStart={planningMonthStart} setMonthStart={changePlanningMonthStart} onPlan={(order) => setModal({ type: 'plan', order })} onDeletePlan={(order)=>runAction(()=>deleteProductionPlan(order.id),'برنامه تولید از جدول زمان‌بندی حذف شد.')} />}
     {!data.loading && tab === 'bom' && <BomSection boms={data.boms} bomItems={data.bomItems} stock={data.stock} orders={data.productionOrders} busy={busy} onNew={() => setModal({ type: 'bom' })} onEdit={(bom) => setModal({ type: 'bom', bom })} onSendFinance={(bom) => runAction(() => sendBomCostToFinance(bom.id), 'قیمت نهایی در انبار ثبت و هزینه به مالی ارجاع شد.')} onPublish={(bom) => runAction(() => publishBomToWarehouse(bom.id), 'کالا و قیمت نهایی در انبار ثبت/به‌روزرسانی شد.')} />}
     {!data.loading && tab === 'qc' && <QcSection qc={data.qc} orders={data.productionOrders} stages={data.stages} onNew={() => setModal({ type: 'qc' })} />}
     {!data.loading && tab === 'docs' && <DocumentsSection docs={data.documents} orders={data.productionOrders} onNew={() => setModal({ type: 'doc' })} onVoid={(doc) => runAction(() => voidProductionDocument(doc.id), 'سند تولید باطل شد.')} />}
@@ -170,7 +181,7 @@ function Overview({ kpis, orders, incoming, setTab, onSelect }) {
       <Kpi icon="📄" label="اسناد" value={kpis.docs} />
       <Kpi icon="💰" label="هزینه فرمول‌ها" value={formatMoney(kpis.cost)} success />
     </section>
-    <div className="production-grid two">
+    <div className="production-grid two production-overview-grid">
       <section className="production-card"><CardTitle icon={CheckCircle2} title="سفارش‌های آماده تأیید" action={<button onClick={() => setTab('incoming')}>تأیید سفارش</button>} />{incoming.length ? <div className="production-timeline">{incoming.slice(0, 7).map((o) => <article key={o.order_id}><strong>{o.order_code} · {o.customer_name}</strong><small>{o.title_fa} · موعد {formatDate(o.expected_delivery_date)}</small></article>)}</div> : <Empty text="سفارش تولیدی جدیدی از فروش نرسیده است." />}</section>
       <section className="production-card"><CardTitle icon={Factory} title="تولیدهای فعال" action={<button onClick={() => setTab('flow')}>مراحل تولید</button>} />{active.length ? <div className="production-timeline">{active.map((o) => <button key={o.id} className="active-production" onClick={() => onSelect(o.id)}><span><b>{o.code}</b><small>{o.product_name_fa} · {o.current_stage_name_fa || '—'}</small></span><Status status={o.delivery_status} /></button>)}</div> : <Empty />}</section>
     </div>
@@ -212,9 +223,9 @@ function ProductionDetail({ order, stages, plan, qc, docs, materials, busy, onCl
   </section>;
 }
 
-function PlanningSection({ orders, plans, busy, onPlan, onDeletePlan }) {
-  const [monthStart, setMonthStart] = useState(new Date().toISOString().slice(0, 7) + '-01');
-  const startDate = new Date(monthStart);
+function PlanningSection({ orders, plans, busy, monthStart, setMonthStart, onPlan, onDeletePlan }) {
+  const timelineStart = monthStart || new Date().toISOString().slice(0, 10);
+  const startDate = new Date(timelineStart);
   const days = Array.from({ length: 30 }).map((_, i) => { const d = new Date(startDate); d.setDate(startDate.getDate() + i); return d.toISOString().slice(0, 10); });
   const planByOrderId = useMemo(() => Object.fromEntries(plans.map((p) => [p.production_order_id, p])), [plans]);
   const plannedOrders = useMemo(() => orders.filter((o) => {
@@ -223,8 +234,8 @@ function PlanningSection({ orders, plans, busy, onPlan, onDeletePlan }) {
   }), [orders, planByOrderId]);
   function pos(date) { if (!date) return 0; const diff = Math.round((new Date(date) - startDate) / 86400000); return Math.max(0, Math.min(29, diff)); }
   return <section className="production-card planning-timeline-card">
-    <div className="section-head"><div><CardTitle icon={BarChart3} title="برنامه‌ریزی تولید" /><p className="muted">فقط سفارش‌هایی که برنامه فعال دارند در این صفحه نمایش داده می‌شوند. با حذف از برنامه، سفارش از نمودار و کارت‌های برنامه‌ریزی حذف می‌شود و فقط در مراحل تولید باقی می‌ماند.</p></div><div className="filters"><JalaliDateInput value={monthStart} onChange={(v)=>setMonthStart(v || monthStart)} /></div></div>
-    {plannedOrders.length === 0 ? <Empty text="فعلاً سفارش برنامه‌ریزی‌شده‌ای وجود ندارد. برای برنامه‌ریزی یک سفارش، از تب مراحل تولید وارد جزئیات سفارش شوید و «برنامه‌ریزی» را بزنید."/> : <><div className="month-timeline"><div className="timeline-days">{days.map((d,i)=><span key={d}>{i+1}<small>{formatDate(d).slice(5)}</small></span>)}</div><div className="timeline-bars">{plannedOrders.map((o)=>{const p=planByOrderId[o.id];const s=p?.planned_start||o.planned_start;const e=p?.planned_end||o.planned_end;const left=pos(s);const right=pos(e||s);const width=Math.max(1,right-left+1);return <div key={o.id} className={`timeline-row ${o.status === 'completed' || o.status === 'delivered_to_warehouse' ? 'completed' : ''}`}><label>{o.code}</label><div className="timeline-track"><button className="timeline-bar" style={{insetInlineStart:`${left/30*100}%`,width:`${width/30*100}%`}} onClick={()=>onPlan(o)}>{o.product_name_fa}</button></div></div>})}</div></div><div className="planning-grid">{plannedOrders.map((o) => { const p = planByOrderId[o.id]; return <article key={o.id} className="planning-card"><header><h3>{o.code}</h3><Status status={o.delivery_status} /></header><p>{o.product_name_fa} · {o.customer_name || '—'}</p><div className="detail-mini-grid"><Info label="شروع" value={formatDate(p?.planned_start || o.planned_start)} /><Info label="پایان" value={formatDate(p?.planned_end || o.planned_end)} /><Info label="روز کاری" value={p?.work_days || o.work_days} /><Info label="نفرساعت" value={p?.total_man_hours || o.total_man_hours} /></div><div className="planning-actions"><button onClick={() => onPlan(o)}>ویرایش برنامه</button><button className="danger" disabled={busy} onClick={() => onDeletePlan(o)}>حذف از برنامه</button></div></article>; })}</div></>}
+    <div className="section-head"><div><CardTitle icon={BarChart3} title="برنامه‌ریزی تولید" /><p className="muted">سفارش تا قبل از تکمیل مرحله پایانی فقط قابل ویرایش برنامه است. حذف از جدول برنامه‌ریزی زمانی فعال می‌شود که سفارش به مرحله نهایی برسد و در نمای خطی سبز شود.</p></div><div className="filters"><JalaliDateInput value={timelineStart} onChange={(v)=>setMonthStart(v || timelineStart)} /></div></div>
+    {plannedOrders.length === 0 ? <Empty text="فعلاً سفارش برنامه‌ریزی‌شده‌ای وجود ندارد. برای برنامه‌ریزی یک سفارش، از تب مراحل تولید وارد جزئیات سفارش شوید و «برنامه‌ریزی» را بزنید."/> : <><div className="month-timeline"><div className="timeline-days">{days.map((d,i)=><span key={d}>{i+1}<small>{formatDate(d).slice(5)}</small></span>)}</div><div className="timeline-bars">{plannedOrders.map((o)=>{const p=planByOrderId[o.id];const s=p?.planned_start||o.planned_start;const e=p?.planned_end||o.planned_end;const left=pos(s);const right=pos(e||s);const width=Math.max(1,right-left+1);const canRemove=isProductionPlanRemovable(o);return <div key={o.id} className={`timeline-row ${canRemove ? 'completed' : ''}`}><label>{o.code}</label><div className="timeline-track"><button className="timeline-bar" style={{insetInlineStart:`${left/30*100}%`,width:`${width/30*100}%`}} onClick={()=>onPlan(o)}>{o.product_name_fa}</button></div></div>})}</div></div><div className="planning-grid">{plannedOrders.map((o) => { const p = planByOrderId[o.id]; const canRemove = isProductionPlanRemovable(o); return <article key={o.id} className={`planning-card ${canRemove ? 'completed-plan' : 'locked-plan'}`}><header><h3>{o.code}</h3><Status status={o.delivery_status} /></header><p>{o.product_name_fa} · {o.customer_name || '—'}</p><div className="detail-mini-grid"><Info label="شروع" value={formatDate(p?.planned_start || o.planned_start)} /><Info label="پایان" value={formatDate(p?.planned_end || o.planned_end)} /><Info label="روز کاری" value={p?.work_days || o.work_days} /><Info label="نفرساعت" value={p?.total_man_hours || o.total_man_hours} /></div><div className="planning-actions"><button onClick={() => onPlan(o)}>ویرایش برنامه</button><button className="danger" disabled={busy || !canRemove} title={!canRemove ? 'حذف از برنامه‌ریزی فقط بعد از تکمیل مرحله پایانی فعال می‌شود.' : 'حذف از جدول برنامه‌ریزی'} onClick={() => canRemove && onDeletePlan(o)}>{canRemove ? 'حذف از برنامه' : 'حذف بعد از تکمیل'}</button></div>{!canRemove && <small className="planning-lock-note">تا تکمیل مرحله پایانی، این سفارش در برنامه‌ریزی قفل است.</small>}</article>; })}</div></>}
   </section>;
 }
 
@@ -391,5 +402,10 @@ function formatDateTime(value) { return formatJalaliDateTime(value); }
 function formatMoney(value) { return formatToman(value, 'fa'); }
 function safe(value) { return productionSafe(value); }
 function stageName(stage) { return stage.custom_name_fa || stage.stage_name_fa || stage.custom_stage_type || 'مرحله'; }
+function isProductionPlanRemovable(order) {
+  return ['completed', 'delivered_to_warehouse'].includes(order?.status)
+    || ['completed', 'delivered_to_warehouse'].includes(order?.delivery_status)
+    || Number(order?.progress_percent || 0) >= 100;
+}
 function daysText(days, status) { if (status === 'completed') return 'تکمیل'; if (status === 'cancelled') return 'لغوشده'; if (days == null) return '—'; if (days < 0) return `${formatNumber(Math.abs(days))} روز تأخیر`; if (days === 0) return 'امروز'; return `${formatNumber(days)} روز مانده`; }
 function priorityText(value) { return Number(value) === 1 ? 'فوری' : Number(value) === 3 ? 'کم‌اهمیت' : 'عادی'; }
