@@ -32,6 +32,22 @@ export async function saveRndCost({ projectId, item }) {
   return res.data;
 }
 export async function deleteRndCost(costId, projectId) { const res = await supabase.from('rnd_cost_items').delete().eq('id', costId); assertNoError(res, 'خطا در حذف هزینه'); if (projectId) await supabase.rpc('fn_rnd_recalc_costs', { p_project_id: projectId }); return true; }
+
+export async function archiveRndProject(projectId, reason = '') {
+  const res = await supabase
+    .from('rnd_projects')
+    .update({
+      status: 'archived',
+      notes: reason ? `بایگانی/حذف از هزینه‌ها: ${reason}` : 'بایگانی/حذف از هزینه‌ها',
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', projectId)
+    .select('id')
+    .single();
+  assertNoError(res, 'خطا در حذف/بایگانی پروژه R&D از هزینه‌ها');
+  return res.data;
+}
+
 export async function saveRndTest(payload) { const userId = await currentUserId(); const res = await supabase.from('rnd_test_records').insert({ rnd_project_id: payload.rnd_project_id, stage_id: payload.stage_id || null, test_title: payload.test_title, test_type: payload.test_type || null, result: payload.result || 'pending', quantity_tested: payload.quantity_tested ? Number(payload.quantity_tested) : null, test_duration_hours: payload.test_duration_hours ? Number(payload.test_duration_hours) : null, test_conditions: payload.test_conditions || null, result_notes: payload.result_notes || null, tested_by: userId }).select('id').single(); assertNoError(res, 'خطا در ثبت تست R&D'); return res.data; }
 
 export function downloadRndExcel(filename, headers, rows, title = 'گزارش R&D') { const html = brandedExcelTableHtml(title, headers, rows); const blob = new Blob([`\ufeff${html}`], { type: 'application/vnd.ms-excel;charset=utf-8' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = filename; a.click(); URL.revokeObjectURL(url); }

@@ -14,3 +14,15 @@
 
 /* Stage 041 shipments/dispatched list */
 .shipments-card{max-width:1440px!important}.shipment-filters{grid-template-columns:1.4fr 170px repeat(4,minmax(120px,1fr))!important}.shipment-summary{display:flex;gap:12px;flex-wrap:wrap;margin:10px 0}.shipment-summary b{background:#f8fafb;border:1px solid #edf0f2;border-radius:12px;padding:9px 12px;color:#10243d}.shipment-items{white-space:pre-line;line-height:1.7;min-width:260px}.shipments-card td small{display:block;color:#889199;font-size:11px;line-height:1.6;margin-top:3px}.shipments-card .report-buttons button{border:1px solid #d8dee3;background:#fff;color:#10243d;border-radius:10px;padding:8px 11px;cursor:pointer;font-weight:900}.shipments-card .report-buttons button:first-child{background:#a8672e;border-color:#a8672e;color:#fff}@media(max-width:1050px){.shipment-filters{grid-template-columns:1fr 1fr!important}}@media(max-width:650px){.shipment-filters{grid-template-columns:1fr!important}.shipment-summary{display:grid}.shipments-card .report-buttons{width:100%;display:grid;grid-template-columns:1fr}}
+
+/* Fix: Excel import button in warehouse hero must stay normal, not gold */
+.warehouse-actions button:nth-child(2):not(.primary){
+  background:rgba(255,255,255,.06)!important;
+  border-color:rgba(255,255,255,.16)!important;
+  color:#fff!important;
+  font-weight:900!important;
+}
+.warehouse-actions button:nth-child(2):not(.primary):hover{
+  background:rgba(255,255,255,.12)!important;
+  border-color:rgba(255,255,255,.30)!important;
+}

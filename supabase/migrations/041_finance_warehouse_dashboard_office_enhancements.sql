@@ -8,6 +8,133 @@
 -- =====================================================================
 
 -- ---------------------------------------------------------------------
+-- 0) Restore order stock/lifecycle views if previous migrations dropped them
+-- 038 may drop warehouse/sales stock views with CASCADE, which can remove
+-- order views that dashboard/accounting forecast still need.
+-- ---------------------------------------------------------------------
+drop view if exists public.v_order_lifecycle_overview cascade;
+drop view if exists public.v_order_stock_status cascade;
+
+create or replace view public.v_order_stock_status
+with (security_invoker = true)
+as
+select
+  o.id as order_id,
+  o.order_code,
+  oi.id as order_item_id,
+  oi.item_name_fa,
+  oi.warehouse_item_code,
+  wi.id as warehouse_item_id,
+  oi.quantity as requested_qty,
+  coalesce(s.available_for_sale_qty, 0) as available_for_sale_qty,
+  coalesce(s.current_qty, 0) as current_qty,
+  coalesce(s.reserved_qty, 0) as reserved_qty,
+  s.unit as stock_unit,
+  case
+    when oi.warehouse_item_code is null or oi.warehouse_item_code = '' then 'no_code'
+    when wi.id is null then 'invalid_code'
+    when coalesce(s.available_for_sale_qty, 0) >= oi.quantity then 'available'
+    when coalesce(s.current_qty, 0) >= oi.quantity then 'reserved_by_others'
+    else 'short'
+  end as stock_status
+from public.orders o
+join public.order_items oi on oi.order_id = o.id
+left join public.warehouse_items wi on wi.item_code = oi.warehouse_item_code
+left join public.v_sales_stock_overview s on s.item_id = wi.id;
+
+grant select on public.v_order_stock_status to authenticated;
+
+create or replace view public.v_order_lifecycle_overview
+with (security_invoker = true)
+as
+with stage_counts as (
+  select
+    order_id,
+    count(*) as total_stages,
+    count(*) filter (where status = 'done') as done_stages,
+    count(*) filter (where status = 'current') as current_stage_count
+  from public.order_stage_instances
+  group by order_id
+), stock_summary as (
+  select
+    order_id,
+    count(*) filter (where stock_status = 'short') as short_items,
+    count(*) filter (where stock_status in ('no_code','invalid_code')) as unknown_items,
+    count(*) filter (where stock_status = 'available') as available_items
+  from public.v_order_stock_status
+  group by order_id
+), finance_summary as (
+  select
+    related_order_id as order_id,
+    coalesce(sum(total_amount) filter (where document_type in ('sales_invoice','debit_note') and status <> 'void'), 0) as invoiced_amount,
+    coalesce(sum(paid_amount) filter (where document_type in ('sales_invoice','debit_note') and status <> 'void'), 0) as paid_amount,
+    coalesce(sum(balance_amount) filter (where document_type in ('sales_invoice','debit_note') and status <> 'void'), 0) as balance_amount,
+    count(*) filter (where document_type = 'sales_proforma' and status <> 'void') as proforma_count,
+    count(*) filter (where document_type = 'sales_invoice' and status <> 'void') as invoice_count
+  from public.finance_documents
+  where related_order_id is not null
+  group by related_order_id
+)
+select
+  o.id,
+  o.order_code,
+  o.customer_id,
+  c.company_name as customer_name,
+  coalesce(o.customer_phone_snapshot, c.contact_phone) as contact_phone,
+  coalesce(o.customer_city_snapshot, c.city) as customer_city,
+  coalesce(o.contact_channel, c.preferred_contact_channel) as preferred_contact_channel,
+  c.acquisition_source,
+  o.sales_path,
+  o.current_stage,
+  coalesce(osi.stage_name_fa, d.stage_name_fa, o.current_stage) as current_stage_name_fa,
+  o.workflow_template_id,
+  wt.name_fa as workflow_template_name,
+  coalesce(sc.total_stages, 0) as total_stages,
+  coalesce(sc.done_stages, 0) as done_stages,
+  case when coalesce(sc.total_stages, 0) > 0
+       then round(((coalesce(sc.done_stages, 0) + coalesce(sc.current_stage_count, 0))::numeric / sc.total_stages) * 100, 1)
+       else 0 end as progress_percent,
+  o.registered_at,
+  o.expected_delivery_date,
+  (o.expected_delivery_date - current_date) as days_to_delivery,
+  case
+    when o.is_cancelled then 'cancelled'
+    when o.current_stage = 'closed' then 'closed'
+    when o.expected_delivery_date < current_date then 'late'
+    when o.expected_delivery_date <= current_date + 3 then 'due_soon'
+    else 'on_track'
+  end as delivery_status,
+  coalesce(ss.short_items, 0) as stock_short_items,
+  coalesce(ss.unknown_items, 0) as stock_unknown_items,
+  case
+    when coalesce(ss.short_items, 0) > 0 then 'short'
+    when coalesce(ss.unknown_items, 0) > 0 then 'unknown'
+    else 'available'
+  end as stock_status,
+  coalesce(fs.proforma_count, 0) as proforma_count,
+  coalesce(fs.invoice_count, 0) as invoice_count,
+  coalesce(fs.invoiced_amount, 0) as invoiced_amount,
+  coalesce(fs.paid_amount, 0) as paid_amount,
+  coalesce(fs.balance_amount, 0) as balance_amount,
+  case
+    when coalesce(fs.invoice_count, 0) = 0 and coalesce(fs.proforma_count, 0) = 0 then 'none'
+    when coalesce(fs.balance_amount, 0) <= 0 and coalesce(fs.invoice_count, 0) > 0 then 'paid'
+    when coalesce(fs.paid_amount, 0) > 0 then 'partial'
+    when coalesce(fs.invoice_count, 0) > 0 then 'invoiced'
+    else 'proforma'
+  end as financial_status
+from public.orders o
+join public.customers c on c.id = o.customer_id
+left join public.order_workflow_templates wt on wt.id = o.workflow_template_id
+left join stage_counts sc on sc.order_id = o.id
+left join stock_summary ss on ss.order_id = o.id
+left join finance_summary fs on fs.order_id = o.id
+left join public.order_stage_instances osi on osi.order_id = o.id and osi.stage_key = o.current_stage
+left join public.order_status_definitions d on d.sales_path = o.sales_path and d.stage_key = o.current_stage;
+
+grant select on public.v_order_lifecycle_overview to authenticated;
+
+-- ---------------------------------------------------------------------
 -- 0) Allow office module in referrals for leave/admin workflows
 -- ---------------------------------------------------------------------
 do $$
@@ -303,9 +430,20 @@ grant select on public.v_finance_dashboard to authenticated;
 -- ---------------------------------------------------------------------
 -- 5) CEO receivable forecast table for the next 10 days
 -- ---------------------------------------------------------------------
+drop view if exists public.v_finance_receivable_forecast;
+
 create or replace view public.v_finance_receivable_forecast
 with (security_invoker = true)
 as
+with stage_counts as (
+  select
+    order_id,
+    count(*) as total_stages,
+    count(*) filter (where status = 'done') as done_stages,
+    count(*) filter (where status = 'current') as current_stage_count
+  from public.order_stage_instances
+  group by order_id
+)
 select
   d.id as document_id,
   d.doc_number,
@@ -317,9 +455,11 @@ select
   d.total_amount,
   d.paid_amount,
   o.expected_delivery_date,
-  coalesce(olo.current_stage_name_fa, '') as current_stage_name_fa,
-  coalesce(olo.progress_percent, 0) as progress_percent,
-  coalesce(olo.sales_path, o.sales_path) as sales_path,
+  coalesce(osi.stage_name_fa, osd.stage_name_fa, o.current_stage, '') as current_stage_name_fa,
+  case when coalesce(sc.total_stages, 0) > 0
+       then round(((coalesce(sc.done_stages, 0) + coalesce(sc.current_stage_count, 0))::numeric / sc.total_stages) * 100, 1)
+       else 0 end as progress_percent,
+  o.sales_path,
   case
     when d.due_date <= current_date + 3 then 'very_near'
     when d.due_date <= current_date + 10 then 'near'
@@ -328,7 +468,9 @@ select
 from public.finance_documents d
 left join public.finance_parties fp on fp.id = d.party_id
 left join public.orders o on o.id = d.related_order_id
-left join public.v_order_lifecycle_overview olo on olo.id = d.related_order_id
+left join stage_counts sc on sc.order_id = o.id
+left join public.order_stage_instances osi on osi.order_id = o.id and osi.stage_key = o.current_stage
+left join public.order_status_definitions osd on osd.sales_path = o.sales_path and osd.stage_key = o.current_stage
 where d.document_type in ('sales_invoice','sales_proforma')
   and d.status not in ('draft','cancelled','void','paid')
   and coalesce(d.balance_amount, 0) > 0

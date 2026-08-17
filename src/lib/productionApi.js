@@ -205,7 +205,25 @@ export async function publishBomToWarehouse(bomId, itemCode) {
   return res.data;
 }
 
-export async function registerProductionOutput({ productionOrderId, warehouseItemId, quantity }) {
+export async function registerProductionOutput({ productionOrderId, warehouseItemId, quantity, outputs }) {
+  if (Array.isArray(outputs) && outputs.length > 0) {
+    const cleanOutputs = outputs
+      .filter((row) => Number(row.quantity || 0) > 0)
+      .map((row) => ({
+        warehouse_item_id: row.warehouseItemId || row.warehouse_item_id || null,
+        product_name_fa: row.productNameFa || row.product_name_fa || null,
+        quantity: Number(row.quantity || 0),
+        unit: row.unit || 'عدد',
+        unit_price_estimate: Number(row.unitPriceEstimate || row.unit_price_estimate || 0),
+      }));
+    const res = await supabase.rpc('fn_production_register_outputs', {
+      p_production_order_id: productionOrderId,
+      p_outputs: cleanOutputs,
+    });
+    assertNoError(res, 'خطا در ثبت خروجی‌های تولید در انبار');
+    return res.data;
+  }
+
   const res = await supabase.rpc('fn_production_register_output', {
     p_production_order_id: productionOrderId,
     p_quantity: Number(quantity || 0),

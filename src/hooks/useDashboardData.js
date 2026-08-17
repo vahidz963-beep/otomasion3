@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import { getFriendlyErrorMessage } from '../lib/errorMessages';
 
-const completedStages = new Set(['closed', 'delivered']);
+const completedStages = new Set(['closed', 'delivered', 'completed']);
 
 function dayKey(dateLike) {
   if (!dateLike) return null;
@@ -21,15 +21,37 @@ function buildDays(dateFrom, dateTo) {
   return days;
 }
 
-function buildTrends({ orders = [], payments = [], dateFrom, dateTo }) {
+function isOrderCompleted(row) {
+  return Boolean(
+    row?.is_terminal
+    || completedStages.has(row?.current_stage)
+    || ['closed', 'completed', 'delivered'].includes(row?.delivery_status)
+    || Number(row?.progress_percent || 0) >= 100
+    || (Number(row?.total_stages || 0) > 0 && Number(row?.done_stages || 0) >= Number(row?.total_stages || 0))
+  );
+}
+
+function buildTrends({ orders = [], completedOrders = [], payments = [], dateFrom, dateTo }) {
   const days = buildDays(dateFrom, dateTo);
   const byDay = Object.fromEntries(days.map((d) => [d.day, d]));
+  const completedIds = new Set();
   orders.forEach((r) => {
     const created = dayKey(r.created_at || r.registered_at);
     if (created && byDay[created]) byDay[created].orders_created += 1;
-    if ((completedStages.has(r.current_stage) || r.delivery_status === 'closed') && r.updated_at) {
+    if (isOrderCompleted(r) && r.updated_at) {
       const completed = dayKey(r.updated_at);
-      if (completed && byDay[completed]) byDay[completed].orders_completed += 1;
+      if (completed && byDay[completed] && !completedIds.has(r.id)) {
+        byDay[completed].orders_completed += 1;
+        completedIds.add(r.id);
+      }
+    }
+  });
+  completedOrders.forEach((r) => {
+    if (!isOrderCompleted(r) || completedIds.has(r.id)) return;
+    const completed = dayKey(r.updated_at || r.completed_at || r.created_at);
+    if (completed && byDay[completed]) {
+      byDay[completed].orders_completed += 1;
+      completedIds.add(r.id);
     }
   });
   payments.forEach((p) => {
@@ -67,14 +89,21 @@ export function useDashboardData(filters) {
   const fetchData = useCallback(async () => {
     setState((s) => ({ ...s, loading: true, error: null }));
 
-    const [ordersRes, financeRes, paymentsRes, stockRes, referralsRes, productionRes, rndRes, checksRes, forecastRes, healthRes] = await Promise.all([
+    const [ordersRes, completedOrdersRes, financeRes, paymentsRes, stockRes, referralsRes, productionRes, rndRes, checksRes, forecastRes, healthRes] = await Promise.all([
       supabase
         .from('v_order_lifecycle_overview')
-        .select('id, order_code, customer_name, sales_path, current_stage, current_stage_name_fa, progress_percent, delivery_status, days_to_delivery, financial_status, stock_status, registered_at, expected_delivery_date')
+        .select('id, order_code, customer_name, sales_path, current_stage, current_stage_name_fa, workflow_template_id, total_stages, done_stages, progress_percent, delivery_status, days_to_delivery, financial_status, stock_status, registered_at, expected_delivery_date')
         .gte('registered_at', filters.dateFrom)
         .lte('registered_at', filters.dateTo)
         .order('registered_at', { ascending: false })
         .limit(250),
+      supabase
+        .from('v_order_tracking')
+        .select('id, order_code, current_stage, stage_name_fa, stage_order, is_terminal, is_cancelled, created_at, updated_at, expected_delivery_date')
+        .gte('updated_at', filters.dateFrom)
+        .lte('updated_at', filters.dateTo)
+        .order('updated_at', { ascending: false })
+        .limit(300),
       supabase.from('v_finance_dashboard').select('*').maybeSingle(),
       supabase
         .from('v_finance_payment_ledger')
@@ -116,6 +145,7 @@ export function useDashboardData(filters) {
     ]);
 
     const orders = okArray(ordersRes);
+    const completedOrdersForTrend = okArray(completedOrdersRes).filter((o) => !o.is_cancelled);
     const finance = okObject(financeRes, {});
     const payments = okArray(paymentsRes);
     const stock = okArray(stockRes);
@@ -126,17 +156,24 @@ export function useDashboardData(filters) {
     const forecast = forecastRes?.error ? [] : (forecastRes.data || []);
     const health = healthRes?.error ? null : healthRes.data;
 
-    const trend = buildTrends({ orders, payments, dateFrom: filters.dateFrom, dateTo: filters.dateTo });
-    const activeOrders = orders.filter((o) => !['closed', 'cancelled'].includes(o.delivery_status));
+    const trend = buildTrends({ orders, completedOrders: completedOrdersForTrend, payments, dateFrom: filters.dateFrom, dateTo: filters.dateTo });
+    const cashflowTotals = payments.reduce((acc, payment) => {
+      if (payment.status !== 'confirmed') return acc;
+      if (payment.direction === 'receipt') acc.receipts += Number(payment.amount || 0);
+      if (payment.direction === 'payment') acc.payments += Number(payment.amount || 0);
+      return acc;
+    }, { receipts: 0, payments: 0 });
+    const activeOrders = orders.filter((o) => !['closed', 'cancelled', 'completed', 'delivered'].includes(o.delivery_status) && !isOrderCompleted(o));
     const productionCompletedOrderIds = new Set(production.filter((p) => ['completed','delivered_to_warehouse'].includes(p.status)).map((p) => p.source_order_id).filter(Boolean));
     const rndCompletedOrderIds = new Set(rnd.filter((r) => ['approved','sent_to_production','archived'].includes(r.status)).map((r) => r.source_order_id).filter(Boolean));
-    const completedOrders = orders.filter((o) => o.delivery_status === 'closed' || productionCompletedOrderIds.has(o.id) || rndCompletedOrderIds.has(o.id));
+    const completedTrackingIds = new Set(completedOrdersForTrend.filter(isOrderCompleted).map((o) => o.id));
+    const completedOrders = orders.filter((o) => isOrderCompleted(o) || productionCompletedOrderIds.has(o.id) || rndCompletedOrderIds.has(o.id) || completedTrackingIds.has(o.id));
     const cancelledOrders = orders.filter((o) => o.delivery_status === 'cancelled');
     const activeProduction = production.filter((p) => !['completed', 'delivered_to_warehouse', 'cancelled'].includes(p.status));
     const activeRnd = rnd.filter((p) => !['approved', 'sent_to_production', 'archived', 'rejected'].includes(p.status));
     const dueChecks = checks.filter((c) => !['cleared', 'cancelled'].includes(c.status) && c.due_date && new Date(c.due_date) <= new Date(Date.now() + 7 * 86400000));
 
-    const queryErrors = [ordersRes, financeRes, paymentsRes, stockRes, referralsRes, productionRes, rndRes, checksRes, forecastRes, healthRes]
+    const queryErrors = [ordersRes, completedOrdersRes, financeRes, paymentsRes, stockRes, referralsRes, productionRes, rndRes, checksRes, forecastRes, healthRes]
       .filter((r) => r?.error)
       .map((r) => getFriendlyErrorMessage(r.error, 'یکی از منابع داده داشبورد آماده نیست.'));
 
@@ -147,8 +184,9 @@ export function useDashboardData(filters) {
         active_orders: activeOrders.length,
         completed_orders: completedOrders.length,
         cancelled_orders: cancelledOrders.length,
-        total_income: finance.month_sales || 0,
-        net_revenue: finance.month_profit || 0,
+        total_income: cashflowTotals.receipts,
+        total_payments: cashflowTotals.payments,
+        net_revenue: cashflowTotals.receipts - cashflowTotals.payments,
         receivable_total: finance.receivable_total || 0,
         payable_total: finance.payable_total || 0,
         overdue_total: finance.overdue_total || 0,

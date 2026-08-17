@@ -241,7 +241,7 @@ export async function createWarehouseShipment(payload) {
     carrier_name: payload.carrier_name || null,
     tracking_code: payload.tracking_code || null,
     receiver_name: payload.receiver_name || null,
-    status: payload.status || 'pending_warehouse',
+    status: payload.status || 'ready',
     notes: payload.notes || null,
   }).select('id').single();
   assertNoError(res, 'خطا در ثبت ارسال دستی');
@@ -260,7 +260,7 @@ export async function updateWarehouseShipment(id, payload) {
     carrier_name: payload.carrier_name || null,
     tracking_code: payload.tracking_code || null,
     receiver_name: payload.receiver_name || null,
-    status: payload.status || 'pending_warehouse',
+    status: payload.status || 'ready',
     notes: payload.notes || null,
   }).eq('id', id).select('id').single();
   assertNoError(res, 'خطا در ویرایش اطلاعات ارسال');

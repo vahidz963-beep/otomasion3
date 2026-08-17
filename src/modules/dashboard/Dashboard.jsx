@@ -18,6 +18,7 @@ function defaultFilters() {
 export default function Dashboard({ lang = 'fa' }) {
   const { profile } = useAuth();
   const [filters, setFilters] = useState(defaultFilters());
+  const [activePanel, setActivePanel] = useState('overview');
   const data = useDashboardData(filters);
   const dir = lang === 'fa' ? 'rtl' : 'ltr';
   const roles = useMemo(() => [...new Set([profile?.role, ...(profile?.additional_roles || [])].filter(Boolean))], [profile]);
@@ -32,11 +33,18 @@ export default function Dashboard({ lang = 'fa' }) {
   const visibleKpis = useMemo(() => {
     const list = [];
     if (canSales) list.push({ icon: ClipboardList, title: 'سفارش‌های باز', value: data.kpis?.active_orders || 0, accent: 'blue' });
-    if (canFinance) list.push({ icon: Banknote, title: 'دریافتنی', value: formatMoney(data.kpis?.receivable_total || 0), accent: 'green' }, { icon: FileWarning, title: 'پرداختنی', value: formatMoney(data.kpis?.payable_total || 0), accent: 'red' }, { icon: AlertTriangle, title: 'سررسید گذشته', value: formatMoney(data.kpis?.overdue_total || 0), accent: 'amber' });
+    if (canFinance) list.push(
+      { icon: Banknote, title: 'دریافت‌ها', value: formatMoney(data.kpis?.total_income || 0), accent: 'green' },
+      { icon: FileWarning, title: 'پرداخت‌ها', value: formatMoney(data.kpis?.total_payments || 0), accent: 'red' },
+      { icon: Banknote, title: 'خالص گردش', value: formatMoney(data.kpis?.net_revenue || 0), accent: Number(data.kpis?.net_revenue || 0) >= 0 ? 'green' : 'red' },
+      { icon: Banknote, title: 'دریافتنی فاکتورها', value: formatMoney(data.kpis?.receivable_total || 0), accent: 'blue' },
+      { icon: FileWarning, title: 'پرداختنی فاکتورها', value: formatMoney(data.kpis?.payable_total || 0), accent: 'slate' },
+      { icon: AlertTriangle, title: 'سررسید گذشته', value: formatMoney(data.kpis?.overdue_total || 0), accent: 'amber' }
+    );
     if (canWarehouse) list.push({ icon: Package, title: 'کم‌موجودی', value: data.kpis?.low_stock || 0, accent: 'red' });
     if (canProduction) list.push({ icon: Factory, title: 'تولید فعال', value: data.kpis?.active_production || 0, accent: 'slate' });
     if (canRnd) list.push({ icon: Users, title: 'R&D فعال', value: data.kpis?.active_rnd || 0, accent: 'violet' });
-    if (canSales || canFinance || canWarehouse || canProduction || canRnd || canOffice) list.push({ icon: ClipboardList, title: 'ارجاعات باز', value: data.kpis?.open_referrals || 0, accent: 'amber' });
+    if (canSales || canFinance || canWarehouse || canProduction || canRnd || canOffice) list.push({ icon: ClipboardList, title: 'ارجاعات باز', value: data.kpis?.open_referrals || 0, accent: 'amber', action: 'referrals' });
     return list;
   }, [data.kpis, canSales, canFinance, canWarehouse, canProduction, canRnd, canOffice]);
 
@@ -69,12 +77,14 @@ export default function Dashboard({ lang = 'fa' }) {
 
       {!data.loading && data.kpis && <>
         <section className="exec-kpi-grid">
-          {visibleKpis.map((kpi) => <ExecKpi key={kpi.title} {...kpi} />)}
+          {visibleKpis.map((kpi) => <ExecKpi key={kpi.title} {...kpi} onClick={kpi.action === 'referrals' ? () => setActivePanel('referrals') : undefined} />)}
         </section>
 
         {isAdmin && <section className="health-card"><HealthReport health={data.health} /></section>}
 
-        {(canSales || canFinance || isAdmin) && <>
+        {activePanel === 'referrals' && <ReferralsManagementPanel rows={data.referrals || []} onBack={() => setActivePanel('overview')} />}
+
+        {activePanel === 'overview' && (canSales || canFinance || isAdmin) && <>
         <section className="dashboard-main-grid">
           {canSales && <ChartCard title="روند سفارش‌ها" empty={data.ordersTrend.length === 0}>
             <ResponsiveContainer width="100%" height={250}>
@@ -84,8 +94,8 @@ export default function Dashboard({ lang = 'fa' }) {
                 <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
                 <Tooltip labelFormatter={(v) => formatJalaliDate(v)} />
                 <Legend />
-                <Line type="monotone" dataKey="orders_created" name="ثبت‌شده" stroke="#10243d" strokeWidth={2} dot={false} />
-                <Line type="monotone" dataKey="orders_completed" name="تکمیل‌شده" stroke="#4c7a61" strokeWidth={2} dot={false} />
+                <Line type="monotone" dataKey="orders_created" name="سفارش‌های تازه ثبت‌شده" stroke="#c9932b" strokeWidth={3} dot={{ r: 3, fill: '#c9932b' }} activeDot={{ r: 5 }} />
+                <Line type="monotone" dataKey="orders_completed" name="سفارش‌های تکمیل‌شده" stroke="#4c7a61" strokeWidth={3} dot={{ r: 3, fill: '#4c7a61' }} activeDot={{ r: 5 }} />
               </LineChart>
             </ResponsiveContainer>
           </ChartCard>}
@@ -106,9 +116,9 @@ export default function Dashboard({ lang = 'fa' }) {
         {(isAdmin || canFinance || canSales) && <ForecastTable rows={data.receivableForecast || []} />}
         </>}
 
-        <section className="dashboard-tables-grid">
+        {activePanel === 'overview' && <section className="dashboard-tables-grid">
           {visibleTables.map((table) => <InfoTable key={table.title} {...table} />)}
-        </section>
+        </section>}
       </>}
     </div>
   </div>;
@@ -120,8 +130,16 @@ function ForecastTable({ rows }) {
   return <section className="dashboard-table-card forecast-table-card full-width"><div className="forecast-head"><div><h2>پیش‌بینی وصولی ۱۰ روز آینده</h2><p>سفارش‌ها و فاکتورهایی که در روزهای آینده احتمال واریز دارند.</p></div><strong>{formatMoney(total)}</strong></div>{rows.length === 0 ? <div className="empty-chart small">وصولی نزدیک ثبت نشده است.</div> : <div className="dash-table-wrap"><table><thead><tr><th>مشتری</th><th>سفارش</th><th>تاریخ پیش‌بینی پرداخت</th><th>مبلغ قابل وصول</th><th>مرحله / پیشرفت</th><th>وضعیت</th></tr></thead><tbody>{rows.map((r) => <tr key={r.document_id}><td>{r.customer_name || '—'}</td><td dir="ltr">{r.order_code || r.doc_number || '—'}</td><td>{formatJalaliDate(r.expected_payment_date)}</td><td>{formatMoney(r.expected_amount)}</td><td>{r.current_stage_name_fa || '—'} · {formatNumber(r.progress_percent)}٪</td><td>{r.forecast_status === 'very_near' ? 'خیلی نزدیک' : r.forecast_status === 'near' ? 'نزدیک' : 'آینده'}</td></tr>)}</tbody></table></div>}</section>;
 }
 
-function ExecKpi({ icon: Icon, title, value, accent }) {
-  return <div className={`exec-kpi ${accent}`}><Icon size={20}/><span>{title}</span><b>{value}</b></div>;
+function ExecKpi({ icon: Icon, title, value, accent, onClick }) {
+  const content = <><Icon size={20}/><span>{title}</span><b>{value}</b></>;
+  if (onClick) return <button type="button" className={`exec-kpi ${accent} clickable`} onClick={onClick}>{content}</button>;
+  return <div className={`exec-kpi ${accent}`}>{content}</div>;
+}
+
+function ReferralsManagementPanel({ rows, onBack }) {
+  const activeRows = rows.filter((r) => ['open', 'in_progress', 'answered'].includes(r.status));
+  const urgent = activeRows.filter((r) => Number(r.priority) === 1).length;
+  return <section className="dashboard-table-card referrals-management-panel full-width"><div className="forecast-head"><div><h2>ارجاعات باز مدیریتی</h2><p>همه ارجاعات فعال شرکت برای پیگیری مدیر کل.</p></div><div className="referral-panel-actions"><strong>{activeRows.length} ارجاع باز · {urgent} فوری</strong><button onClick={onBack}>بازگشت به داشبورد</button></div></div>{activeRows.length === 0 ? <div className="empty-chart small">ارجاع بازی وجود ندارد.</div> : <div className="dash-table-wrap"><table><thead><tr><th>شماره</th><th>عنوان</th><th>مبدأ</th><th>مقصد</th><th>اولویت</th><th>وضعیت</th><th>موعد</th><th>تاریخ ثبت</th></tr></thead><tbody>{activeRows.map((r) => <tr key={r.id}><td dir="ltr">{r.referral_number || '—'}</td><td>{r.title_fa || '—'}</td><td>{moduleLabel(r.source_module)}</td><td>{moduleLabel(r.target_module)}</td><td>{Number(r.priority) === 1 ? 'فوری' : Number(r.priority) === 3 ? 'کم‌اهمیت' : 'عادی'}</td><td>{r.status === 'open' ? 'باز' : r.status === 'in_progress' ? 'در حال انجام' : r.status === 'answered' ? 'پاسخ‌داده‌شده' : r.status}</td><td>{r.due_date ? formatJalaliDate(r.due_date) : '—'}</td><td>{formatJalaliDate(r.created_at)}</td></tr>)}</tbody></table></div>}</section>;
 }
 
 function HealthReport({ health }) {

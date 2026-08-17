@@ -15,7 +15,7 @@ export default function ProductPicker({
   value = '',
   onSelect,
   placeholder = 'کد یا نام کالا را جست‌وجو کن...',
-  minChars = 2,
+  minChars = 1,
   className = '',
   disabled = false,
 }) {
@@ -84,12 +84,10 @@ export default function ProductPicker({
         />
         {query && !disabled && <button type="button" className="product-picker-clear" onClick={clear}>×</button>}
       </div>
-      {open && !disabled && (
+      {open && !disabled && normalize(query).length >= minChars && (
         <div className="product-picker-menu">
-          {normalize(query).length < minChars ? (
-            <div className="product-picker-hint">حداقل {formatNumber(minChars)} حرف از کد یا نام کالا را بنویس تا لیست محدود شود.</div>
-          ) : filtered.length === 0 ? (
-            <div className="product-picker-hint">کالایی با این جست‌وجو پیدا نشد.</div>
+          {filtered.length === 0 ? (
+            <div className="product-picker-hint empty">کالایی پیدا نشد.</div>
           ) : filtered.map((item) => (
             <button type="button" key={item.item_id || item.id || item.item_code} onClick={() => choose(item)}>
               <span>

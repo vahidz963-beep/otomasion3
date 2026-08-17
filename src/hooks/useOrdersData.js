@@ -55,7 +55,7 @@ export function useOrdersData() {
         .from('v_app_inventory_catalog')
         .select('item_id, item_code, item_name_fa, item_name_en, unit, category, item_group, item_group_label, is_produced_item, current_qty, min_stock_threshold, reserved_qty, available_for_sale_qty, is_low_stock, last_synced_at, unit_price_estimate, effective_sale_price')
         .order('item_name_fa', { ascending: true })
-        .limit(200),
+        .limit(2000),
       supabase
         .from('order_workflow_templates')
         .select('id, template_key, name_fa, name_en, sales_path, is_default, is_active, created_at')
@@ -114,11 +114,11 @@ export function useOrdersData() {
 }
 
 export function useOrderDetails(orderId) {
-  const [state, setState] = useState({ loading: false, error: null, stages: [], events: [], stock: [], documents: [], referrals: [], production: [], rnd: [] });
+  const [state, setState] = useState({ loading: false, error: null, stages: [], events: [], stock: [], documents: [], referrals: [], production: [], rnd: [], productionStages: [], rndStages: [] });
 
   const fetchDetails = useCallback(async () => {
     if (!orderId) {
-      setState({ loading: false, error: null, stages: [], events: [], stock: [], documents: [], referrals: [], production: [], rnd: [] });
+      setState({ loading: false, error: null, stages: [], events: [], stock: [], documents: [], referrals: [], production: [], rnd: [], productionStages: [], rndStages: [] });
       return;
     }
     setState((s) => ({ ...s, loading: true, error: null }));
@@ -133,16 +133,40 @@ export function useOrderDetails(orderId) {
       supabase.from('v_rnd_project_overview').select('id, code, title_fa, status, progress_percent, current_stage_name_fa, actual_total_cost, updated_at').eq('source_order_id', orderId).order('updated_at', { ascending: false }),
     ]);
 
+    const productionRows = productionRes.error ? [] : (productionRes.data || []);
+    const rndRows = rndRes.error ? [] : (rndRes.data || []);
+    const productionIds = productionRows.map((p) => p.id).filter(Boolean);
+    const rndIds = rndRows.map((r) => r.id).filter(Boolean);
+
+    let productionStagesRes = { data: [], error: null };
+    let rndStagesRes = { data: [], error: null };
+    if (productionIds.length > 0) {
+      productionStagesRes = await supabase
+        .from('production_order_stages')
+        .select('id, production_order_id, order_index, status, custom_stage_type, custom_name_fa, custom_name_en, started_at, completed_at, notes')
+        .in('production_order_id', productionIds)
+        .order('order_index', { ascending: true });
+    }
+    if (rndIds.length > 0) {
+      rndStagesRes = await supabase
+        .from('rnd_project_stages')
+        .select('id, rnd_project_id, order_index, status, custom_stage_type, custom_name_fa, custom_name_en, started_at, completed_at, notes')
+        .in('rnd_project_id', rndIds)
+        .order('order_index', { ascending: true });
+    }
+
     setState({
       loading: false,
-      error: firstError([stagesRes, eventsRes, stockRes, docsRes, referralsRes, productionRes, rndRes]),
+      error: firstError([stagesRes, eventsRes, stockRes, docsRes, referralsRes, productionRes, rndRes, productionStagesRes, rndStagesRes]),
       stages: stagesRes.data || [],
       events: eventsRes.data || [],
       stock: stockRes.data || [],
       documents: docsRes.data || [],
       referrals: referralsRes.data || [],
-      production: productionRes.error ? [] : (productionRes.data || []),
-      rnd: rndRes.error ? [] : (rndRes.data || []),
+      production: productionRows,
+      rnd: rndRows,
+      productionStages: productionStagesRes.error ? [] : (productionStagesRes.data || []),
+      rndStages: rndStagesRes.error ? [] : (rndStagesRes.data || []),
     });
   }, [orderId]);
 

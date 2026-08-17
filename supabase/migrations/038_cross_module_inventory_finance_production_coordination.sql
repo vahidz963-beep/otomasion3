@@ -9,6 +9,20 @@
 -- =====================================================================
 
 -- ---------------------------------------------------------------------
+-- 0) Clean conflicting views before recreation
+-- This migration may be re-run after newer patches. PostgreSQL does not allow
+-- CREATE OR REPLACE VIEW to remove/reorder columns, so we drop the involved
+-- views first in dependency-safe order and recreate them below.
+-- ---------------------------------------------------------------------
+drop view if exists public.v_production_material_usage_overview cascade;
+drop view if exists public.v_app_inventory_catalog cascade;
+drop view if exists public.v_sales_stock_overview cascade;
+drop view if exists public.v_warehouse_stock_readonly cascade;
+drop view if exists public.v_warehouse_kardex cascade;
+drop view if exists public.v_production_order_overview cascade;
+drop view if exists public.v_warehouse_current_stock cascade;
+
+-- ---------------------------------------------------------------------
 -- 1) Stock/Kardex should count only direct/system transactions or FINAL docs.
 -- Draft/cancelled warehouse documents remain visible as documents, but do not affect stock.
 -- Keep old v_warehouse_current_stock column order and append nothing.
@@ -116,6 +130,21 @@ select
 from stock_base;
 
 grant select on public.v_warehouse_current_stock to authenticated;
+
+-- Compatibility view for older sales/order UI.
+create or replace view public.v_warehouse_stock_readonly
+with (security_invoker = true)
+as
+select
+  item_code,
+  item_name_fa,
+  item_name_en,
+  available_for_sale_qty as available_qty,
+  unit,
+  last_synced_at as updated_at
+from public.v_warehouse_current_stock;
+
+grant select on public.v_warehouse_stock_readonly to authenticated;
 
 create or replace view public.v_warehouse_kardex
 with (security_invoker = true)
@@ -1092,6 +1121,11 @@ drop trigger if exists trg_sync_production_material_usage_from_warehouse_doc on 
 create trigger trg_sync_production_material_usage_from_warehouse_doc
 after update of status on public.warehouse_documents
 for each row execute function public.fn_sync_production_material_usage_from_warehouse_doc();
+
+-- Drop this view before recreating it because newer stages append/remove
+-- grouping columns and PostgreSQL does not allow CREATE OR REPLACE VIEW
+-- to drop or reorder existing view columns.
+drop view if exists public.v_production_material_usage_overview;
 
 create or replace view public.v_production_material_usage_overview
 with (security_invoker = true)

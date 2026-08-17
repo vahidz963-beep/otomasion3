@@ -4,3 +4,22 @@
 
 /* Final coordination polish */
 .production-note{border:1px solid #edf0f2;background:#f8fafb;border-radius:14px;padding:10px 12px;color:#5b6670;line-height:1.8;margin:8px 0 12px}.production-note.warning{border-color:#f0dbc3;background:#fffaf5;color:#7b4c21}.production-confirm{border:1px solid #f0dbc3;background:#fffaf5;border-radius:16px;padding:14px;margin-bottom:12px;color:#10243d}.production-confirm b{display:block;margin-bottom:6px}.production-confirm p{margin:0 0 12px;line-height:1.9}.confirm-actions{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}.confirm-actions button{border:1px solid #d8dee3;background:#fff;border-radius:10px;padding:8px 12px;cursor:pointer;font-weight:900}.confirm-actions button:last-child{background:#a8672e;border-color:#a8672e;color:#fff}.production-modal,.production-modal>div,.production-table-wrap{overflow:visible}.production-modal{width:min(1120px,96vw)}.production-table-wrap .product-picker-menu{min-width:360px}.production-hero,.production-tabs,.production-message,.production-kpis,.production-grid,.production-card{max-width:1440px!important}
+
+/* Stage 042 multi BOM materials + multi output products */
+.bom-color-badge{display:inline-flex;border-radius:999px;padding:5px 9px;font-size:11px;font-weight:900;white-space:nowrap}.bom-color-badge.c1{background:#e7edf3;color:#10243d}.bom-color-badge.c2{background:#e5f3eb;color:#25694a}.bom-color-badge.c3{background:#fff1d6;color:#8a5c10}.bom-color-badge.c4{background:#f0e9ff;color:#5f3ea8}.bom-color-badge.c5{background:#e5f6ff;color:#16627f}.bom-color-badge.c6{background:#f7e5e3;color:#a5453f}.bom-color-row.c1 td:first-child{border-inline-start:4px solid #10243d}.bom-color-row.c2 td:first-child{border-inline-start:4px solid #4c7a61}.bom-color-row.c3 td:first-child{border-inline-start:4px solid #b98a2e}.bom-color-row.c4 td:first-child{border-inline-start:4px solid #7a5ac7}.bom-color-row.c5 td:first-child{border-inline-start:4px solid #2f8dad}.bom-color-row.c6 td:first-child{border-inline-start:4px solid #a5453f}.output-lines-editor{border:1px solid #edf0f2;border-radius:16px;padding:10px;background:#f8fafb;overflow:visible}.output-lines-editor table{width:100%;min-width:920px;border-collapse:collapse}.output-lines-editor th,.output-lines-editor td{padding:8px;border-bottom:1px solid #edf0f2;text-align:right;vertical-align:middle}.output-lines-editor input{width:100%;border:1px solid #d8dee3;background:#fff;border-radius:10px;padding:8px 10px;box-sizing:border-box}.output-lines-editor .product-picker-menu{min-width:360px}.output-lines-editor>button{margin-top:10px;border:1px solid #d8dee3;background:#fff;color:#10243d;border-radius:10px;padding:8px 12px;font-weight:900;cursor:pointer}@media(max-width:760px){.output-lines-editor{overflow:auto}.output-lines-editor table{min-width:820px}}
+
+/* Final fix: production formula modal vertical scroll + searchable BOM items */
+.production-modal{
+  width:min(1120px,96vw)!important;
+  max-height:92vh!important;
+  overflow:hidden!important;
+  display:flex!important;
+  flex-direction:column!important;
+}
+.production-modal>div{
+  overflow-y:auto!important;
+  overflow-x:visible!important;
+  max-height:calc(92vh - 66px)!important;
+  padding-bottom:96px!important;
+}
+.bom-modal-form{display:block;min-height:0}.bom-head-grid{align-items:start}.bom-lines-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:14px 0 8px;border:1px solid #edf0f2;background:#f8fafb;border-radius:14px;padding:10px 12px}.bom-lines-head b{color:#10243d}.bom-lines-head small{color:#5b6670;font-size:11px;line-height:1.7}.bom-line-editor{overflow:visible!important;background:#fff}.bom-line-editor table{min-width:1040px}.bom-line-editor .product-picker{min-width:230px}.bom-line-editor .product-picker-menu,.bom-head-grid .product-picker-menu{min-width:390px;z-index:2000}.sticky-modal-actions{position:sticky;bottom:-78px;background:#fff;border-top:1px solid #edf0f2;padding-top:12px;z-index:8}.production-modal .product-picker-clear{left:7px!important;right:auto!important}.production-modal .product-picker input{padding-left:36px!important;padding-right:12px!important}@media(max-width:760px){.bom-lines-head{flex-direction:column;align-items:flex-start}.bom-line-editor{overflow:auto!important}.sticky-modal-actions{bottom:-78px}}

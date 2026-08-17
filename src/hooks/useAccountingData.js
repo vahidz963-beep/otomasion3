@@ -35,6 +35,8 @@ const initialState = {
   itemKardex: [],
   itemLastSales: [],
   orderCosts: [],
+  loans: [],
+  loanInstallments: [],
 };
 
 function softError(results) {
@@ -69,6 +71,8 @@ export function useAccountingData() {
       itemKardexRes,
       itemLastSalesRes,
       orderCostsRes,
+      loansRes,
+      loanInstallmentsRes,
     ] = await Promise.all([
       supabase.from('v_finance_dashboard').select('*').maybeSingle(),
       supabase
@@ -152,7 +156,7 @@ export function useAccountingData() {
         .from('v_app_inventory_catalog')
         .select('item_id, item_code, item_name_fa, item_name_en, category, item_group, item_group_label, is_produced_item, unit, current_qty, available_for_sale_qty, unit_price_estimate, effective_sale_price, last_sale_unit_price')
         .order('item_name_fa', { ascending: true })
-        .limit(800),
+        .limit(2000),
       supabase
         .from('v_warehouse_kardex')
         .select('item_id, item_code, item_name_fa, tx_id, transaction_type, direction, quantity, doc_number, document_status, note, created_at, running_balance')
@@ -167,6 +171,16 @@ export function useAccountingData() {
         .select('id, related_order_id, related_rnd_project_id, related_production_order_id, cost_type, amount, document_id, source_module, notes, created_at')
         .order('created_at', { ascending: false })
         .limit(300),
+      supabase
+        .from('v_finance_loan_overview')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(300),
+      supabase
+        .from('v_finance_loan_installments')
+        .select('*')
+        .order('due_date', { ascending: true })
+        .limit(2000),
     ]);
 
     const firstError = softError([
@@ -215,6 +229,8 @@ export function useAccountingData() {
       itemKardex: itemKardexRes.data || [],
       itemLastSales: itemLastSalesRes.error ? [] : (itemLastSalesRes.data || []),
       orderCosts: orderCostsRes.error ? [] : (orderCostsRes.data || []),
+      loans: loansRes.error ? [] : (loansRes.data || []),
+      loanInstallments: loanInstallmentsRes.error ? [] : (loanInstallmentsRes.data || []),
     });
   }, []);
 
@@ -256,7 +272,7 @@ export function usePartyStatement(partyId, flowFilter = 'all') {
       setState({ loading: true, error: null, rows: [] });
       let query = supabase
         .from('v_party_statement')
-        .select('entry_date, ref_number, entry_type, description, debit_amount, credit_amount, running_balance, related_order_id')
+        .select('entry_date, ref_number, entry_type, description, debit_amount, credit_amount, running_balance, related_order_id, document_id, payment_id')
         .eq('party_id', partyId)
         .order('entry_date', { ascending: true })
         .limit(200);

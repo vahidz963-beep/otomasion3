@@ -287,6 +287,16 @@ export async function updateFinanceBankAccount(id, payload) {
   return res.data;
 }
 
+
+export async function archiveFinanceBankAccount(id, reason = '') {
+  const res = await supabase.from('finance_bank_accounts').update({
+    is_active: false,
+    notes: reason ? `حذف/غیرفعال‌سازی توسط مدیر: ${reason}` : 'حذف/غیرفعال‌سازی توسط مدیر',
+  }).eq('id', id).select('id').single();
+  assertNoError(res, 'خطا در حذف/غیرفعال‌سازی حساب/کارت بانکی');
+  return res.data;
+}
+
 export async function updateNumberingRule(ruleKey, patch) {
   const res = await supabase
     .from('finance_numbering_rules')
@@ -451,6 +461,88 @@ export async function createFinanceParty(payload) {
     created_by: userId,
   }).select('id').single();
   assertNoError(res, 'خطا در ثبت شخص مالی');
+  return res.data;
+}
+
+
+export async function createFinancePartiesBulk(rows = []) {
+  const cleanRows = (rows || []).filter((row) => String(row.display_name || '').trim());
+  const results = [];
+  for (let i = 0; i < cleanRows.length; i += 1) {
+    try {
+      const data = await createFinanceParty(cleanRows[i]);
+      results.push(data);
+    } catch (error) {
+      throw new Error(`خطا در ثبت ردیف ${i + 1}: ${error.message || 'خطای نامشخص'}`);
+    }
+  }
+  return { count: results.length, rows: results };
+}
+
+
+function addMonthsIso(date, months) {
+  const d = new Date(date || new Date());
+  d.setMonth(d.getMonth() + Number(months || 0));
+  return d.toISOString().slice(0, 10);
+}
+
+export async function createFinanceLoan({ loan, installments = [] }) {
+  const userId = await currentFinanceUserId();
+  const principal = Number(loan.principal_amount || 0);
+  const total = Number(loan.total_payable_amount || principal);
+  const count = Number(loan.installment_count || installments.length || 1);
+  const monthly = count > 0 ? Math.round(total / count) : total;
+  const loanRes = await supabase.from('finance_loans').insert({
+    title_fa: loan.title_fa,
+    lender_name: loan.lender_name,
+    lender_type: loan.lender_type || 'bank',
+    bank_name: loan.bank_name || null,
+    principal_amount: principal,
+    total_payable_amount: total,
+    installment_count: count,
+    installment_interval_months: Number(loan.installment_interval_months || 1),
+    interest_rate: Number(loan.interest_rate || 0),
+    received_date: loan.received_date || new Date().toISOString().slice(0, 10),
+    first_due_date: loan.first_due_date || new Date().toISOString().slice(0, 10),
+    status: loan.status || 'active',
+    notes: loan.notes || null,
+    created_by: userId,
+  }).select('id, loan_number').single();
+  assertNoError(loanRes, 'خطا در ثبت وام');
+
+  const loanId = loanRes.data.id;
+  const cleanInstallments = (installments.length ? installments : Array.from({ length: count }).map((_, i) => ({
+    installment_no: i + 1,
+    due_date: addMonthsIso(loan.first_due_date || new Date(), i * Number(loan.installment_interval_months || 1)),
+    amount_due: i === count - 1 ? total - monthly * (count - 1) : monthly,
+  }))).map((item, index) => ({
+    loan_id: loanId,
+    installment_no: Number(item.installment_no || index + 1),
+    due_date: item.due_date,
+    principal_amount: Number(item.principal_amount || item.amount_due || 0),
+    interest_amount: Number(item.interest_amount || 0),
+    fee_amount: Number(item.fee_amount || 0),
+    amount_due: Number(item.amount_due || 0),
+    status: item.status || 'pending',
+    notes: item.notes || null,
+  }));
+
+  if (cleanInstallments.length > 0) {
+    const insRes = await supabase.from('finance_loan_installments').insert(cleanInstallments);
+    assertNoError(insRes, 'خطا در ثبت اقساط وام');
+  }
+  return loanRes.data;
+}
+
+export async function markFinanceLoanInstallmentPaid({ installmentId, paymentId, paidAmount, paidAt, notes }) {
+  const res = await supabase.rpc('fn_finance_mark_loan_installment_paid', {
+    p_installment_id: installmentId,
+    p_payment_id: paymentId || null,
+    p_paid_amount: paidAmount ? Number(paidAmount) : null,
+    p_paid_at: paidAt || new Date().toISOString().slice(0, 10),
+    p_notes: notes || null,
+  });
+  assertNoError(res, 'خطا در ثبت پرداخت قسط وام');
   return res.data;
 }
 
