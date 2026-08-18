@@ -8,6 +8,7 @@ import {
   BookOpen,
   CalendarClock,
   ClipboardList,
+  Edit3,
   FileText,
   Link2,
   ListChecks,
@@ -17,6 +18,7 @@ import {
   RefreshCcw,
   RotateCcw,
   Settings,
+  Trash2,
   Users,
   WalletCards,
 } from 'lucide-react';
@@ -41,6 +43,9 @@ import {
   downloadExcelHtml,
   openPrintableDocument,
   openOfficialFinancePrint,
+  getFinancePrintSettings,
+  saveFinancePrintSettings,
+  DEFAULT_FINANCE_PRINT_SETTINGS,
   postFinanceDocument,
   reopenFiscalPeriod,
   reopenFiscalYear,
@@ -478,7 +483,7 @@ function BankFlipCard({ account, lang, onEdit, onDelete, isAdmin }) {
         <b>{account.account_name}</b>
         <strong>{formatMoney(account.current_balance, lang)}</strong>
         <small>واریز {formatMoney(account.total_receipts, lang)} · برداشت {formatMoney(account.total_payments, lang)}</small>
-        {isBank && <div className="bank-front-actions"><button type="button" onClick={(e)=>{e.stopPropagation(); onEdit?.(account);}}>ویرایش</button><button type="button" className="danger" title={isAdmin ? 'حذف/غیرفعال‌سازی با تأیید مدیر' : 'حذف کارت فقط با دسترسی مدیر کل مجاز است'} onClick={(e)=>{e.stopPropagation(); onDelete?.(account);}}>حذف</button></div>}
+        {isBank && <div className="bank-front-actions"><button type="button" title="ویرایش کارت" aria-label="ویرایش کارت" onClick={(e)=>{e.stopPropagation(); onEdit?.(account);}}><Edit3 size={13} /></button><button type="button" className="danger" aria-label="حذف کارت" title={isAdmin ? 'حذف/غیرفعال‌سازی با تأیید مدیر' : 'حذف کارت فقط با دسترسی مدیر کل مجاز است'} onClick={(e)=>{e.stopPropagation(); onDelete?.(account);}}><Trash2 size={13} /></button></div>}
         <em>{isBank ? 'کلیک روی کارت برای مشخصات کامل' : 'گردش صندوق'}</em>
       </div>
       <div className="bank-card-face bank-card-back">
@@ -487,14 +492,14 @@ function BankFlipCard({ account, lang, onEdit, onDelete, isAdmin }) {
           <small>بانک: <span>{account.bank_name || '—'}</span></small>
           <small>شماره کارت: <span dir="ltr">{groupedCard}</span></small>
           <small>شماره حساب: <span dir="ltr">{account.account_number || '—'}</span></small>
-          <small>شبا: <span dir="ltr" className="iban-text">{account.iban || '—'}</span></small>
+          <small className="iban-row">شبا: <span dir="ltr" className="iban-text">{account.iban || '—'}</span></small>
           <small>شعبه: <span>{account.branch_name || '—'}</span></small>
           <small>نوع: <span>{account.account_usage === 'official' ? 'رسمی' : account.account_usage === 'unofficial' ? 'غیررسمی' : 'صندوق'}</span></small>
           {account.notes && <small>یادداشت: <span>{account.notes}</span></small>}
         </div>
         <div className="bank-card-actions">
-          {isBank && <button type="button" onClick={(e)=>{e.stopPropagation(); onEdit?.(account);}}>ویرایش کارت</button>}
-          {isBank && <button type="button" className="danger" title={isAdmin ? 'حذف/غیرفعال‌سازی با تأیید مدیر' : 'حذف کارت فقط با دسترسی مدیر کل مجاز است'} onClick={(e)=>{e.stopPropagation(); onDelete?.(account);}}>حذف کارت</button>}
+          {isBank && <button type="button" title="ویرایش کارت" aria-label="ویرایش کارت" onClick={(e)=>{e.stopPropagation(); onEdit?.(account);}}><Edit3 size={13} /><span>ویرایش</span></button>}
+          {isBank && <button type="button" className="danger" aria-label="حذف کارت" title={isAdmin ? 'حذف/غیرفعال‌سازی با تأیید مدیر' : 'حذف کارت فقط با دسترسی مدیر کل مجاز است'} onClick={(e)=>{e.stopPropagation(); onDelete?.(account);}}><Trash2 size={13} /><span>حذف</span></button>}
         </div>
       </div>
     </div>
@@ -778,13 +783,30 @@ function FiscalSection({ fiscalYears, fiscalPeriods, lang, busy, onClosePeriod, 
 
 function SettingsSection({ numbering, ioDocuments, lang, busy, onUpdateNumbering, onAddIo }) {
   const [editing, setEditing] = useState(null);
+  const [printSettings, setPrintSettings] = useState(() => getFinancePrintSettings());
+  const [printSaved, setPrintSaved] = useState('');
   function saveRule() {
     if (!editing) return;
     onUpdateNumbering(editing.rule_key, { prefix: editing.prefix, padding: Number(editing.padding || 5), separator: editing.separator || '-' });
     setEditing(null);
   }
-  return <div className="accounting-grid two"><section className="finance-card"><CardHeader icon={Settings} title="تنظیمات و شماره‌گذاری مرکزی" />{numbering.length === 0 ? <Empty t={{ noData: 'قواعد شماره‌گذاری هنوز اجرا نشده‌اند.' }} /> : <div className="table-scroll limited-list"><table className="finance-table"><thead><tr><th>عنوان</th><th>پیشوند</th><th>دوره</th><th>آخرین شماره</th><th>شماره بعدی</th><th>عملیات</th></tr></thead><tbody>{numbering.map((r) => <tr key={r.rule_key}><td>{lang === 'fa' ? r.label_fa : r.label_en}</td><td dir="ltr">{r.prefix}</td><td>{r.reset_scope}</td><td>{r.current_counter}</td><td dir="ltr"><b>{r.next_number_preview}</b></td><td><button className="mini-btn" disabled={busy} onClick={() => setEditing({ ...r })}>تنظیم</button></td></tr>)}</tbody></table></div>}{editing && <div className="numbering-editor"><h3>ویرایش شماره‌گذاری</h3><label><span>پیشوند</span><input value={editing.prefix} onChange={(e)=>setEditing({...editing,prefix:e.target.value})}/></label><label><span>تعداد رقم</span><input type="number" value={editing.padding} onChange={(e)=>setEditing({...editing,padding:e.target.value})}/></label><label><span>جداکننده</span><input value={editing.separator} onChange={(e)=>setEditing({...editing,separator:e.target.value})}/></label><div><button onClick={()=>setEditing(null)}>انصراف</button><button disabled={busy} onClick={saveRule}>ذخیره</button></div></div>}</section><section className="finance-card"><div className="finance-card-header between"><CardHeader icon={FileText} title="اسناد ورودی / خروجی" bare /><div className="actions-cell"><button disabled={busy} onClick={() => onAddIo('incoming')}>＋ ورودی</button><button disabled={busy} onClick={() => onAddIo('outgoing')}>＋ خروجی</button></div></div>{ioDocuments.length === 0 ? <Empty t={{ noData: 'سند ورودی/خروجی ثبت نشده است.' }} /> : <div className="table-scroll limited-list"><table className="finance-table"><thead><tr><th>شماره</th><th>نوع</th><th>عنوان</th><th>تاریخ</th></tr></thead><tbody>{ioDocuments.map((d) => <tr key={d.id}><td dir="ltr">{d.io_number}</td><td>{d.io_type === 'incoming' ? 'ورودی' : 'خروجی'}</td><td>{d.title_fa}</td><td>{formatDate(d.registered_at, lang)}</td></tr>)}</tbody></table></div>}</section></div>;
+  function patchPrintSettings(patch) {
+    setPrintSettings((current) => ({ ...current, ...patch }));
+    setPrintSaved('');
+  }
+  function savePrintSettings() {
+    const saved = saveFinancePrintSettings(printSettings);
+    setPrintSettings(saved);
+    setPrintSaved('تنظیمات چاپ ذخیره شد. از چاپ بعدی اعمال می‌شود.');
+  }
+  function resetPrintSettings() {
+    const saved = saveFinancePrintSettings(DEFAULT_FINANCE_PRINT_SETTINGS);
+    setPrintSettings(saved);
+    setPrintSaved('تنظیمات چاپ به حالت پیشنهادی برگشت.');
+  }
+  return <div className="accounting-grid two settings-layout-grid"><section className="finance-card"><CardHeader icon={Settings} title="تنظیمات و شماره‌گذاری مرکزی" />{numbering.length === 0 ? <Empty t={{ noData: 'قواعد شماره‌گذاری هنوز اجرا نشده‌اند.' }} /> : <div className="table-scroll limited-list"><table className="finance-table"><thead><tr><th>عنوان</th><th>پیشوند</th><th>دوره</th><th>آخرین شماره</th><th>شماره بعدی</th><th>عملیات</th></tr></thead><tbody>{numbering.map((r) => <tr key={r.rule_key}><td>{lang === 'fa' ? r.label_fa : r.label_en}</td><td dir="ltr">{r.prefix}</td><td>{r.reset_scope}</td><td>{r.current_counter}</td><td dir="ltr"><b>{r.next_number_preview}</b></td><td><button className="mini-btn" disabled={busy} onClick={() => setEditing({ ...r })}>تنظیم</button></td></tr>)}</tbody></table></div>}{editing && <div className="numbering-editor"><h3>ویرایش شماره‌گذاری</h3><label><span>پیشوند</span><input value={editing.prefix} onChange={(e)=>setEditing({...editing,prefix:e.target.value})}/></label><label><span>تعداد رقم</span><input type="number" value={editing.padding} onChange={(e)=>setEditing({...editing,padding:e.target.value})}/></label><label><span>جداکننده</span><input value={editing.separator} onChange={(e)=>setEditing({...editing,separator:e.target.value})}/></label><div><button onClick={()=>setEditing(null)}>انصراف</button><button disabled={busy} onClick={saveRule}>ذخیره</button></div></div>}</section><section className="finance-card print-settings-card"><CardHeader icon={Printer} title="تنظیمات چاپ فاکتور و صورت‌حساب" /><p className="finance-note">این تنظیمات روی همین مرورگر ذخیره می‌شود و از چاپ بعدی فاکتور، پیش‌فاکتور و صورت‌حساب اعمال می‌شود.</p><div className="print-settings-grid"><label className="finance-field"><span>حاشیه کاغذ A4 میلی‌متر</span><input type="number" min="5" max="20" value={printSettings.marginMm} onChange={(e)=>patchPrintSettings({ marginMm: Number(e.target.value) })}/></label><label className="finance-field"><span>بزرگی نوشته‌ها</span><select value={printSettings.fontScale} onChange={(e)=>patchPrintSettings({ fontScale: Number(e.target.value) })}><option value={0.9}>کوچک</option><option value={1}>معمولی</option><option value={1.15}>بزرگ</option><option value={1.3}>خیلی بزرگ</option><option value={1.45}>حداکثر</option></select></label><label className="finance-field"><span>بزرگی اعداد و مبالغ</span><select value={printSettings.numberScale} onChange={(e)=>patchPrintSettings({ numberScale: Number(e.target.value) })}><option value={0.9}>کوچک</option><option value={1}>معمولی</option><option value={1.15}>بزرگ</option><option value={1.3}>خیلی بزرگ</option><option value={1.5}>حداکثر</option></select></label><label className="finance-field"><span>جهت فاکتور/پیش‌فاکتور</span><select value={printSettings.invoiceOrientation} onChange={(e)=>patchPrintSettings({ invoiceOrientation: e.target.value })}><option value="landscape">افقی</option><option value="portrait">عمودی</option></select></label><label className="finance-field"><span>جهت صورت‌حساب</span><select value={printSettings.statementOrientation} onChange={(e)=>patchPrintSettings({ statementOrientation: e.target.value })}><option value="portrait">عمودی</option><option value="landscape">افقی</option></select></label><label className="finance-field print-check-field"><span>پاورقی اتوماسیون</span><label><input type="checkbox" checked={printSettings.showFooter !== false} onChange={(e)=>patchPrintSettings({ showFooter: e.target.checked })}/> نمایش داده شود</label></label></div><div className="print-settings-preview"><span>پیشنهاد فعلی:</span><b>حاشیه {printSettings.marginMm}mm · متن ×{printSettings.fontScale} · اعداد ×{printSettings.numberScale}</b></div>{printSaved && <div className="finance-note success">{printSaved}</div>}<div className="finance-form-actions"><button type="button" onClick={resetPrintSettings}>بازگشت به حالت پیشنهادی</button><button type="button" onClick={savePrintSettings}>ذخیره تنظیمات چاپ</button></div></section><section className="finance-card"><div className="finance-card-header between"><CardHeader icon={FileText} title="اسناد ورودی / خروجی" bare /><div className="actions-cell"><button disabled={busy} onClick={() => onAddIo('incoming')}>＋ ورودی</button><button disabled={busy} onClick={() => onAddIo('outgoing')}>＋ خروجی</button></div></div>{ioDocuments.length === 0 ? <Empty t={{ noData: 'سند ورودی/خروجی ثبت نشده است.' }} /> : <div className="table-scroll limited-list"><table className="finance-table"><thead><tr><th>شماره</th><th>نوع</th><th>عنوان</th><th>تاریخ</th></tr></thead><tbody>{ioDocuments.map((d) => <tr key={d.id}><td dir="ltr">{d.io_number}</td><td>{d.io_type === 'incoming' ? 'ورودی' : 'خروجی'}</td><td>{d.title_fa}</td><td>{formatDate(d.registered_at, lang)}</td></tr>)}</tbody></table></div>}</section></div>;
 }
+
 
 function ProfitCard({ rows, lang, t, full, onAddCost, orderCosts = [] }) {
   const [detailOrder, setDetailOrder] = useState(null);
