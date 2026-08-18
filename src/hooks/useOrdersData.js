@@ -13,6 +13,10 @@ const initialState = {
   referrals: [],
   crmInteractions: [],
   crmOpportunities: [],
+  production: [],
+  rnd: [],
+  productionStages: [],
+  rndStages: [],
 };
 
 function firstError(results) {
@@ -73,9 +77,53 @@ export function useOrdersData() {
         .limit(100),
     ]);
 
+    const orderIds = (ordersRes.data || []).map((o) => o.id).filter(Boolean);
+    let productionRes = { data: [], error: null };
+    let rndRes = { data: [], error: null };
+    let productionStagesRes = { data: [], error: null };
+    let rndStagesRes = { data: [], error: null };
+
+    if (orderIds.length > 0) {
+      [productionRes, rndRes] = await Promise.all([
+        supabase
+          .from('v_production_order_overview')
+          .select('id, code, source_order_id, product_name_fa, status, progress_percent, current_stage_name_fa, delivery_status, days_to_delivery, planned_end, updated_at')
+          .in('source_order_id', orderIds)
+          .order('updated_at', { ascending: false })
+          .limit(300),
+        supabase
+          .from('v_rnd_project_overview')
+          .select('id, code, source_order_id, title_fa, status, progress_percent, current_stage_name_fa, delivery_status, days_to_delivery, updated_at')
+          .in('source_order_id', orderIds)
+          .order('updated_at', { ascending: false })
+          .limit(300),
+      ]);
+
+      const productionIds = (productionRes.data || []).map((p) => p.id).filter(Boolean);
+      const rndIds = (rndRes.data || []).map((r) => r.id).filter(Boolean);
+
+      if (productionIds.length > 0) {
+        productionStagesRes = await supabase
+          .from('production_order_stages')
+          .select('id, production_order_id, order_index, status, custom_stage_type, custom_name_fa, custom_name_en, started_at, completed_at, notes')
+          .in('production_order_id', productionIds)
+          .order('order_index', { ascending: true })
+          .limit(1200);
+      }
+
+      if (rndIds.length > 0) {
+        rndStagesRes = await supabase
+          .from('rnd_project_stages')
+          .select('id, rnd_project_id, order_index, status, custom_stage_type, custom_name_fa, custom_name_en, started_at, completed_at, notes')
+          .in('rnd_project_id', rndIds)
+          .order('order_index', { ascending: true })
+          .limit(1200);
+      }
+    }
+
     setState({
       loading: false,
-      error: firstError([ordersRes, customersRes, followupsRes, interactionsRes, opportunitiesRes, stockRes, templatesRes, stepsRes, referralsRes]),
+      error: firstError([ordersRes, customersRes, followupsRes, interactionsRes, opportunitiesRes, stockRes, templatesRes, stepsRes, referralsRes, productionRes, rndRes, productionStagesRes, rndStagesRes]),
       orders: ordersRes.data || [],
       customers: customersRes.data || [],
       dueFollowups: followupsRes.data || [],
@@ -85,6 +133,10 @@ export function useOrdersData() {
       templates: templatesRes.data || [],
       templateSteps: stepsRes.data || [],
       referrals: referralsRes.data || [],
+      production: productionRes.error ? [] : (productionRes.data || []),
+      rnd: rndRes.error ? [] : (rndRes.data || []),
+      productionStages: productionStagesRes.error ? [] : (productionStagesRes.data || []),
+      rndStages: rndStagesRes.error ? [] : (rndStagesRes.data || []),
     });
   }, []);
 

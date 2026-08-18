@@ -103,6 +103,7 @@ export function useAccountingData() {
       supabase
         .from('finance_bank_accounts')
         .select('*')
+        .eq('is_active', true)
         .order('account_usage', { ascending: true }),
       supabase
         .from('finance_cashboxes')
@@ -111,6 +112,7 @@ export function useAccountingData() {
       supabase
         .from('v_finance_account_turnover')
         .select('*')
+        .eq('is_active', true)
         .order('account_kind', { ascending: true })
         .order('account_name', { ascending: true }),
       supabase
@@ -167,10 +169,10 @@ export function useAccountingData() {
         .select('*')
         .limit(500),
       supabase
-        .from('finance_order_costs')
-        .select('id, related_order_id, related_rnd_project_id, related_production_order_id, cost_type, amount, document_id, source_module, notes, created_at')
+        .from('v_order_unified_costs')
+        .select('order_id, source_type, source_id, cost_type, amount, notes, created_at')
         .order('created_at', { ascending: false })
-        .limit(300),
+        .limit(1000),
       supabase
         .from('v_finance_loan_overview')
         .select('*')
@@ -389,7 +391,7 @@ export function useFinanceDocumentBundle(documentId) {
     if (documentRes.data?.party_id) {
       const partyRes = await supabase
         .from('finance_parties')
-        .select('id, display_name, party_type, phone, email, address, national_id, economic_code')
+        .select('id, display_name, party_type, phone, email, address, national_id, economic_code, registration_number, postal_code')
         .eq('id', documentRes.data.party_id)
         .maybeSingle();
       party = partyRes.data || null;

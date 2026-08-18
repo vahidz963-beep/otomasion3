@@ -56,6 +56,8 @@ import {
   createFinancePartiesBulk,
   createFinanceOrderCost,
   createFinanceLoan,
+  updateFinanceLoan,
+  archiveFinanceLoan,
   markFinanceLoanInstallmentPaid,
   createFinanceBankAccount,
   updateFinanceBankAccount,
@@ -181,6 +183,7 @@ export default function AccountingModule({ lang = 'fa' }) {
   const [partyImportModal, setPartyImportModal] = useState(false);
   const [orderCostModal, setOrderCostModal] = useState(null);
   const [loanModal, setLoanModal] = useState(null);
+  const [loanDeleteModal, setLoanDeleteModal] = useState(null);
   const [loanPaymentModal, setLoanPaymentModal] = useState(null);
   const [accountModal, setAccountModal] = useState(null);
   const [accountDeleteModal, setAccountDeleteModal] = useState(null);
@@ -220,6 +223,7 @@ export default function AccountingModule({ lang = 'fa' }) {
       setPartyImportModal(false);
       setOrderCostModal(null);
       setLoanModal(null);
+      setLoanDeleteModal(null);
       setLoanPaymentModal(null);
       setAccountModal(null);
       setAccountDeleteModal(null);
@@ -320,7 +324,8 @@ export default function AccountingModule({ lang = 'fa' }) {
       {partyModal && <PartyModal busy={busy} onClose={() => setPartyModal(null)} onSubmit={(payload) => runAction(() => createFinanceParty(payload), 'شخص جدید ثبت و با بانک مشتریان هماهنگ شد.')} />}
       {partyImportModal && <PartyImportModal busy={busy} onClose={() => setPartyImportModal(false)} onSubmit={(rows) => runAction(() => createFinancePartiesBulk(rows), `${rows.length} شخص از فایل اکسل ثبت شد.`)} />}
       {orderCostModal && <OrderCostModal order={orderCostModal.order} busy={busy} onClose={() => setOrderCostModal(null)} onSubmit={(payload) => runAction(() => createFinanceOrderCost(payload), 'هزینه سفارش ثبت شد و در سود سفارش لحاظ می‌شود.')} />}
-      {loanModal && <LoanModal busy={busy} onClose={() => setLoanModal(null)} onSubmit={(payload) => runAction(() => createFinanceLoan(payload), 'وام و برنامه اقساط ثبت شد.')} />}
+      {loanModal && <LoanModal initial={loanModal.loan} busy={busy} onClose={() => setLoanModal(null)} onSubmit={(payload) => runAction(() => loanModal.loan ? updateFinanceLoan(loanModal.loan.id, payload) : createFinanceLoan(payload), loanModal.loan ? 'اطلاعات وام و اقساط باز ویرایش شد.' : 'وام و برنامه اقساط ثبت شد.')} />}
+      {loanDeleteModal && <LoanDeleteModal loan={loanDeleteModal.loan} busy={busy} onClose={() => setLoanDeleteModal(null)} onConfirm={(reason) => runAction(() => archiveFinanceLoan(loanDeleteModal.loan.id, reason), 'وام حذف/بایگانی شد و از لیست فعال خارج شد.')} />}
       {loanPaymentModal && <LoanPaymentModal installment={loanPaymentModal.installment} payments={data.payments} busy={busy} onClose={() => setLoanPaymentModal(null)} onSubmit={(payload) => runAction(() => markFinanceLoanInstallmentPaid(payload), 'پرداخت قسط وام ثبت شد.')} />}
       {accountModal && <BankAccountModal initial={accountModal.account} busy={busy} onClose={() => setAccountModal(null)} onSubmit={(payload) => runAction(() => accountModal.account ? updateFinanceBankAccount(accountModal.account.id || accountModal.account.account_id, payload) : createFinanceBankAccount(payload), accountModal.account ? 'اطلاعات حساب/کارت ویرایش شد.' : 'حساب/کارت بانکی اضافه شد.')} />}
       {statementDetail?.type === 'document' && <div className="finance-detail-modal-backdrop" onMouseDown={(e)=>e.target===e.currentTarget&&setStatementDetail(null)}><div className="finance-detail-modal"><FinanceDocumentDetails bundle={statementDocumentBundle} loading={statementDocumentBundle.loading} busy={busy} onPost={(id) => runAction(() => postFinanceDocument(id), 'سند حسابداری فاکتور ثبت شد.')} onEdit={(id) => setModal({ type: 'document', documentId: id })} onConvert={(id) => runAction(() => convertProformaToInvoice(id), 'پیش‌فاکتور به فاکتور تبدیل شد.')} onVoid={(id) => setConfirmAction({ type: 'void', id, title: 'ابطال فاکتور', message: 'آیا از ابطال این سند مطمئن هستید؟' })} onReturn={(id) => setConfirmAction({ type: 'return', id, title: 'فاکتور برگشتی', message: 'دلیل فاکتور برگشتی را وارد کنید.' })} onNewPayment={(id) => setModal({ type: 'payment', documentId: id })} onNewReferral={(id) => setModal({ type: 'referral', documentId: id })} onClose={() => setStatementDetail(null)} /></div></div>}
@@ -342,7 +347,7 @@ export default function AccountingModule({ lang = 'fa' }) {
       {!data.loading && tab === 'checks' && <ChecksSection checks={data.checks} parties={data.parties} accounts={data.bankAccounts} lang={lang} busy={busy} onNewCheck={() => setModal('check')} onSettle={(payload) => runAction(() => settleFinanceCheck(payload), 'وضعیت چک و گردش بانک ثبت شد.')} onChangeStatus={(id, status) => runAction(() => updateFinanceCheckStatus(id, status), 'وضعیت چک تغییر کرد.')} />}
       {!data.loading && tab === 'itemKardex' && <ItemKardexSection stock={data.stock} rows={data.itemKardex} lastSales={data.itemLastSales} lang={lang} />}
       {!data.loading && tab === 'profitability' && <ProfitCard rows={data.profitability} lang={lang} t={t} full onAddCost={(order) => setOrderCostModal({ order })} orderCosts={data.orderCosts} />}
-      {!data.loading && tab === 'loans' && <LoansSection loans={data.loans || []} installments={data.loanInstallments || []} payments={data.payments || []} lang={lang} busy={busy} onNewLoan={() => setLoanModal({})} onPayInstallment={(installment) => setLoanPaymentModal({ installment })} />}
+      {!data.loading && tab === 'loans' && <LoansSection loans={data.loans || []} installments={data.loanInstallments || []} payments={data.payments || []} lang={lang} busy={busy} onNewLoan={() => setLoanModal({})} onEditLoan={(loan) => setLoanModal({ loan })} onDeleteLoan={(loan) => setLoanDeleteModal({ loan })} onPayInstallment={(installment) => setLoanPaymentModal({ installment })} />}
       {!data.loading && tab === 'fiscal' && <FiscalSection fiscalYears={data.fiscalYears} fiscalPeriods={data.fiscalPeriods} lang={lang} busy={busy} onClosePeriod={(id) => runAction(() => closeFiscalPeriod(id), 'ماه مالی بسته شد.')} onReopenPeriod={(id) => runAction(() => reopenFiscalPeriod(id), 'ماه مالی بازگشایی شد.')} onCloseYear={(id) => runAction(() => closeFiscalYear(id), 'سال مالی بسته شد.')} onReopenYear={(id) => runAction(() => reopenFiscalYear(id), 'سال مالی بازگشایی شد.')} />}
       {!data.loading && tab === 'referrals' && <div className="accounting-grid"><ReferralPanel sourceModule="accounting" title="ارجاعات" defaultTarget="sales" /></div>}
       {!data.loading && tab === 'settings' && <SettingsSection numbering={data.numbering} ioDocuments={data.ioDocuments} lang={lang} busy={busy} onUpdateNumbering={(ruleKey, patch) => runAction(() => updateNumberingRule(ruleKey, patch), 'تنظیمات شماره‌گذاری ذخیره شد.')} onAddIo={(type) => runAction(() => createIoDocument({ io_type: type, title_fa: type === 'incoming' ? 'سند ورودی نمونه' : 'سند خروجی نمونه', source_module: 'accounting', status: 'registered' }), 'سند ورودی/خروجی ثبت شد.')} />}
@@ -399,7 +404,7 @@ function DocumentsCard({ title, docs, lang, t, full, onSelect, onEdit, busy, onC
   const th = (key, label) => <th><button className="sort-th" onClick={() => setSort(nextSort(sort, key))}>{label}<span>{sort.key === key ? (sort.dir === 'asc' ? '▲' : '▼') : '↕'}</span></button></th>;
   return <section className="finance-card invoice-list-card">
     <div className="finance-card-header between"><CardHeader icon={FileText} title={title} bare />{full && <button className="mini-btn" onClick={() => exportDocuments(rows, lang)}>{t.exportCsv}</button>}</div>
-    {rows.length === 0 ? <Empty t={t} /> : <div className="table-scroll limited-list"><table className="finance-table"><thead><tr>{th('doc_number','شماره')}{th('issue_date','تاریخ')}{th('document_type','نوع')}{th('status','وضعیت')}{th('party_name','شخص')}{th('order_code','سفارش')}{th('total_amount','مبلغ')}{th('balance_amount','مانده')}{full && <th>عملیات</th>}</tr></thead><tbody>{rows.map((d) => <tr key={d.id} className={d.is_overdue ? 'overdue clickable-row' : 'clickable-row'} onClick={() => onSelect?.(d.id)}><td dir="ltr">{d.doc_number}</td><td>{formatDate(d.issue_date, lang)}</td><td>{docLabel(d.document_type, lang)}</td><td><StatusBadge status={d.status} lang={lang} /></td><td>{d.party_name || '—'}</td><td dir="ltr">{d.order_code || '—'}</td><td>{formatMoney(d.total_amount, lang)}</td><td className={Number(d.balance_amount) > 0 ? 'negative-soft' : 'positive'}>{formatMoney(d.balance_amount, lang)}</td>{full && <td className="actions-cell" onClick={(e)=>e.stopPropagation()}><button disabled={busy} onClick={() => onSelect?.(d.id)}>جزئیات</button><button disabled={busy || ['void','cancelled'].includes(d.status)} title={['draft','pending_approval'].includes(d.status) ? 'ویرایش پیش‌نویس' : 'اصلاح فاکتور تأییدشده و همگام‌سازی اسناد'} onClick={() => onEdit?.(d.id)}>{['draft','pending_approval'].includes(d.status) ? 'ویرایش' : 'اصلاح'}</button>{d.document_type === 'sales_proforma' && <button disabled={busy} onClick={() => onConvert?.(d.id)}>تبدیل</button>}{d.document_type === 'sales_invoice' && <button disabled={busy} onClick={() => onReturn?.(d.id)}>برگشتی</button>}<button disabled={busy || d.status === 'void'} onClick={() => onVoid?.(d.id)}>ابطال</button><button onClick={() => printSimpleDocument(d, lang)}>PDF</button></td>}</tr>)}</tbody></table></div>}
+    {rows.length === 0 ? <Empty t={t} /> : <div className="table-scroll limited-list"><table className="finance-table"><thead><tr>{th('doc_number','شماره')}{th('issue_date','تاریخ')}{th('document_type','نوع')}{th('status','وضعیت')}{th('party_name','شخص')}{th('order_code','سفارش')}{th('total_amount','مبلغ')}{th('balance_amount','مانده')}{full && <th>عملیات</th>}</tr></thead><tbody>{rows.map((d) => <tr key={d.id} className={d.is_overdue ? 'overdue clickable-row' : 'clickable-row'} onClick={() => onSelect?.(d.id)}><td dir="ltr">{d.doc_number}</td><td>{formatDate(d.issue_date, lang)}</td><td>{docLabel(d.document_type, lang)}</td><td><StatusBadge status={d.status} lang={lang} /></td><td>{d.party_name || '—'}</td><td dir="ltr">{d.order_code || '—'}</td><td>{formatMoney(d.total_amount, lang)}</td><td className={Number(d.balance_amount) > 0 ? 'negative-soft' : 'positive'}>{formatMoney(d.balance_amount, lang)}</td>{full && <td className="actions-cell" onClick={(e)=>e.stopPropagation()}><button disabled={busy} onClick={() => onSelect?.(d.id)}>جزئیات</button><button disabled={busy || ['void','cancelled'].includes(d.status)} title={['draft','pending_approval'].includes(d.status) ? 'ویرایش پیش‌نویس' : 'اصلاح فاکتور تأییدشده و همگام‌سازی اسناد'} onClick={() => onEdit?.(d.id)}>{['draft','pending_approval'].includes(d.status) ? 'ویرایش' : 'اصلاح'}</button><button className="note-action" disabled={busy || ['void','cancelled'].includes(d.status)} title="ثبت / ویرایش جزئیات زیر فاکتور در چاپ" onClick={() => onEdit?.(d.id)}>📝 جزئیات</button>{d.document_type === 'sales_proforma' && <button disabled={busy} onClick={() => onConvert?.(d.id)}>تبدیل</button>}{d.document_type === 'sales_invoice' && <button disabled={busy} onClick={() => onReturn?.(d.id)}>برگشتی</button>}<button disabled={busy || d.status === 'void'} onClick={() => onVoid?.(d.id)}>ابطال</button><button onClick={() => printSimpleDocument(d, lang)}>PDF</button></td>}</tr>)}</tbody></table></div>}
   </section>;
 }
 
@@ -445,7 +450,7 @@ function CashFlowSection({ accounts, bankAccounts = [], ledger, investments, lan
   const [filters, setFilters] = useState({ accountId: 'all', direction: 'all', from: '', to: '', q: '' });
   const [sort, setSort] = useState({ key: 'payment_date', dir: 'desc' });
   const detailsById = useMemo(() => Object.fromEntries((bankAccounts || []).map((a) => [a.id, a])), [bankAccounts]);
-  const enrichedAccounts = useMemo(() => accounts.map((a) => ({ ...a, ...(detailsById[a.account_id] || {}) })), [accounts, detailsById]);
+  const enrichedAccounts = useMemo(() => accounts.map((a) => ({ ...a, ...(detailsById[a.account_id] || {}) })).filter((a) => a.is_active !== false), [accounts, detailsById]);
   const filtered = useMemo(() => sortRows(ledger.filter((r) => (filters.accountId === 'all' || r.account_id === filters.accountId) && (filters.direction === 'all' || r.direction === filters.direction) && (!filters.from || r.payment_date >= filters.from) && (!filters.to || r.payment_date <= filters.to) && (!filters.q || `${r.payment_number || ''} ${r.party_name || ''} ${r.description || ''}`.includes(filters.q))), sort), [ledger, filters, sort]);
   const th = (key, label) => <th><button className="sort-th" onClick={() => setSort(nextSort(sort, key))}>{label}<span>{sort.key === key ? (sort.dir === 'asc' ? '▲' : '▼') : '↕'}</span></button></th>;
   return <div className="accounting-grid cashflow-layout finance-cashflow-full">
@@ -473,7 +478,8 @@ function BankFlipCard({ account, lang, onEdit, onDelete, isAdmin }) {
         <b>{account.account_name}</b>
         <strong>{formatMoney(account.current_balance, lang)}</strong>
         <small>واریز {formatMoney(account.total_receipts, lang)} · برداشت {formatMoney(account.total_payments, lang)}</small>
-        <em>{isBank ? 'کلیک برای مشخصات حساب' : 'گردش صندوق'}</em>
+        {isBank && <div className="bank-front-actions"><button type="button" onClick={(e)=>{e.stopPropagation(); onEdit?.(account);}}>ویرایش</button><button type="button" className="danger" title={isAdmin ? 'حذف/غیرفعال‌سازی با تأیید مدیر' : 'حذف کارت فقط با دسترسی مدیر کل مجاز است'} onClick={(e)=>{e.stopPropagation(); onDelete?.(account);}}>حذف</button></div>}
+        <em>{isBank ? 'کلیک روی کارت برای مشخصات کامل' : 'گردش صندوق'}</em>
       </div>
       <div className="bank-card-face bank-card-back">
         <div className="bank-back-scroll">
@@ -496,7 +502,7 @@ function BankFlipCard({ account, lang, onEdit, onDelete, isAdmin }) {
 }
 
 function BankAccountDeleteModal({ account, busy, isAdmin, onClose, onConfirm }) {
-  const [reason, setReason] = useState('');
+  const [reason, setReason] = useState('حذف/غیرفعال‌سازی کارت بانکی با تأیید مدیر');
   return <FinanceModal title="حذف / غیرفعال‌سازی کارت بانکی" onClose={onClose}>
     <div className="confirm-finance bank-delete-confirm">
       {!isAdmin ? <>
@@ -653,7 +659,7 @@ function printItemKardex(item, rows, lang) {
   openOfficialFinancePrint({
     title,
     reportLabel: 'کاردکس کالا',
-    subtitle: 'بوشهر، بهمنی، نخلج فارس، پردیس فناوری',
+    subtitle: 'بوشهر، بهمنی، خلیج فارس، پردیس فناوری',
     body: `
       <section class="box-row">
         <div class="box-grid four">
@@ -728,27 +734,36 @@ function SimpleChecksTable({ rows, lang, busy, onChangeStatus }) {
 }
 
 
-function LoansSection({ loans = [], installments = [], payments = [], lang, busy, onNewLoan, onPayInstallment }) {
-  const [selectedId, setSelectedId] = useState(loans[0]?.id || '');
-  const selected = loans.find((loan) => loan.id === selectedId) || loans[0];
-  const selectedInstallments = installments.filter((i) => i.loan_id === selected?.id);
-  const totals = loans.reduce((acc, loan) => {
+
+function LoansSection({ loans = [], installments = [], payments = [], lang, busy, onNewLoan, onEditLoan, onDeleteLoan, onPayInstallment }) {
+  const activeLoans = loans.filter((loan) => !['archived', 'cancelled'].includes(loan.status));
+  const [selectedId, setSelectedId] = useState(activeLoans[0]?.id || '');
+  const selected = activeLoans.find((loan) => loan.id === selectedId) || activeLoans[0];
+  const selectedInstallments = installments.filter((i) => i.loan_id === selected?.id && i.status !== 'cancelled');
+  const totals = activeLoans.reduce((acc, loan) => {
     acc.totalDebt += Number(loan.remaining_debt || 0);
     acc.overdue += Number(loan.overdue_amount || 0);
     acc.paid += Number(loan.paid_total || 0);
     return acc;
   }, { totalDebt: 0, overdue: 0, paid: 0 });
-  const dueThisMonth = installments.filter((i) => i.status !== 'paid' && String(i.due_date || '').slice(0,7) === new Date().toISOString().slice(0,7)).reduce((s, i) => s + Number(i.amount_due || 0), 0);
-  return <div className="accounting-grid loans-workspace"><section className="finance-card loan-overview-card"><div className="finance-card-header between"><CardHeader icon={WalletCards} title="وام‌های شرکت" bare /><button className="mini-btn primary-soft" onClick={onNewLoan}>＋ افزودن وام</button></div><div className="loan-kpis"><Info label="جمع بدهی وام‌ها" value={formatMoney(totals.totalDebt, lang)} highlight /><Info label="اقساط عقب‌افتاده" value={formatMoney(totals.overdue, lang)} highlight={totals.overdue > 0} /><Info label="پرداخت‌شده" value={formatMoney(totals.paid, lang)} /><Info label="سررسید این ماه" value={formatMoney(dueThisMonth, lang)} /></div>{loans.length === 0 ? <Empty t={{noData:'وامی ثبت نشده است.'}} /> : <div className="loan-card-grid">{loans.map((loan) => <button key={loan.id} className={selected?.id === loan.id ? 'loan-card active' : 'loan-card'} onClick={() => setSelectedId(loan.id)}><span>{loan.loan_number}</span><b>{loan.title_fa}</b><small>{loan.lender_name} · {loan.bank_name || '—'}</small><strong>{formatMoney(loan.remaining_debt, lang)}</strong><em>{loan.overdue_installments > 0 ? `${formatNumber(loan.overdue_installments, lang)} قسط عقب‌افتاده` : 'طبق برنامه'}</em></button>)}</div>}</section><section className="finance-card loan-installments-card"><div className="finance-card-header between"><CardHeader icon={ListChecks} title={selected ? `اقساط وام: ${selected.title_fa}` : 'اقساط وام'} bare />{selected && <span className="finance-note">قسط پرداخت‌شده را با سند پرداخت بانک/صندوق مرتبط کنید.</span>}</div>{!selected ? <Empty t={{noData:'یک وام را انتخاب کنید.'}} /> : selectedInstallments.length === 0 ? <Empty t={{noData:'قسطی برای این وام ثبت نشده است.'}} /> : <div className="table-scroll limited-list tall"><table className="finance-table"><thead><tr><th>قسط</th><th>سررسید</th><th>مبلغ</th><th>پرداخت‌شده</th><th>وضعیت</th><th>سند پرداخت</th><th>عملیات</th></tr></thead><tbody>{selectedInstallments.map((i) => <tr key={i.id} className={i.status === 'overdue' ? 'overdue' : ''}><td>{formatNumber(i.installment_no, lang)}</td><td>{formatDate(i.due_date, lang)}</td><td>{formatMoney(i.amount_due, lang)}</td><td>{i.paid_amount ? formatMoney(i.paid_amount, lang) : '—'}</td><td><StatusBadge status={i.status} lang={lang} /></td><td dir="ltr">{i.payment_number || '—'}</td><td><button className="mini-btn" disabled={busy || i.status === 'paid'} onClick={() => onPayInstallment(i)}>{i.status === 'paid' ? 'پرداخت شده' : 'ثبت پرداخت'}</button></td></tr>)}</tbody></table></div>}</section></div>;
+  const dueThisMonth = installments.filter((i) => i.status !== 'paid' && i.status !== 'cancelled' && String(i.due_date || '').slice(0,7) === new Date().toISOString().slice(0,7)).reduce((s, i) => s + Number(i.amount_due || 0), 0);
+  return <div className="accounting-grid loans-workspace"><section className="finance-card loan-overview-card"><div className="finance-card-header between"><CardHeader icon={WalletCards} title="وام‌های شرکت" bare /><button className="mini-btn primary-soft" onClick={onNewLoan}>＋ افزودن وام</button></div><div className="loan-kpis"><Info label="جمع بدهی وام‌ها" value={formatMoney(totals.totalDebt, lang)} highlight /><Info label="اقساط عقب‌افتاده" value={formatMoney(totals.overdue, lang)} highlight={totals.overdue > 0} /><Info label="پرداخت‌شده" value={formatMoney(totals.paid, lang)} /><Info label="سررسید این ماه" value={formatMoney(dueThisMonth, lang)} /></div>{activeLoans.length === 0 ? <Empty t={{noData:'وامی ثبت نشده است.'}} /> : <div className="loan-card-grid">{activeLoans.map((loan) => <article key={loan.id} className={selected?.id === loan.id ? 'loan-card active' : 'loan-card'} onClick={() => setSelectedId(loan.id)}><span>{loan.loan_number}</span><b>{loan.title_fa}</b><small>{loan.lender_name} · {loan.bank_name || '—'}</small><strong>{formatMoney(loan.remaining_debt, lang)}</strong><em>{loan.overdue_installments > 0 ? `${formatNumber(loan.overdue_installments, lang)} قسط عقب‌افتاده` : loan.status === 'closed' ? 'تسویه/بسته‌شده' : 'طبق برنامه'}</em><div className="loan-card-actions"><button type="button" onClick={(e)=>{e.stopPropagation();onEditLoan?.(loan);}}>ویرایش وام</button><button type="button" className="danger" onClick={(e)=>{e.stopPropagation();onDeleteLoan?.(loan);}}>حذف وام</button></div></article>)}</div>}</section><section className="finance-card loan-installments-card"><div className="finance-card-header between"><CardHeader icon={ListChecks} title={selected ? `اقساط وام: ${selected.title_fa}` : 'اقساط وام'} bare />{selected && <span className="finance-note">قسط پرداخت‌شده را با سند پرداخت بانک/صندوق مرتبط کنید.</span>}</div>{!selected ? <Empty t={{noData:'یک وام را انتخاب کنید.'}} /> : selectedInstallments.length === 0 ? <Empty t={{noData:'قسطی برای این وام ثبت نشده است.'}} /> : <div className="table-scroll limited-list tall"><table className="finance-table"><thead><tr><th>قسط</th><th>سررسید</th><th>مبلغ</th><th>پرداخت‌شده</th><th>وضعیت</th><th>سند پرداخت</th><th>عملیات</th></tr></thead><tbody>{selectedInstallments.map((i) => <tr key={i.id} className={i.status === 'overdue' ? 'overdue' : ''}><td>{formatNumber(i.installment_no, lang)}</td><td>{formatDate(i.due_date, lang)}</td><td>{formatMoney(i.amount_due, lang)}</td><td>{i.paid_amount ? formatMoney(i.paid_amount, lang) : '—'}</td><td><StatusBadge status={i.status} lang={lang} /></td><td dir="ltr">{i.payment_number || '—'}</td><td><button className="mini-btn" disabled={busy || i.status === 'paid'} onClick={() => onPayInstallment(i)}>{i.status === 'paid' ? 'پرداخت شده' : 'ثبت پرداخت'}</button></td></tr>)}</tbody></table></div>}</section></div>;
 }
 
-function LoanModal({ busy, onClose, onSubmit }) {
-  const [form, setForm] = useState({ title_fa: '', lender_name: '', lender_type: 'bank', bank_name: '', principal_amount: 0, total_payable_amount: 0, installment_count: 12, installment_interval_months: 1, interest_rate: 0, received_date: new Date().toISOString().slice(0,10), first_due_date: new Date().toISOString().slice(0,10), notes: '' });
+function LoanModal({ initial, busy, onClose, onSubmit }) {
+  const [form, setForm] = useState({ title_fa: initial?.title_fa || '', lender_name: initial?.lender_name || '', lender_type: initial?.lender_type || 'bank', bank_name: initial?.bank_name || '', principal_amount: initial?.principal_amount || 0, total_payable_amount: initial?.total_payable_amount || initial?.principal_amount || 0, installment_count: initial?.installment_count || 12, installment_interval_months: initial?.installment_interval_months || 1, interest_rate: initial?.interest_rate || 0, received_date: initial?.received_date || new Date().toISOString().slice(0,10), first_due_date: initial?.first_due_date || new Date().toISOString().slice(0,10), status: initial?.status || 'active', notes: initial?.notes || '' });
   const total = Number(form.total_payable_amount || form.principal_amount || 0);
   const count = Math.max(1, Number(form.installment_count || 1));
   const monthly = Math.round(total / count);
-  return <FinanceModal title="ثبت وام جدید" onClose={onClose}><form onSubmit={(e)=>{e.preventDefault();onSubmit({ loan: form });}}><div className="finance-form-grid"><label className="finance-field"><span>عنوان وام</span><input value={form.title_fa} onChange={(e)=>setForm({...form,title_fa:e.target.value})} required placeholder="مثلاً وام سرمایه در گردش" /></label><label className="finance-field"><span>وام‌دهنده / بانک</span><input value={form.lender_name} onChange={(e)=>setForm({...form,lender_name:e.target.value})} required /></label><label className="finance-field"><span>نام بانک</span><input value={form.bank_name} onChange={(e)=>setForm({...form,bank_name:e.target.value})} /></label><label className="finance-field"><span>نوع وام‌دهنده</span><select value={form.lender_type} onChange={(e)=>setForm({...form,lender_type:e.target.value})}><option value="bank">بانک</option><option value="person">شخص</option><option value="company">شرکت</option><option value="other">سایر</option></select></label><label className="finance-field"><span>مبلغ اصل وام ریال</span><input type="number" value={form.principal_amount} onChange={(e)=>setForm({...form,principal_amount:e.target.value,total_payable_amount:form.total_payable_amount||e.target.value})} /></label><label className="finance-field"><span>جمع قابل پرداخت ریال</span><input type="number" value={form.total_payable_amount} onChange={(e)=>setForm({...form,total_payable_amount:e.target.value})} /></label><label className="finance-field"><span>تعداد ماه/اقساط</span><input type="number" value={form.installment_count} onChange={(e)=>setForm({...form,installment_count:e.target.value})} /></label><label className="finance-field"><span>فاصله اقساط ماه</span><input type="number" value={form.installment_interval_months} onChange={(e)=>setForm({...form,installment_interval_months:e.target.value})} /></label><label className="finance-field"><span>نرخ سود %</span><input type="number" value={form.interest_rate} onChange={(e)=>setForm({...form,interest_rate:e.target.value})} /></label><label className="finance-field"><span>تاریخ دریافت وام</span><JalaliDateInput value={form.received_date} onChange={(v)=>setForm({...form,received_date:v})}/></label><label className="finance-field"><span>اولین سررسید</span><JalaliDateInput value={form.first_due_date} onChange={(v)=>setForm({...form,first_due_date:v})}/></label><label className="finance-field"><span>مبلغ تقریبی هر قسط</span><input readOnly value={monthly} /></label><label className="finance-field full"><span>جزئیات / توضیحات</span><textarea value={form.notes} onChange={(e)=>setForm({...form,notes:e.target.value})}/></label></div><div className="finance-note">سیستم بر اساس تعداد اقساط و تاریخ اولین سررسید، جدول اقساط ماهانه را خودکار می‌سازد.</div><div className="finance-form-actions"><button type="button" onClick={onClose}>انصراف</button><button type="submit" disabled={busy || !form.title_fa || !form.lender_name}>{busy?'در حال ثبت...':'ثبت وام و اقساط'}</button></div></form></FinanceModal>;
+  const title = initial ? `ویرایش وام ${initial.loan_number || ''}` : 'ثبت وام جدید';
+  return <FinanceModal title={title} onClose={onClose}><form onSubmit={(e)=>{e.preventDefault();onSubmit({ loan: form, regenerateInstallments: true });}}><div className="finance-form-grid"><label className="finance-field"><span>عنوان وام</span><input value={form.title_fa} onChange={(e)=>setForm({...form,title_fa:e.target.value})} required placeholder="مثلاً وام سرمایه در گردش" /></label><label className="finance-field"><span>وام‌دهنده / بانک</span><input value={form.lender_name} onChange={(e)=>setForm({...form,lender_name:e.target.value})} required /></label><label className="finance-field"><span>نام بانک</span><input value={form.bank_name} onChange={(e)=>setForm({...form,bank_name:e.target.value})} /></label><label className="finance-field"><span>نوع وام‌دهنده</span><select value={form.lender_type} onChange={(e)=>setForm({...form,lender_type:e.target.value})}><option value="bank">بانک</option><option value="person">شخص</option><option value="company">شرکت</option><option value="other">سایر</option></select></label><label className="finance-field"><span>مبلغ اصل وام ریال</span><input type="number" value={form.principal_amount} onChange={(e)=>setForm({...form,principal_amount:e.target.value,total_payable_amount:form.total_payable_amount||e.target.value})} /></label><label className="finance-field"><span>جمع قابل پرداخت ریال</span><input type="number" value={form.total_payable_amount} onChange={(e)=>setForm({...form,total_payable_amount:e.target.value})} /></label><label className="finance-field"><span>تعداد ماه/اقساط</span><input type="number" value={form.installment_count} onChange={(e)=>setForm({...form,installment_count:e.target.value})} /></label><label className="finance-field"><span>فاصله اقساط ماه</span><input type="number" value={form.installment_interval_months} onChange={(e)=>setForm({...form,installment_interval_months:e.target.value})} /></label><label className="finance-field"><span>نرخ سود %</span><input type="number" value={form.interest_rate} onChange={(e)=>setForm({...form,interest_rate:e.target.value})} /></label><label className="finance-field"><span>تاریخ دریافت وام</span><JalaliDateInput value={form.received_date} onChange={(v)=>setForm({...form,received_date:v})}/></label><label className="finance-field"><span>اولین سررسید</span><JalaliDateInput value={form.first_due_date} onChange={(v)=>setForm({...form,first_due_date:v})}/></label><label className="finance-field"><span>مبلغ تقریبی هر قسط</span><input readOnly value={monthly} /></label>{initial && <label className="finance-field"><span>وضعیت</span><select value={form.status} onChange={(e)=>setForm({...form,status:e.target.value})}><option value="active">فعال</option><option value="closed">بسته/تسویه</option><option value="cancelled">لغوشده</option><option value="archived">بایگانی</option></select></label>}<label className="finance-field full"><span>جزئیات / توضیحات</span><textarea value={form.notes} onChange={(e)=>setForm({...form,notes:e.target.value})}/></label></div><div className="finance-note warning">{initial ? 'با ویرایش مبلغ، تعداد اقساط یا تاریخ سررسید، اقساط پرداخت‌نشده دوباره بر اساس اطلاعات جدید ساخته/به‌روزرسانی می‌شوند؛ اقساط پرداخت‌شده حفظ می‌شوند.' : 'سیستم بر اساس تعداد اقساط و تاریخ اولین سررسید، جدول اقساط ماهانه را خودکار می‌سازد.'}</div><div className="finance-form-actions"><button type="button" onClick={onClose}>انصراف</button><button type="submit" disabled={busy || !form.title_fa || !form.lender_name}>{busy?'در حال ذخیره...':initial?'ذخیره ویرایش وام':'ثبت وام و اقساط'}</button></div></form></FinanceModal>;
 }
+
+function LoanDeleteModal({ loan, busy, onClose, onConfirm }) {
+  const [reason, setReason] = useState('حذف/بایگانی وام از لیست فعال');
+  return <FinanceModal title="حذف / بایگانی وام" onClose={onClose}><div className="confirm-finance loan-delete-confirm"><p>آیا مطمئن هستید وام «{loan?.loan_number} · {loan?.title_fa}» از لیست فعال حذف/بایگانی شود؟</p><p className="muted">این عملیات امن است؛ وام واقعاً از دیتابیس پاک نمی‌شود، فقط بایگانی می‌شود و اقساط پرداخت‌نشده لغو می‌شوند تا سابقه پرداخت‌ها باقی بماند.</p><textarea value={reason} onChange={(e)=>setReason(e.target.value)} placeholder="دلیل حذف/بایگانی وام..." autoFocus /><div className="finance-form-actions"><button type="button" onClick={onClose}>انصراف</button><button className="danger-btn" disabled={busy || !reason.trim()} onClick={()=>onConfirm(reason)}>تأیید حذف وام</button></div></div></FinanceModal>;
+}
+
 
 function LoanPaymentModal({ installment, payments = [], busy, onClose, onSubmit }) {
   const payablePayments = payments.filter((p) => p.direction === 'payment' && p.status === 'confirmed');
@@ -771,9 +786,32 @@ function SettingsSection({ numbering, ioDocuments, lang, busy, onUpdateNumbering
   return <div className="accounting-grid two"><section className="finance-card"><CardHeader icon={Settings} title="تنظیمات و شماره‌گذاری مرکزی" />{numbering.length === 0 ? <Empty t={{ noData: 'قواعد شماره‌گذاری هنوز اجرا نشده‌اند.' }} /> : <div className="table-scroll limited-list"><table className="finance-table"><thead><tr><th>عنوان</th><th>پیشوند</th><th>دوره</th><th>آخرین شماره</th><th>شماره بعدی</th><th>عملیات</th></tr></thead><tbody>{numbering.map((r) => <tr key={r.rule_key}><td>{lang === 'fa' ? r.label_fa : r.label_en}</td><td dir="ltr">{r.prefix}</td><td>{r.reset_scope}</td><td>{r.current_counter}</td><td dir="ltr"><b>{r.next_number_preview}</b></td><td><button className="mini-btn" disabled={busy} onClick={() => setEditing({ ...r })}>تنظیم</button></td></tr>)}</tbody></table></div>}{editing && <div className="numbering-editor"><h3>ویرایش شماره‌گذاری</h3><label><span>پیشوند</span><input value={editing.prefix} onChange={(e)=>setEditing({...editing,prefix:e.target.value})}/></label><label><span>تعداد رقم</span><input type="number" value={editing.padding} onChange={(e)=>setEditing({...editing,padding:e.target.value})}/></label><label><span>جداکننده</span><input value={editing.separator} onChange={(e)=>setEditing({...editing,separator:e.target.value})}/></label><div><button onClick={()=>setEditing(null)}>انصراف</button><button disabled={busy} onClick={saveRule}>ذخیره</button></div></div>}</section><section className="finance-card"><div className="finance-card-header between"><CardHeader icon={FileText} title="اسناد ورودی / خروجی" bare /><div className="actions-cell"><button disabled={busy} onClick={() => onAddIo('incoming')}>＋ ورودی</button><button disabled={busy} onClick={() => onAddIo('outgoing')}>＋ خروجی</button></div></div>{ioDocuments.length === 0 ? <Empty t={{ noData: 'سند ورودی/خروجی ثبت نشده است.' }} /> : <div className="table-scroll limited-list"><table className="finance-table"><thead><tr><th>شماره</th><th>نوع</th><th>عنوان</th><th>تاریخ</th></tr></thead><tbody>{ioDocuments.map((d) => <tr key={d.id}><td dir="ltr">{d.io_number}</td><td>{d.io_type === 'incoming' ? 'ورودی' : 'خروجی'}</td><td>{d.title_fa}</td><td>{formatDate(d.registered_at, lang)}</td></tr>)}</tbody></table></div>}</section></div>;
 }
 
-function ProfitCard({ rows, lang, t, full, onAddCost }) {
-  return <section className="finance-card"><div className="finance-card-header between"><CardHeader icon={BarChart3} title="سود و زیان سفارش‌ها" bare />{full && <span className="finance-note">هزینه‌ها از تولید، R&D، خرید/هزینه و هزینه دستی سفارش جمع می‌شوند.</span>}</div>{rows.length === 0 ? <Empty t={t} /> : <div className="table-scroll limited-list tall"><table className="finance-table"><thead><tr><th>سفارش</th><th>مشتری</th><th>درآمد</th><th>هزینه</th><th>سود</th><th>حاشیه</th>{full && <th>هزینه دستی</th>}</tr></thead><tbody>{rows.map((r) => <tr key={r.order_id}><td dir="ltr">{r.order_code}</td><td>{r.company_name || r.title_fa}</td><td>{formatMoney(r.revenue_before_tax, lang)}</td><td>{formatMoney(r.cost_before_tax, lang)}</td><td className={Number(r.gross_profit) >= 0 ? 'positive' : 'negative'}>{formatMoney(r.gross_profit, lang)}</td><td>{r.gross_margin_pct == null ? '—' : `${formatNumber(r.gross_margin_pct, lang)}٪`}</td>{full && <td><button className="mini-btn" onClick={() => onAddCost?.(r)}>ثبت هزینه</button></td>}</tr>)}</tbody></table>{full && <p className="finance-note">برای ثبت هزینه‌های مستقیم مثل حمل، بسته‌بندی، دستمزد یا اصلاح تولید، روی «ثبت هزینه» همان سفارش بزنید.</p>}</div>}</section>;
+function ProfitCard({ rows, lang, t, full, onAddCost, orderCosts = [] }) {
+  const [detailOrder, setDetailOrder] = useState(null);
+  const costsByOrder = useMemo(() => orderCosts.reduce((map, cost) => {
+    const id = cost.order_id || cost.related_order_id;
+    if (!id) return map;
+    if (!map[id]) map[id] = [];
+    map[id].push(cost);
+    return map;
+  }, {}), [orderCosts]);
+  const selectedCosts = detailOrder ? (costsByOrder[detailOrder.order_id] || []) : [];
+  return <section className="finance-card"><div className="finance-card-header between"><CardHeader icon={BarChart3} title="سود و زیان سفارش‌ها" bare />{full && <span className="finance-note">برای دیدن ریز هزینه‌ها روی ردیف سفارش یا مبلغ هزینه کلیک کنید.</span>}</div>{rows.length === 0 ? <Empty t={t} /> : <div className="table-scroll limited-list tall"><table className="finance-table profitability-table"><thead><tr><th>سفارش</th><th>مشتری</th><th>درآمد</th><th>هزینه</th><th>سود</th><th>حاشیه</th>{full && <th>هزینه دستی</th>}</tr></thead><tbody>{rows.map((r) => { const costCount = (costsByOrder[r.order_id] || []).length; return <tr key={r.order_id} className="clickable-row profitability-clickable-row" onClick={() => setDetailOrder(r)} title="مشاهده ریز هزینه‌های این سفارش"><td dir="ltr">{r.order_code}</td><td>{r.company_name || r.title_fa}</td><td>{formatMoney(r.revenue_before_tax, lang)}</td><td><button type="button" className="cost-detail-link" onClick={(e)=>{e.stopPropagation();setDetailOrder(r);}}>{formatMoney(r.cost_before_tax, lang)}<small>{costCount ? `${formatNumber(costCount, lang)} ردیف` : 'بدون ریز'}</small></button></td><td className={Number(r.gross_profit) >= 0 ? 'positive' : 'negative'}>{formatMoney(r.gross_profit, lang)}</td><td>{r.gross_margin_pct == null ? '—' : `${formatNumber(r.gross_margin_pct, lang)}٪`}</td>{full && <td onClick={(e)=>e.stopPropagation()}><button className="mini-btn" onClick={() => onAddCost?.(r)}>ثبت هزینه</button></td>}</tr>; })}</tbody></table>{full && <p className="finance-note">هزینه‌ها از خرید/هزینه، تولید، R&D و هزینه دستی سفارش جمع می‌شوند. برای مشاهده ریز، روی ردیف کلیک کنید.</p>}</div>}{detailOrder && <OrderCostDetailsModal order={detailOrder} costs={selectedCosts} lang={lang} onClose={() => setDetailOrder(null)} />}</section>;
 }
+
+function OrderCostDetailsModal({ order, costs = [], lang, onClose }) {
+  const total = costs.reduce((sum, cost) => sum + Number(cost.amount || 0), 0);
+  const sortedCosts = useMemo(() => [...costs].sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0)), [costs]);
+  return <div className="finance-detail-modal-backdrop cost-detail-backdrop" onMouseDown={(e)=>e.target===e.currentTarget&&onClose()}><div className="finance-detail-modal cost-detail-modal"><section className="finance-card document-detail-card"><header className="detail-header"><div><span className="detail-eyebrow">ریز هزینه‌های سفارش</span><h2 dir="ltr">{order.order_code || '—'}</h2><p>{order.company_name || order.title_fa || '—'}</p></div><div className="detail-header-actions"><Info label="جمع ریز هزینه‌ها" value={formatMoney(total, lang)} highlight /><button type="button" className="detail-close-btn" onClick={onClose}>×</button></div></header>{sortedCosts.length === 0 ? <Empty t={{ noData: 'برای این سفارش هنوز ریز هزینه‌ای ثبت نشده یا هزینه فقط از اسناد تجمیعی قدیمی آمده است.' }} /> : <div className="table-scroll limited-list tall"><table className="finance-table compact cost-detail-table"><thead><tr><th>تاریخ</th><th>منبع</th><th>نوع هزینه</th><th>شرح</th><th>مبلغ</th></tr></thead><tbody>{sortedCosts.map((cost, index) => <tr key={`${cost.source_type}-${cost.source_id}-${index}`}><td>{formatDate(cost.created_at, lang)}</td><td>{sourceTypeLabel(cost.source_type)}</td><td>{costTypeLabel(cost.cost_type)}</td><td>{cost.notes || '—'}</td><td className="payment-text">{formatMoney(cost.amount, lang)}</td></tr>)}</tbody><tfoot><tr><td colSpan={4}><b>جمع کل ریز هزینه‌ها</b></td><td className="payment-text"><b>{formatMoney(total, lang)}</b></td></tr></tfoot></table></div>}<div className="finance-note">اگر جمع ریز هزینه‌ها با ستون هزینه تفاوت داشت، بخشی از هزینه از فاکتورهای خرید/هزینه یا اسناد قدیمی تجمیعی آمده است. بعد از اجرای SQL 055، هزینه‌های اسنادی هم در همین جدول دیده می‌شوند.</div></section></div></div>;
+}
+
+function costTypeLabel(type) {
+  return ({ material: 'متریال', labor: 'دستمزد', overhead: 'سربار', purchase: 'خرید', rnd: 'R&D', warehouse: 'انبار', shipping: 'حمل', production: 'تولید', document: 'سند خرید/هزینه', other: 'سایر' }[type] || type || '—');
+}
+function sourceTypeLabel(type) {
+  return ({ manual_finance_cost: 'هزینه دستی مالی', production_bom: 'فرمول/تولید', rnd_cost: 'هزینه R&D', finance_document_cost: 'فاکتور خرید/هزینه', finance_document: 'سند مالی', manual: 'دستی' }[type] || type || '—');
+}
+
 
 function ReferralsCard({ rows, lang, t }) {
   return <section className="finance-card"><CardHeader icon={Link2} title="ارجاع و اسناد مالی" />{rows.length === 0 ? <Empty t={t} /> : <div className="referral-list">{rows.map((r) => <article key={r.id} className={`referral-card p${r.priority}`}><div><strong>{r.title_fa}</strong><small>{r.referral_number} · {moduleLabel(r.source_module, lang)} → {moduleLabel(r.target_module, lang)}</small></div><div className="referral-meta"><StatusBadge status={r.status} lang={lang} /><span>{r.due_date ? formatDate(r.due_date, lang) : '—'}</span></div></article>)}</div>}</section>;
@@ -809,7 +847,7 @@ function formatNumber(value, lang) { return new Intl.NumberFormat(lang === 'fa' 
 function formatMoney(value, lang) { return formatToman(value, lang); }
 function formatDate(value) { return formatJalaliDate(value); }
 
-const PARTY_IMPORT_HEADERS = ['نوع شخص', 'نام', 'تلفن', 'ایمیل', 'آدرس', 'مانده اول دوره', 'یادداشت'];
+const PARTY_IMPORT_HEADERS = ['نوع شخص', 'نام', 'تلفن', 'کد اقتصادی', 'شماره ثبت', 'شناسه ملی', 'کد پستی', 'آدرس', 'مانده اول دوره', 'یادداشت'];
 const PARTY_TYPE_IMPORT_MAP = {
   'مشتری': 'customer', customer: 'customer',
   'تأمین‌کننده': 'supplier', 'تامین‌کننده': 'supplier', 'تامین کننده': 'supplier', supplier: 'supplier',
@@ -832,7 +870,10 @@ function normalizePartyImportRows(rows = []) {
     party_type: normalizePartyType(firstValue(row, ['نوع شخص', 'party_type', 'type'])),
     display_name: String(firstValue(row, ['نام', 'نام شخص', 'display_name', 'name', 'customer_name']) || '').trim(),
     phone: String(firstValue(row, ['تلفن', 'موبایل', 'phone', 'mobile']) || '').trim(),
-    email: String(firstValue(row, ['ایمیل', 'email']) || '').trim(),
+    economic_code: String(firstValue(row, ['کد اقتصادی', 'کد اقتصادي', 'economic_code', 'economicCode']) || '').trim(),
+    registration_number: String(firstValue(row, ['شماره ثبت', 'registration_number', 'registrationNumber', 'register_no']) || '').trim(),
+    national_id: String(firstValue(row, ['شناسه ملی', 'شناسه ملي', 'national_id', 'nationalId']) || '').trim(),
+    postal_code: String(firstValue(row, ['کد پستی', 'کد پستي', 'postal_code', 'postalCode', 'zip']) || '').trim(),
     address: String(firstValue(row, ['آدرس', 'address']) || '').trim(),
     opening_balance: Number(firstValue(row, ['مانده اول دوره', 'opening_balance', 'balance']) || 0),
     notes: String(firstValue(row, ['یادداشت', 'توضیحات', 'notes']) || '').trim(),
@@ -840,11 +881,11 @@ function normalizePartyImportRows(rows = []) {
 }
 function downloadPartyImportTemplate() {
   const sampleRows = [
-    ['مشتری', 'شرکت نمونه پارسیان', '09120000000', 'info@example.com', 'تهران، خیابان نمونه', 0, 'مشتری انتقالی از سیستم قبلی'],
-    ['تأمین‌کننده', 'تأمین قطعات آریا', '02100000000', 'sales@supplier.com', 'اصفهان', 15000000, 'مانده اول دوره بستانکاری/بدهکاری با علامت عددی ثبت شود'],
+    ['مشتری', 'شرکت نمونه پارسیان', '09120000000', '14009489849', '13452', '14009467259', '75169-13817', 'تهران، خیابان نمونه', 0, 'مشتری انتقالی از سیستم قبلی'],
+    ['تأمین‌کننده', 'تأمین قطعات آریا', '02100000000', '11000000000', '2451', '10100000000', '81500-00000', 'اصفهان', 15000000, 'مانده اول دوره بستانکاری/بدهکاری با علامت عددی ثبت شود'],
   ];
   const ws = XLSX.utils.aoa_to_sheet([PARTY_IMPORT_HEADERS, ...sampleRows]);
-  ws['!cols'] = [{ wch: 16 }, { wch: 28 }, { wch: 18 }, { wch: 28 }, { wch: 42 }, { wch: 18 }, { wch: 42 }];
+  ws['!cols'] = [{ wch: 16 }, { wch: 28 }, { wch: 18 }, { wch: 18 }, { wch: 16 }, { wch: 18 }, { wch: 16 }, { wch: 42 }, { wch: 18 }, { wch: 42 }];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'parties');
   XLSX.writeFile(wb, 'finance_parties_import_template.xlsx');
@@ -876,18 +917,18 @@ function PartyImportModal({ busy, onClose, onSubmit }) {
   }
   return <FinanceModal title="ورود گروهی اشخاص از Excel" onClose={onClose}>
     <div className="party-import-modal">
-      <div className="finance-note">برای انتقال مشتریان از سیستم دیگر، فایل Excel را با قالب نمونه پر کنید. ستون‌های ضروری: نوع شخص، نام، تلفن، ایمیل، مانده اول دوره.</div>
+      <div className="finance-note">برای انتقال مشتریان از سیستم دیگر، فایل Excel را با قالب نمونه پر کنید. ستون‌های ضروری: نوع شخص، نام، تلفن؛ برای فاکتور رسمی ستون‌های کد اقتصادی، شماره ثبت، شناسه ملی و کد پستی را هم کامل کنید.</div>
       <div className="import-tools party-import-tools"><button type="button" onClick={downloadPartyImportTemplate}>دانلود قالب Excel نمونه</button><a className="template-link" href="/templates/finance_parties_import_template.xlsx" download>دانلود فایل نمونه آماده</a><input type="file" accept=".xlsx,.xls,.csv" onChange={handleFile} /></div>
       {error && <div className="accounting-message error">{error}</div>}
-      {rows.length > 0 && <><div className="finance-note success">{rows.length} ردیف معتبر آماده ثبت است.</div><div className="table-scroll limited-list"><table className="finance-table compact"><thead><tr><th>نوع</th><th>نام</th><th>تلفن</th><th>ایمیل</th><th>مانده اول دوره</th><th>یادداشت</th></tr></thead><tbody>{rows.slice(0, 30).map((row, i) => <tr key={i}><td>{partyTypeLabel(row.party_type, 'fa')}</td><td>{row.display_name}</td><td dir="ltr">{row.phone || '—'}</td><td dir="ltr">{row.email || '—'}</td><td>{formatMoney(row.opening_balance, 'fa')}</td><td>{row.notes || '—'}</td></tr>)}</tbody></table></div></>}
+      {rows.length > 0 && <><div className="finance-note success">{rows.length} ردیف معتبر آماده ثبت است.</div><div className="table-scroll limited-list"><table className="finance-table compact"><thead><tr><th>نوع</th><th>نام</th><th>تلفن</th><th>کد اقتصادی</th><th>شماره ثبت</th><th>شناسه ملی</th><th>کد پستی</th><th>مانده اول دوره</th><th>یادداشت</th></tr></thead><tbody>{rows.slice(0, 30).map((row, i) => <tr key={i}><td>{partyTypeLabel(row.party_type, 'fa')}</td><td>{row.display_name}</td><td dir="ltr">{row.phone || '—'}</td><td dir="ltr">{row.economic_code || '—'}</td><td dir="ltr">{row.registration_number || '—'}</td><td dir="ltr">{row.national_id || '—'}</td><td dir="ltr">{row.postal_code || '—'}</td><td>{formatMoney(row.opening_balance, 'fa')}</td><td>{row.notes || '—'}</td></tr>)}</tbody></table></div></>}
       <div className="finance-form-actions"><button type="button" onClick={onClose}>انصراف</button><button disabled={busy || rows.length === 0} onClick={() => onSubmit(rows)}>{busy ? 'در حال ثبت...' : `ثبت ${rows.length} شخص`}</button></div>
     </div>
   </FinanceModal>;
 }
 
 function PartyModal({ busy, onClose, onSubmit }) {
-  const [form, setForm] = useState({ party_type: 'customer', display_name: '', phone: '', email: '', address: '', opening_balance: 0, notes: '' });
-  return <FinanceModal title="ثبت شخص جدید" onClose={onClose}><div className="finance-form-grid"><label className="finance-field"><span>نوع شخص</span><select value={form.party_type} onChange={(e)=>setForm({...form,party_type:e.target.value})}><option value="customer">مشتری</option><option value="supplier">تأمین‌کننده</option><option value="employee">کارمند</option><option value="shareholder">سهامدار</option><option value="other">سایر</option></select></label><label className="finance-field"><span>نام</span><input value={form.display_name} onChange={(e)=>setForm({...form,display_name:e.target.value})} required/></label><label className="finance-field"><span>تلفن</span><input value={form.phone} onChange={(e)=>setForm({...form,phone:e.target.value})}/></label><label className="finance-field"><span>ایمیل</span><input value={form.email} onChange={(e)=>setForm({...form,email:e.target.value})}/></label><label className="finance-field"><span>مانده اول دوره</span><input type="number" value={form.opening_balance} onChange={(e)=>setForm({...form,opening_balance:e.target.value})}/></label><label className="finance-field full"><span>آدرس</span><textarea value={form.address} onChange={(e)=>setForm({...form,address:e.target.value})}/></label><label className="finance-field full"><span>یادداشت</span><textarea value={form.notes} onChange={(e)=>setForm({...form,notes:e.target.value})}/></label></div><div className="finance-form-actions"><button onClick={onClose}>انصراف</button><button disabled={busy || !form.display_name.trim()} onClick={()=>onSubmit(form)}>ثبت شخص</button></div></FinanceModal>;
+  const [form, setForm] = useState({ party_type: 'customer', display_name: '', phone: '', economic_code: '', registration_number: '', national_id: '', postal_code: '', address: '', opening_balance: 0, notes: '' });
+  return <FinanceModal title="ثبت شخص جدید" onClose={onClose}><div className="finance-form-grid"><label className="finance-field"><span>نوع شخص</span><select value={form.party_type} onChange={(e)=>setForm({...form,party_type:e.target.value})}><option value="customer">مشتری</option><option value="supplier">تأمین‌کننده</option><option value="employee">کارمند</option><option value="shareholder">سهامدار</option><option value="other">سایر</option></select></label><label className="finance-field"><span>نام</span><input value={form.display_name} onChange={(e)=>setForm({...form,display_name:e.target.value})} required/></label><label className="finance-field"><span>تلفن</span><input value={form.phone} onChange={(e)=>setForm({...form,phone:e.target.value})}/></label><label className="finance-field"><span>کد اقتصادی</span><input dir="ltr" value={form.economic_code} onChange={(e)=>setForm({...form,economic_code:e.target.value})}/></label><label className="finance-field"><span>شماره ثبت</span><input dir="ltr" value={form.registration_number} onChange={(e)=>setForm({...form,registration_number:e.target.value})}/></label><label className="finance-field"><span>شناسه ملی</span><input dir="ltr" value={form.national_id} onChange={(e)=>setForm({...form,national_id:e.target.value})}/></label><label className="finance-field"><span>کد پستی</span><input dir="ltr" value={form.postal_code} onChange={(e)=>setForm({...form,postal_code:e.target.value})}/></label><label className="finance-field"><span>مانده اول دوره</span><input type="number" value={form.opening_balance} onChange={(e)=>setForm({...form,opening_balance:e.target.value})}/></label><label className="finance-field full"><span>آدرس</span><textarea value={form.address} onChange={(e)=>setForm({...form,address:e.target.value})}/></label><label className="finance-field full"><span>یادداشت</span><textarea value={form.notes} onChange={(e)=>setForm({...form,notes:e.target.value})}/></label></div><div className="finance-form-actions"><button onClick={onClose}>انصراف</button><button disabled={busy || !form.display_name.trim()} onClick={()=>onSubmit(form)}>ثبت شخص</button></div></FinanceModal>;
 }
 
 function OrderCostModal({ order, busy, onClose, onSubmit }) {
@@ -912,7 +953,10 @@ function printSimpleDocument(d, lang) {
   openOfficialFinancePrint({
     title: `${docLabel(d.document_type, lang)} ${d.doc_number}`,
     reportLabel: docLabel(d.document_type, lang),
-    subtitle: 'بوشهر، بهمنی، نخلج فارس، پردیس فناوری',
+    subtitle: 'بوشهر، بهمنی، خلیج فارس، پردیس فناوری',
+    orientation: 'landscape',
+    layout: 'invoice',
+    meta: { number: d.doc_number, date: formatDate(d.issue_date, lang) },
     body: `<div class="section-label">خلاصه سند</div><section class="box-row"><div class="box-grid four"><div class="field"><b>شماره:</b><br><span dir="ltr">${htmlSafe(d.doc_number)}</span></div><div class="field"><b>شخص:</b> ${htmlSafe(d.party_name || '—')}</div><div class="field"><b>سفارش:</b> ${htmlSafe(d.order_code || '—')}</div><div class="field"><b>وضعیت:</b> ${STATUS_LABELS[d.status]?.[lang] || d.status}</div></div></section><section class="statement-summary"><div><span>مبلغ</span><strong class="money">${formatRial(d.total_amount)}</strong></div><div><span>پرداخت</span><strong class="money">${formatRial(d.paid_amount)}</strong></div><div><span>مانده</span><strong class="money">${formatRial(d.balance_amount)}</strong></div><div><span>مبلغ به حروف</span><strong>${rialToPersianWords(d.total_amount)}</strong></div></section><section class="signatures"><span>امضاء فروشنده</span><span>امضاء مالی</span><span>مهر شرکت</span></section>`,
   });
 }
@@ -945,13 +989,17 @@ function printStatement(party, rows, lang) {
   const lastBalance = rows.length ? Number(rows[rows.length - 1].running_balance || 0) : Number(party.balance || 0);
   const bodyRows = rows.map((r, index) => {
     const balance = Number(r.running_balance || 0);
-    return `<tr class="${index % 2 === 1 ? 'alt' : ''}"><td>${index + 1}</td><td>${formatDate(r.entry_date, lang)}</td><td class="desc">${htmlSafe(r.description || entryTypeLabel(r.entry_type, lang))}</td><td class="money">${Number(r.debit_amount || 0) ? formatRial(r.debit_amount) : '۰'}</td><td class="money">${Number(r.credit_amount || 0) ? formatRial(r.credit_amount) : '۰'}</td><td class="status-cell">${balance >= 0 ? 'بدهکار' : 'بستانکار'}</td><td class="money">${formatRial(Math.abs(balance))}</td><td dir="ltr">${htmlSafe(r.ref_number || '—')}</td></tr>`;
+    const desc = `${htmlSafe(r.description || entryTypeLabel(r.entry_type, lang))}${r.ref_number ? `<br><small>شماره سند: ${htmlSafe(r.ref_number)}</small>` : ''}`;
+    return `<tr class="${index % 2 === 1 ? 'alt' : ''}"><td>${index + 1}</td><td>${formatDate(r.entry_date, lang)}</td><td class="desc">${desc}</td><td class="money">${Number(r.debit_amount || 0) ? formatRial(r.debit_amount) : '۰'}</td><td class="money">${Number(r.credit_amount || 0) ? formatRial(r.credit_amount) : '۰'}</td><td class="status-cell">${balance >= 0 ? 'بدهکار' : 'بستانکار'}</td><td class="money">${formatRial(Math.abs(balance))}</td></tr>`;
   }).join('');
 
   openOfficialFinancePrint({
     title: `صورت‌حساب ${party.display_name}`,
-    reportLabel: `صورت حساب ${party.display_name}`,
-    subtitle: 'بوشهر، بهمنی، نخلج فارس، پردیس فناوری',
+    reportLabel: `گردش حساب شخص`,
+    subtitle: 'بوشهر، بهمنی، خلیج فارس، پردیس فناوری',
+    orientation: 'portrait',
+    layout: 'statement',
+    meta: { number: String(party.party_id || '').slice(0, 8), date: formatDate(new Date().toISOString().slice(0, 10), lang) },
     body: `
       <section class="box-row">
         <div class="box-grid four">
@@ -961,18 +1009,13 @@ function printStatement(party, rows, lang) {
           <div class="field"><b>تلفن:</b> ${htmlSafe(party.phone || party.email || '—')}</div>
         </div>
       </section>
-      <section class="statement-summary">
-        <div><span>جمع بدهکار</span><strong class="money">${formatRial(totalDebit)}</strong></div>
-        <div><span>جمع بستانکار</span><strong class="money">${formatRial(totalCredit)}</strong></div>
-        <div><span>تشخیص نهایی</span><strong>${lastBalance >= 0 ? 'بدهکار' : 'بستانکار'}</strong></div>
-        <div><span>مانده نهایی</span><strong class="money">${formatRial(Math.abs(lastBalance))}</strong></div>
-      </section>
       <table class="official-table">
-        <thead><tr><th>ردیف</th><th>تاریخ</th><th>شرح</th><th>بدهکار</th><th>بستانکار</th><th>تشخیص</th><th>مانده</th><th>شماره</th></tr></thead>
-        <tbody>${bodyRows || '<tr><td colspan="8">گردشی برای این شخص ثبت نشده است.</td></tr>'}</tbody>
+        <thead><tr><th>ردیف</th><th>تاریخ</th><th>شرح / شماره سند</th><th>بدهکار</th><th>بستانکار</th><th>تشخیص</th><th>مانده</th></tr></thead>
+        <tbody>${bodyRows || '<tr><td colspan="7">گردشی برای این شخص ثبت نشده است.</td></tr>'}</tbody>
+        <tfoot><tr class="alt"><td colspan="3"><b>جمع و مانده نهایی</b></td><td class="money"><b>${formatRial(totalDebit)}</b></td><td class="money"><b>${formatRial(totalCredit)}</b></td><td><b>${lastBalance >= 0 ? 'بدهکار' : 'بستانکار'}</b></td><td class="money"><b>${formatRial(Math.abs(lastBalance))}</b></td></tr></tfoot>
       </table>
       <div class="continued">${rows.length > 18 ? 'ادامه دارد ...' : ''}</div>
-      <div class="notes-box"><b>مانده به حروف:</b> ${rialToPersianWords(Math.abs(lastBalance))} ${lastBalance >= 0 ? 'بدهکار می‌باشد.' : 'بستانکار می‌باشد.'}</div>
+      <div class="notes-box"><b>مانده نهایی حساب:</b> ${formatRial(Math.abs(lastBalance))} ${lastBalance >= 0 ? 'بدهکار' : 'بستانکار'} است.<br><b>مانده به حروف:</b> ${rialToPersianWords(Math.abs(lastBalance))} ${lastBalance >= 0 ? 'بدهکار می‌باشد.' : 'بستانکار می‌باشد.'}</div>
       <section class="signatures"><span>امضاء حسابداری</span><span>امضاء تأییدکننده</span><span>مهر شرکت</span></section>
     `,
   });

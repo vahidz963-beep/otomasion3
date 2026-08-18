@@ -41,7 +41,8 @@ export default function Dashboard({ lang = 'fa' }) {
       { icon: FileWarning, title: 'پرداختنی فاکتورها', value: formatMoney(data.kpis?.payable_total || 0), accent: 'slate' },
       { icon: AlertTriangle, title: 'سررسید گذشته', value: formatMoney(data.kpis?.overdue_total || 0), accent: 'amber' }
     );
-    if (canWarehouse) list.push({ icon: Package, title: 'کم‌موجودی', value: data.kpis?.low_stock || 0, accent: 'red' });
+    // کمبود موجودی از KPIهای اصلی داشبورد حذف شد تا کارت‌های مدیریتی در دو ردیف تمیزتر بمانند.
+    // جزئیات کم‌موجودی همچنان در جدول «موجودی‌های کم» برای نقش انبار قابل مشاهده است.
     if (canProduction) list.push({ icon: Factory, title: 'تولید فعال', value: data.kpis?.active_production || 0, accent: 'slate' });
     if (canRnd) list.push({ icon: Users, title: 'R&D فعال', value: data.kpis?.active_rnd || 0, accent: 'violet' });
     if (canSales || canFinance || canWarehouse || canProduction || canRnd || canOffice) list.push({ icon: ClipboardList, title: 'ارجاعات باز', value: data.kpis?.open_referrals || 0, accent: 'amber', action: 'referrals' });

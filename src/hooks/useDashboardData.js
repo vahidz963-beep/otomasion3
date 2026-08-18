@@ -11,6 +11,13 @@ function dayKey(dateLike) {
   return d.toISOString().slice(0, 10);
 }
 
+function addDaysIso(dateLike, days) {
+  const d = new Date(`${String(dateLike).slice(0, 10)}T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return dateLike;
+  d.setUTCDate(d.getUTCDate() + Number(days || 0));
+  return d.toISOString().slice(0, 10);
+}
+
 function buildDays(dateFrom, dateTo) {
   const days = [];
   const start = new Date(dateFrom);
@@ -21,24 +28,27 @@ function buildDays(dateFrom, dateTo) {
   return days;
 }
 
-function isOrderCompleted(row) {
+function isOrderCompleted(row, stageMaxByOrder = new Map()) {
+  const currentStageOrder = Number(row?.stage_order || row?.current_stage_order || 0);
+  const maxStageOrder = Number(stageMaxByOrder.get(row?.id) || stageMaxByOrder.get(row?.order_id) || 0);
   return Boolean(
     row?.is_terminal
     || completedStages.has(row?.current_stage)
     || ['closed', 'completed', 'delivered'].includes(row?.delivery_status)
     || Number(row?.progress_percent || 0) >= 100
     || (Number(row?.total_stages || 0) > 0 && Number(row?.done_stages || 0) >= Number(row?.total_stages || 0))
+    || (maxStageOrder > 0 && currentStageOrder > 0 && currentStageOrder >= maxStageOrder)
   );
 }
 
-function buildTrends({ orders = [], completedOrders = [], payments = [], dateFrom, dateTo }) {
+function buildTrends({ orders = [], completedOrders = [], payments = [], dateFrom, dateTo, stageMaxByOrder = new Map() }) {
   const days = buildDays(dateFrom, dateTo);
   const byDay = Object.fromEntries(days.map((d) => [d.day, d]));
   const completedIds = new Set();
   orders.forEach((r) => {
     const created = dayKey(r.created_at || r.registered_at);
     if (created && byDay[created]) byDay[created].orders_created += 1;
-    if (isOrderCompleted(r) && r.updated_at) {
+    if (isOrderCompleted(r, stageMaxByOrder) && r.updated_at) {
       const completed = dayKey(r.updated_at);
       if (completed && byDay[completed] && !completedIds.has(r.id)) {
         byDay[completed].orders_completed += 1;
@@ -47,7 +57,7 @@ function buildTrends({ orders = [], completedOrders = [], payments = [], dateFro
     }
   });
   completedOrders.forEach((r) => {
-    if (!isOrderCompleted(r) || completedIds.has(r.id)) return;
+    if (!isOrderCompleted(r, stageMaxByOrder) || completedIds.has(r.id)) return;
     const completed = dayKey(r.updated_at || r.completed_at || r.created_at);
     if (completed && byDay[completed]) {
       byDay[completed].orders_completed += 1;
@@ -88,6 +98,7 @@ export function useDashboardData(filters) {
 
   const fetchData = useCallback(async () => {
     setState((s) => ({ ...s, loading: true, error: null }));
+    const dateToExclusive = addDaysIso(filters.dateTo, 1);
 
     const [ordersRes, completedOrdersRes, financeRes, paymentsRes, stockRes, referralsRes, productionRes, rndRes, checksRes, forecastRes, healthRes] = await Promise.all([
       supabase
@@ -101,7 +112,7 @@ export function useDashboardData(filters) {
         .from('v_order_tracking')
         .select('id, order_code, current_stage, stage_name_fa, stage_order, is_terminal, is_cancelled, created_at, updated_at, expected_delivery_date')
         .gte('updated_at', filters.dateFrom)
-        .lte('updated_at', filters.dateTo)
+        .lt('updated_at', dateToExclusive)
         .order('updated_at', { ascending: false })
         .limit(300),
       supabase.from('v_finance_dashboard').select('*').maybeSingle(),
@@ -146,6 +157,24 @@ export function useDashboardData(filters) {
 
     const orders = okArray(ordersRes);
     const completedOrdersForTrend = okArray(completedOrdersRes).filter((o) => !o.is_cancelled);
+    let stageInstancesRes = null;
+    let stageMaxByOrder = new Map();
+    const completedCandidateIds = [...new Set(completedOrdersForTrend.map((o) => o.id).filter(Boolean))];
+    if (completedCandidateIds.length > 0) {
+      stageInstancesRes = await supabase
+        .from('order_stage_instances')
+        .select('order_id, stage_order')
+        .in('order_id', completedCandidateIds)
+        .limit(Math.max(1000, completedCandidateIds.length * 40));
+      if (!stageInstancesRes.error) {
+        stageMaxByOrder = (stageInstancesRes.data || []).reduce((map, stage) => {
+          const current = Number(map.get(stage.order_id) || 0);
+          const next = Number(stage.stage_order || 0);
+          if (next > current) map.set(stage.order_id, next);
+          return map;
+        }, new Map());
+      }
+    }
     const finance = okObject(financeRes, {});
     const payments = okArray(paymentsRes);
     const stock = okArray(stockRes);
@@ -156,24 +185,24 @@ export function useDashboardData(filters) {
     const forecast = forecastRes?.error ? [] : (forecastRes.data || []);
     const health = healthRes?.error ? null : healthRes.data;
 
-    const trend = buildTrends({ orders, completedOrders: completedOrdersForTrend, payments, dateFrom: filters.dateFrom, dateTo: filters.dateTo });
+    const trend = buildTrends({ orders, completedOrders: completedOrdersForTrend, payments, dateFrom: filters.dateFrom, dateTo: filters.dateTo, stageMaxByOrder });
     const cashflowTotals = payments.reduce((acc, payment) => {
       if (payment.status !== 'confirmed') return acc;
       if (payment.direction === 'receipt') acc.receipts += Number(payment.amount || 0);
       if (payment.direction === 'payment') acc.payments += Number(payment.amount || 0);
       return acc;
     }, { receipts: 0, payments: 0 });
-    const activeOrders = orders.filter((o) => !['closed', 'cancelled', 'completed', 'delivered'].includes(o.delivery_status) && !isOrderCompleted(o));
+    const activeOrders = orders.filter((o) => !['closed', 'cancelled', 'completed', 'delivered'].includes(o.delivery_status) && !isOrderCompleted(o, stageMaxByOrder));
     const productionCompletedOrderIds = new Set(production.filter((p) => ['completed','delivered_to_warehouse'].includes(p.status)).map((p) => p.source_order_id).filter(Boolean));
     const rndCompletedOrderIds = new Set(rnd.filter((r) => ['approved','sent_to_production','archived'].includes(r.status)).map((r) => r.source_order_id).filter(Boolean));
-    const completedTrackingIds = new Set(completedOrdersForTrend.filter(isOrderCompleted).map((o) => o.id));
-    const completedOrders = orders.filter((o) => isOrderCompleted(o) || productionCompletedOrderIds.has(o.id) || rndCompletedOrderIds.has(o.id) || completedTrackingIds.has(o.id));
+    const completedTrackingIds = new Set(completedOrdersForTrend.filter((o) => isOrderCompleted(o, stageMaxByOrder)).map((o) => o.id));
+    const completedOrders = orders.filter((o) => isOrderCompleted(o, stageMaxByOrder) || productionCompletedOrderIds.has(o.id) || rndCompletedOrderIds.has(o.id) || completedTrackingIds.has(o.id));
     const cancelledOrders = orders.filter((o) => o.delivery_status === 'cancelled');
     const activeProduction = production.filter((p) => !['completed', 'delivered_to_warehouse', 'cancelled'].includes(p.status));
     const activeRnd = rnd.filter((p) => !['approved', 'sent_to_production', 'archived', 'rejected'].includes(p.status));
     const dueChecks = checks.filter((c) => !['cleared', 'cancelled'].includes(c.status) && c.due_date && new Date(c.due_date) <= new Date(Date.now() + 7 * 86400000));
 
-    const queryErrors = [ordersRes, completedOrdersRes, financeRes, paymentsRes, stockRes, referralsRes, productionRes, rndRes, checksRes, forecastRes, healthRes]
+    const queryErrors = [ordersRes, completedOrdersRes, stageInstancesRes, financeRes, paymentsRes, stockRes, referralsRes, productionRes, rndRes, checksRes, forecastRes, healthRes]
       .filter((r) => r?.error)
       .map((r) => getFriendlyErrorMessage(r.error, 'یکی از منابع داده داشبورد آماده نیست.'));
 

@@ -88,14 +88,26 @@ function printDocument(bundle, variant = 'company') {
           <div class="field"><b>شماره اقتصادی:</b> 14009467259</div>
           <div class="field"><b>شماره ثبت:</b> 13452</div>
           <div class="field"><b>کد پستی:</b> 75169 - 13817</div>
-          <div class="field" style="grid-column:1/-1"><b>نشانی:</b> بوشهر، بهمنی، نخلج فارس، پردیس فناوری · <b>تلفن:</b> 09173742966</div>
+          <div class="field" style="grid-column:1/-1"><b>نشانی:</b> بوشهر، بهمنی، خلیج فارس، پردیس فناوری · <b>تلفن:</b> 09173742966</div>
         </div>
-      </section>` : '';
+      </section>` : `
+      <div class="section-label">مشخصات فروشنده</div>
+      <section class="box-row">
+        <div class="box-grid three">
+          <div class="field"><b>شرکت:</b> پیشرو الکترونیک آریامن پارس</div>
+          <div class="field"><b>تلفن:</b> 09173742966</div>
+          <div class="field"><b>کد پستی:</b> 75169 - 13817</div>
+          <div class="field" style="grid-column:1/-1"><b>نشانی:</b> بوشهر، بهمنی، خلیج فارس، پردیس فناوری</div>
+        </div>
+      </section>`;
 
   openOfficialFinancePrint({
     title: `${DOC_LABELS[d.document_type] || d.document_type} ${d.doc_number}`,
     reportLabel,
-    subtitle: 'بوشهر، بهمنی، نخلج فارس، پردیس فناوری',
+    subtitle: 'بوشهر، بهمنی، خلیج فارس، پردیس فناوری',
+    orientation: 'landscape',
+    layout: 'invoice',
+    meta: { number: d.doc_number, date: date(d.issue_date) },
     body: `
       <div class="section-label">مشخصات فاکتور</div>
       <section class="box-row">
@@ -109,9 +121,12 @@ function printDocument(bundle, variant = 'company') {
       ${sellerBlock}
       <div class="section-label">مشخصات خریدار</div>
       <section class="box-row">
-        <div class="box-grid two">
+        <div class="box-grid four">
           <div class="field"><b>نام شخص حقیقی / حقوقی:</b> ${esc(party.display_name || order.customer_name || '—')}</div>
-          <div class="field"><b>شناسه / کد:</b> ${esc(party.national_id || party.economic_code || shortCode(party.id || d.party_id))}</div>
+          <div class="field"><b>شماره اقتصادی:</b> ${esc(party.economic_code || '—')}</div>
+          <div class="field"><b>شماره ثبت:</b> ${esc(party.registration_number || '—')}</div>
+          <div class="field"><b>شناسه ملی:</b> ${esc(party.national_id || shortCode(party.id || d.party_id))}</div>
+          <div class="field"><b>کد پستی:</b> ${esc(party.postal_code || '—')}</div>
           <div class="field"><b>تلفن تماس:</b> ${esc(party.phone || order.contact_phone || '—')}</div>
           <div class="field"><b>سفارش:</b> ${esc(order.order_code || d.related_order_id || '—')}</div>
           <div class="field" style="grid-column:1/-1"><b>نشانی:</b> ${esc(party.address || order.customer_city || '—')}</div>
@@ -122,11 +137,11 @@ function printDocument(bundle, variant = 'company') {
         <thead><tr><th>ردیف</th><th>شرح کالا / خدمات</th><th>تعداد</th><th>واحد</th><th>مبلغ واحد</th><th>مبلغ کل</th><th>تخفیف</th><th>مبلغ نهایی</th></tr></thead>
         <tbody>${rows || '<tr><td colspan="8">ردیفی ثبت نشده است.</td></tr>'}</tbody>
       </table>
-      <div class="notes-box"><b>توضیحات:</b> ${esc(d.description || d.print_note || '—')}</div>
+      <div class="notes-box"><b>توضیحات:</b> ${esc(d.description || '—')}${d.print_note ? `<br><b>جزئیات زیر فاکتور:</b> ${esc(d.print_note)}` : ''}</div>
       <section class="totals-wrap">
         <table class="totals-table">
           <tbody>
-            <tr><td>مبلغ کل فاکتور</td><td class="money">${formatRial(d.subtotal_amount)}</td></tr>
+            <tr><td>جمع فاکتور</td><td class="money">${formatRial(d.subtotal_amount)}</td></tr>
             <tr><td>تخفیف</td><td class="money">${formatRial(discountTotal)}</td></tr>
             <tr><td>مالیات</td><td class="money">${formatRial(d.tax_amount)}</td></tr>
             <tr><td>قابل پرداخت</td><td class="money">${formatRial(d.total_amount)}</td></tr>
@@ -178,7 +193,7 @@ export default function FinanceDocumentDetails({
       </header>
 
       <div className="detail-actions">
-        {!['void', 'cancelled'].includes(d.status) && <button disabled={busy} onClick={() => onEdit(d.id)}><FileText size={14} /> {['draft', 'pending_approval'].includes(d.status) ? 'ویرایش پیش‌نویس' : 'ویرایش / اصلاح فاکتور'}</button>}
+        {!['void', 'cancelled'].includes(d.status) && <button disabled={busy} onClick={() => onEdit(d.id)}><FileText size={14} /> {['draft', 'pending_approval'].includes(d.status) ? 'ویرایش / جزئیات چاپ' : 'اصلاح / جزئیات چاپ'}</button>}
         <button disabled={busy} onClick={() => onPost(d.id)}><ReceiptText size={14} /> ثبت سند حسابداری</button>
         {d.document_type === 'sales_proforma' && <button disabled={busy} onClick={() => onConvert(d.id)}>تبدیل به فاکتور</button>}
         {d.document_type === 'sales_invoice' && <button disabled={busy} onClick={() => onReturn(d.id)}>فاکتور برگشتی</button>}
@@ -200,6 +215,8 @@ export default function FinanceDocumentDetails({
         <Info label="پرداخت‌شده" value={money(d.paid_amount)} />
         <Info label="جمع کل" value={money(d.total_amount)} />
       </div>
+
+      {d.print_note && <div className="detail-block print-note-preview"><h3><FileText size={16} /> جزئیات زیر فاکتور در چاپ</h3><p className="muted">{d.print_note}</p></div>}
 
       <DetailBlock icon={FileText} title="اقلام سند">
         {bundle.items.length === 0 ? <p className="muted">ردیفی ثبت نشده است.</p> : (

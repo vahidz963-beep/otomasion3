@@ -48,6 +48,7 @@ export function FinanceDocumentForm({ parties, orders = [], stock = [], initialD
     is_official: initialDocument?.is_official ?? true,
     related_order_id: initialDocument?.related_order_id || '',
     description: initialDocument?.description || '',
+    print_note: initialDocument?.print_note || '',
   });
   const [items, setItems] = useState(
     initialItems?.length
@@ -103,7 +104,8 @@ export function FinanceDocumentForm({ parties, orders = [], stock = [], initialD
       <Field label="تاریخ صدور شمسی"><JalaliDateInput value={document.issue_date} onChange={(value) => setDocument({ ...document, issue_date: value })} /></Field>
       <Field label="سررسید شمسی"><JalaliDateInput value={document.due_date} onChange={(value) => setDocument({ ...document, due_date: value })} /></Field>
       <Field label="نوع رسمی/غیررسمی"><select value={document.is_official ? 'true' : 'false'} onChange={(e) => setDocument({ ...document, is_official: e.target.value === 'true' })}><option value="true">رسمی</option><option value="false">غیررسمی</option></select></Field>
-      <Field label="شرح" full><textarea value={document.description} onChange={(e) => setDocument({ ...document, description: e.target.value })} /></Field>
+      <Field label="شرح داخلی / عمومی" full><textarea value={document.description} onChange={(e) => setDocument({ ...document, description: e.target.value })} /></Field>
+      <Field label="📝 جزئیات زیر فاکتور در چاپ" full><textarea value={document.print_note} onChange={(e) => setDocument({ ...document, print_note: e.target.value })} placeholder="متنی که باید پایین فاکتور/پیش‌فاکتور چاپ شود؛ مثل شرایط پرداخت، زمان تحویل، توضیحات فنی یا توضیحات رسمی..." /></Field>
     </div>
 
     {isConfirmedEdit && <div className="finance-note warning">این فاکتور قبلاً تأیید/ثبت شده است. بعد از ثبت فرم، پنجره تأیید اصلاح باز می‌شود و سپس سند حسابداری و خروج انبار وابسته دوباره همگام می‌شوند.</div>}
