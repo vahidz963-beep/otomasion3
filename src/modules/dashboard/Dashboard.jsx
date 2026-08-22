@@ -2,9 +2,11 @@ import { useMemo, useState } from 'react';
 import { ResponsiveContainer, LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, Legend, CartesianGrid } from 'recharts';
 import { AlertTriangle, Banknote, ClipboardList, Database, Factory, FileWarning, Package, RefreshCw, ShieldCheck, Users } from 'lucide-react';
 import { useDashboardData } from '../../hooks/useDashboardData';
+import { supabase } from '../../lib/supabaseClient';
 import { useAuth } from '../../auth/AuthProvider';
 import { t } from '../../lib/i18n';
 import { formatJalaliDate, formatNumber, formatToman } from '../../lib/formatters';
+import JalaliDateInput from '../../components/JalaliDateInput';
 import FilterBar from './FilterBar';
 import './Dashboard.css';
 
@@ -19,6 +21,8 @@ export default function Dashboard({ lang = 'fa' }) {
   const { profile } = useAuth();
   const [filters, setFilters] = useState(defaultFilters());
   const [activePanel, setActivePanel] = useState('overview');
+  const [payableModal, setPayableModal] = useState(false);
+  const [dashboardNotice, setDashboardNotice] = useState('');
   const data = useDashboardData(filters);
   const dir = lang === 'fa' ? 'rtl' : 'ltr';
   const roles = useMemo(() => [...new Set([profile?.role, ...(profile?.additional_roles || [])].filter(Boolean))], [profile]);
@@ -29,6 +33,27 @@ export default function Dashboard({ lang = 'fa' }) {
   const canProduction = isAdmin || roles.includes('production');
   const canRnd = isAdmin || roles.includes('rnd');
   const canOffice = isAdmin || roles.includes('office_admin');
+
+  async function addManualPayableReminder(payload) {
+    setDashboardNotice('');
+    const { error } = await supabase.from('finance_payment_reminders').insert({
+      due_date: payload.due_date,
+      party_name: payload.party_name || null,
+      subject: payload.subject,
+      amount: Number(payload.amount || 0),
+      priority: Number(payload.priority || 2),
+      source_type: 'manual',
+      notes: payload.notes || null,
+      status: 'pending',
+    });
+    if (error) {
+      setDashboardNotice(error.message || 'خطا در ثبت یادداشت پرداختی مهم');
+      return;
+    }
+    setPayableModal(false);
+    setDashboardNotice('یادداشت پرداختی مهم ثبت شد.');
+    await data.refetch?.();
+  }
 
   const visibleKpis = useMemo(() => {
     const list = [];
@@ -74,7 +99,9 @@ export default function Dashboard({ lang = 'fa' }) {
       <FilterBar lang={lang} filters={filters} onChange={setFilters} />
 
       {data.loading && <div className="dashboard-message">{t(lang, 'loading')}</div>}
+      {dashboardNotice && <div className={dashboardNotice.includes('خطا') || dashboardNotice.toLowerCase().includes('error') ? 'dashboard-message error' : 'dashboard-message'}>{dashboardNotice}</div>}
       {!data.loading && data.queryErrors.length > 0 && <div className="dashboard-message warn"><b>هشدار سلامت داده‌ها</b><p>برخی View/RPCها هنوز کامل اجرا نشده‌اند؛ داشبورد با داده‌های موجود نمایش داده می‌شود.</p><ul>{data.queryErrors.slice(0, 4).map((e, i) => <li key={i}>{e}</li>)}</ul></div>}
+      {payableModal && <PayableReminderModal onClose={() => setPayableModal(false)} onSubmit={addManualPayableReminder} />}
 
       {!data.loading && data.kpis && <>
         <section className="exec-kpi-grid">
@@ -115,6 +142,7 @@ export default function Dashboard({ lang = 'fa' }) {
           </ChartCard>}
         </section>
         {(isAdmin || canFinance || canSales) && <ForecastTable rows={data.receivableForecast || []} />}
+        {(isAdmin || canFinance) && <ImportantPayablesTable rows={data.importantPayables || []} onAdd={() => setPayableModal(true)} />}
         </>}
 
         {activePanel === 'overview' && <section className="dashboard-tables-grid">
@@ -125,6 +153,21 @@ export default function Dashboard({ lang = 'fa' }) {
   </div>;
 }
 
+
+function ImportantPayablesTable({ rows = [], onAdd }) {
+  const total = rows.reduce((sum, row) => sum + Number(row.amount || 0), 0);
+  const urgent = rows.filter((row) => Number(row.priority) === 1 || (row.due_date && new Date(row.due_date) <= new Date(Date.now() + 3 * 86400000))).length;
+  return <section className="dashboard-table-card important-payables-card full-width"><div className="forecast-head"><div><h2>پرداختی‌های مهم</h2><p>یادآوری پرداخت‌های مهم نزدیک: چک‌ها، اقساط وام، فاکتورهای خرید/هزینه، حقوق و یادداشت‌های دستی.</p></div><div className="important-payable-actions"><strong>{formatMoney(total)} · {urgent} فوری/نزدیک</strong><button onClick={onAdd}>＋ یادداشت پرداختی</button></div></div>{rows.length === 0 ? <div className="empty-chart small">پرداخت مهم نزدیکی ثبت نشده است.</div> : <div className="dash-table-wrap"><table><thead><tr><th>تاریخ</th><th>شخص / تأمین‌کننده</th><th>موضوع</th><th>مبلغ</th><th>منبع</th><th>اولویت</th><th>یادداشت</th></tr></thead><tbody>{rows.map((r) => <tr key={`${r.source_type}-${r.source_id || r.id}`} className={Number(r.priority) === 1 ? 'urgent-payable-row' : ''}><td>{formatJalaliDate(r.due_date)}</td><td>{r.party_name || '—'}</td><td>{r.subject || '—'}</td><td className="money-cell">{formatMoney(r.amount)}</td><td>{payableSourceLabel(r.source_type)}</td><td>{Number(r.priority) === 1 ? 'فوری' : Number(r.priority) === 3 ? 'کم‌اهمیت' : 'عادی'}</td><td>{r.notes || '—'}</td></tr>)}</tbody></table></div>}</section>;
+}
+
+function PayableReminderModal({ onClose, onSubmit }) {
+  const [form, setForm] = useState({ due_date: new Date().toISOString().slice(0, 10), party_name: '', subject: '', amount: '', priority: 2, notes: '' });
+  return <div className="dashboard-modal-backdrop" onMouseDown={(e)=>e.target===e.currentTarget&&onClose()}><div className="dashboard-modal"><header><h3>یادداشت پرداختی مهم</h3><button onClick={onClose}>×</button></header><div className="dashboard-modal-body"><div className="dashboard-form-grid"><label><span>تاریخ پرداخت / یادآوری</span><JalaliDateInput value={form.due_date} onChange={(value)=>setForm({...form,due_date:value})} /></label><label><span>شخص / شرکت تأمین‌کننده</span><input value={form.party_name} onChange={(e)=>setForm({...form,party_name:e.target.value})} placeholder="نام شخص یا شرکت" /></label><label><span>موضوع</span><input value={form.subject} onChange={(e)=>setForm({...form,subject:e.target.value})} placeholder="مثلاً حقوق ماه، خرید قطعه، اجاره..." /></label><label><span>مبلغ ریال</span><input type="number" value={form.amount} onChange={(e)=>setForm({...form,amount:e.target.value})} /></label><label><span>اولویت</span><select value={form.priority} onChange={(e)=>setForm({...form,priority:e.target.value})}><option value={1}>فوری</option><option value={2}>عادی</option><option value={3}>کم‌اهمیت</option></select></label><label className="full"><span>یادداشت</span><textarea value={form.notes} onChange={(e)=>setForm({...form,notes:e.target.value})} placeholder="جزئیات پرداخت یا نکته پیگیری..." /></label></div><div className="dashboard-modal-actions"><button onClick={onClose}>انصراف</button><button disabled={!form.subject.trim()} onClick={()=>onSubmit(form)}>ثبت یادداشت</button></div></div></div></div>;
+}
+
+function payableSourceLabel(source) {
+  return ({ manual: 'دستی', payroll: 'حقوق', purchase_invoice: 'فاکتور خرید', expense_invoice: 'سند هزینه', check: 'چک', loan: 'قسط وام', other: 'سایر' }[source] || source || '—');
+}
 
 function ForecastTable({ rows }) {
   const total = rows.reduce((sum, row) => sum + Number(row.expected_amount || 0), 0);

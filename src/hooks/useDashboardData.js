@@ -92,6 +92,7 @@ export function useDashboardData(filters) {
     payments: [],
     finance: {},
     receivableForecast: [],
+    importantPayables: [],
     health: null,
     queryErrors: [],
   });
@@ -100,7 +101,7 @@ export function useDashboardData(filters) {
     setState((s) => ({ ...s, loading: true, error: null }));
     const dateToExclusive = addDaysIso(filters.dateTo, 1);
 
-    const [ordersRes, completedOrdersRes, financeRes, paymentsRes, stockRes, referralsRes, productionRes, rndRes, checksRes, forecastRes, healthRes] = await Promise.all([
+    const [ordersRes, completedOrdersRes, financeRes, paymentsRes, stockRes, referralsRes, productionRes, rndRes, checksRes, forecastRes, importantPayablesRes, healthRes] = await Promise.all([
       supabase
         .from('v_order_lifecycle_overview')
         .select('id, order_code, customer_name, sales_path, current_stage, current_stage_name_fa, workflow_template_id, total_stages, done_stages, progress_percent, delivery_status, days_to_delivery, financial_status, stock_status, registered_at, expected_delivery_date')
@@ -152,6 +153,12 @@ export function useDashboardData(filters) {
         .from('v_finance_receivable_forecast')
         .select('*')
         .limit(80),
+      supabase
+        .from('v_dashboard_important_payables')
+        .select('*')
+        .order('due_date', { ascending: true })
+        .order('priority', { ascending: true })
+        .limit(80),
       supabase.rpc('fn_system_health_report'),
     ]);
 
@@ -183,6 +190,7 @@ export function useDashboardData(filters) {
     const rnd = okArray(rndRes);
     const checks = okArray(checksRes);
     const forecast = forecastRes?.error ? [] : (forecastRes.data || []);
+    const importantPayables = importantPayablesRes?.error ? [] : (importantPayablesRes.data || []);
     const health = healthRes?.error ? null : healthRes.data;
 
     const trend = buildTrends({ orders, completedOrders: completedOrdersForTrend, payments, dateFrom: filters.dateFrom, dateTo: filters.dateTo, stageMaxByOrder });
@@ -202,7 +210,7 @@ export function useDashboardData(filters) {
     const activeRnd = rnd.filter((p) => !['approved', 'sent_to_production', 'archived', 'rejected'].includes(p.status));
     const dueChecks = checks.filter((c) => !['cleared', 'cancelled'].includes(c.status) && c.due_date && new Date(c.due_date) <= new Date(Date.now() + 7 * 86400000));
 
-    const queryErrors = [ordersRes, completedOrdersRes, stageInstancesRes, financeRes, paymentsRes, stockRes, referralsRes, productionRes, rndRes, checksRes, forecastRes, healthRes]
+    const queryErrors = [ordersRes, completedOrdersRes, stageInstancesRes, financeRes, paymentsRes, stockRes, referralsRes, productionRes, rndRes, checksRes, forecastRes, importantPayablesRes, healthRes]
       .filter((r) => r?.error)
       .map((r) => getFriendlyErrorMessage(r.error, 'یکی از منابع داده داشبورد آماده نیست.'));
 
@@ -236,6 +244,7 @@ export function useDashboardData(filters) {
       payments,
       finance,
       receivableForecast: forecast,
+      importantPayables,
       health,
       queryErrors,
     });

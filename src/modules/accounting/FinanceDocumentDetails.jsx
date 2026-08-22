@@ -57,7 +57,10 @@ function printDocument(bundle, variant = 'company') {
     const qty = Number(item.quantity || 0);
     const unitPrice = Number(item.unit_price || 0);
     const gross = qty * unitPrice;
-    const finalAmount = Number(item.line_total || 0);
+    const discount = Number(item.discount_amount || 0);
+    const netAmount = Math.max(gross - discount, 0);
+    const taxAmount = Number(item.tax_amount || 0) || (netAmount * Number(item.tax_rate || 0) / 100);
+    const finalAmount = Number(item.line_total || 0) || (netAmount + taxAmount);
     return `
       <tr class="${index % 2 === 1 ? 'alt' : ''}">
         <td>${index + 1}</td>
@@ -66,7 +69,9 @@ function printDocument(bundle, variant = 'company') {
         <td>${esc(item.unit || '')}</td>
         <td class="money">${formatRial(unitPrice)}</td>
         <td class="money">${formatRial(gross)}</td>
-        <td class="money">${formatRial(item.discount_amount || 0)}</td>
+        <td class="money">${formatRial(discount)}</td>
+        <td class="money">${formatRial(netAmount)}</td>
+        <td class="money">${formatRial(taxAmount)}</td>
         <td class="money">${formatRial(finalAmount)}</td>
       </tr>
     `;
@@ -82,24 +87,27 @@ function printDocument(bundle, variant = 'company') {
   const reportLabel = variant === 'official' ? 'صورت‌حساب فروش کالا و خدمات' : companyReportLabel;
   const sellerBlock = variant === 'official' ? `
       <div class="section-label">مشخصات فروشنده</div>
-      <section class="box-row">
-        <div class="box-grid four">
+      <section class="compact-box">
+        <div class="info-grid">
           <div class="field"><b>شرکت:</b> پیشرو الکترونیک آریامن پارس</div>
           <div class="field"><b>شماره اقتصادی:</b> 14009467259</div>
           <div class="field"><b>شماره ثبت:</b> 13452</div>
+          <div class="field"><b>شناسه ملی:</b> 14009467259</div>
           <div class="field"><b>کد پستی:</b> 75169 - 13817</div>
-          <div class="field" style="grid-column:1/-1"><b>نشانی:</b> بوشهر، بهمنی، خلیج فارس، پردیس فناوری · <b>تلفن:</b> 09173742966</div>
+          <div class="field"><b>تلفن:</b> 09173742966</div>
+          <div class="field full"><b>نشانی:</b> بوشهر، بهمنی، خلیج فارس، پردیس فناوری</div>
         </div>
       </section>` : `
       <div class="section-label">مشخصات فروشنده</div>
-      <section class="box-row">
-        <div class="box-grid three">
+      <section class="compact-box">
+        <div class="info-grid">
           <div class="field"><b>شرکت:</b> پیشرو الکترونیک آریامن پارس</div>
           <div class="field"><b>تلفن:</b> 09173742966</div>
           <div class="field"><b>کد پستی:</b> 75169 - 13817</div>
-          <div class="field" style="grid-column:1/-1"><b>نشانی:</b> بوشهر، بهمنی، خلیج فارس، پردیس فناوری</div>
+          <div class="field full"><b>نشانی:</b> بوشهر، بهمنی، خلیج فارس، پردیس فناوری</div>
         </div>
       </section>`;
+
 
   openOfficialFinancePrint({
     title: `${DOC_LABELS[d.document_type] || d.document_type} ${d.doc_number}`,
@@ -109,19 +117,10 @@ function printDocument(bundle, variant = 'company') {
     layout: 'invoice',
     meta: { number: d.doc_number, date: date(d.issue_date) },
     body: `
-      <div class="section-label">مشخصات فاکتور</div>
-      <section class="box-row">
-        <div class="box-grid four">
-          <div class="field"><b>شماره فاکتور:</b><br><span dir="ltr">${esc(d.doc_number)}</span></div>
-          <div class="field"><b>تاریخ:</b> ${date(d.issue_date)}</div>
-          <div class="field"><b>سررسید:</b> ${date(d.due_date)}</div>
-          <div class="field"><b>وضعیت:</b> ${STATUS_LABELS[d.status] || d.status}</div>
-        </div>
-      </section>
       ${sellerBlock}
       <div class="section-label">مشخصات خریدار</div>
-      <section class="box-row">
-        <div class="box-grid four">
+      <section class="compact-box">
+        <div class="info-grid">
           <div class="field"><b>نام شخص حقیقی / حقوقی:</b> ${esc(party.display_name || order.customer_name || '—')}</div>
           <div class="field"><b>شماره اقتصادی:</b> ${esc(party.economic_code || '—')}</div>
           <div class="field"><b>شماره ثبت:</b> ${esc(party.registration_number || '—')}</div>
@@ -129,15 +128,14 @@ function printDocument(bundle, variant = 'company') {
           <div class="field"><b>کد پستی:</b> ${esc(party.postal_code || '—')}</div>
           <div class="field"><b>تلفن تماس:</b> ${esc(party.phone || order.contact_phone || '—')}</div>
           <div class="field"><b>سفارش:</b> ${esc(order.order_code || d.related_order_id || '—')}</div>
-          <div class="field" style="grid-column:1/-1"><b>نشانی:</b> ${esc(party.address || order.customer_city || '—')}</div>
+          <div class="field full"><b>نشانی:</b> ${esc(party.address || order.customer_city || '—')}</div>
         </div>
       </section>
       <div class="section-label">${variant === 'official' ? 'مشخصات کالا یا خدمات مورد معامله' : 'جزئیات اقلام'}</div>
       <table class="official-table">
-        <thead><tr><th>ردیف</th><th>شرح کالا / خدمات</th><th>تعداد</th><th>واحد</th><th>مبلغ واحد</th><th>مبلغ کل</th><th>تخفیف</th><th>مبلغ نهایی</th></tr></thead>
-        <tbody>${rows || '<tr><td colspan="8">ردیفی ثبت نشده است.</td></tr>'}</tbody>
+        <thead><tr><th style="width:34px">ردیف</th><th>شرح کالا / خدمات</th><th style="width:58px">تعداد</th><th style="width:50px">واحد</th><th>مبلغ واحد ریال</th><th>مبلغ کل</th><th>تخفیف</th><th>مبلغ خالص</th><th>مالیات</th><th>مبلغ نهایی</th></tr></thead>
+        <tbody>${rows || '<tr><td colspan="10">ردیفی ثبت نشده است.</td></tr>'}</tbody>
       </table>
-      <div class="notes-box"><b>توضیحات:</b> ${esc(d.description || '—')}${d.print_note ? `<br><b>جزئیات زیر فاکتور:</b> ${esc(d.print_note)}` : ''}</div>
       <section class="totals-wrap">
         <table class="totals-table">
           <tbody>
@@ -153,6 +151,7 @@ function printDocument(bundle, variant = 'company') {
           <br><b>مانده حساب نهایی:</b> ${formatRial(d.balance_amount)} ${Number(d.balance_amount || 0) > 0 ? 'بدهکار می‌باشد.' : 'تسویه می‌باشد.'}
         </div>
       </section>
+      <div class="notes-box"><b>توضیحات:</b> ${esc(d.description || '—')}${d.print_note ? `<br><b>جزئیات زیر فاکتور:</b> ${esc(d.print_note)}` : ''}</div>
       <section class="signatures"><span>امضاء فروشنده</span><span>امضاء خریدار</span><span>امضاء تحویل‌گیرنده</span></section>
     `,
   });

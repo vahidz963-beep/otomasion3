@@ -17,6 +17,7 @@ const initialState = {
   dashboard: emptyDashboard,
   documents: [],
   parties: [],
+  partyDetails: [],
   referrals: [],
   profitability: [],
   numbering: [],
@@ -37,6 +38,10 @@ const initialState = {
   orderCosts: [],
   loans: [],
   loanInstallments: [],
+  payrollEmployees: [],
+  payrollSlips: [],
+  payrollLines: [],
+  payrollPayments: [],
 };
 
 function softError(results) {
@@ -53,6 +58,7 @@ export function useAccountingData() {
       dashboardRes,
       docsRes,
       partiesRes,
+      partyDetailsRes,
       referralsRes,
       profitRes,
       numberingRes,
@@ -73,6 +79,10 @@ export function useAccountingData() {
       orderCostsRes,
       loansRes,
       loanInstallmentsRes,
+      payrollEmployeesRes,
+      payrollSlipsRes,
+      payrollLinesRes,
+      payrollPaymentsRes,
     ] = await Promise.all([
       supabase.from('v_finance_dashboard').select('*').maybeSingle(),
       supabase
@@ -84,7 +94,13 @@ export function useAccountingData() {
         .from('v_party_balances')
         .select('party_id, display_name, party_type, phone, email, balance, total_debit, total_credit')
         .order('display_name', { ascending: true })
-        .limit(200),
+        .limit(300),
+      supabase
+        .from('finance_parties')
+        .select('*')
+        .eq('is_active', true)
+        .order('display_name', { ascending: true })
+        .limit(300),
       supabase
         .from('automation_referrals')
         .select('id, referral_number, source_module, target_module, referral_type, priority, status, title_fa, title_en, due_date, created_at, related_order_id, related_document_id')
@@ -183,12 +199,35 @@ export function useAccountingData() {
         .select('*')
         .order('due_date', { ascending: true })
         .limit(2000),
+      supabase
+        .from('finance_payroll_employees')
+        .select('*')
+        .eq('is_active', true)
+        .order('display_name', { ascending: true })
+        .limit(500),
+      supabase
+        .from('v_finance_payroll_slips')
+        .select('*')
+        .order('payroll_month', { ascending: false })
+        .order('created_at', { ascending: false })
+        .limit(1000),
+      supabase
+        .from('finance_payroll_lines')
+        .select('*')
+        .order('line_no', { ascending: true })
+        .limit(5000),
+      supabase
+        .from('v_finance_payroll_payments')
+        .select('*')
+        .order('paid_at', { ascending: false })
+        .limit(2000),
     ]);
 
     const firstError = softError([
       dashboardRes,
       docsRes,
       partiesRes,
+      partyDetailsRes,
       referralsRes,
       profitRes,
       numberingRes,
@@ -207,12 +246,20 @@ export function useAccountingData() {
       itemKardexRes,
     ]);
 
+    const partyDetails = partyDetailsRes.error ? [] : (partyDetailsRes.data || []);
+    const partyDetailsById = Object.fromEntries(partyDetails.map((party) => [party.id, party]));
+    const activePartyIds = new Set(partyDetails.map((party) => party.id));
+    const parties = (partiesRes.data || [])
+      .map((party) => ({ ...party, ...(partyDetailsById[party.party_id] || {}) , party_id: party.party_id, balance: party.balance, total_debit: party.total_debit, total_credit: party.total_credit }))
+      .filter((party) => partyDetails.length === 0 || activePartyIds.has(party.party_id));
+
     setState({
       loading: false,
       error: firstError,
       dashboard: dashboardRes.data || emptyDashboard,
       documents: docsRes.data || [],
-      parties: partiesRes.data || [],
+      parties,
+      partyDetails,
       referrals: referralsRes.data || [],
       profitability: profitRes.data || [],
       numbering: numberingRes.data || [],
@@ -233,6 +280,10 @@ export function useAccountingData() {
       orderCosts: orderCostsRes.error ? [] : (orderCostsRes.data || []),
       loans: loansRes.error ? [] : (loansRes.data || []),
       loanInstallments: loanInstallmentsRes.error ? [] : (loanInstallmentsRes.data || []),
+      payrollEmployees: payrollEmployeesRes.error ? [] : (payrollEmployeesRes.data || []),
+      payrollSlips: payrollSlipsRes.error ? [] : (payrollSlipsRes.data || []),
+      payrollLines: payrollLinesRes.error ? [] : (payrollLinesRes.data || []),
+      payrollPayments: payrollPaymentsRes.error ? [] : (payrollPaymentsRes.data || []),
     });
   }, []);
 

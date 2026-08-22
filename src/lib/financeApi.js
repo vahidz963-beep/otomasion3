@@ -433,16 +433,16 @@ export function openOfficialFinancePrint({ title, subtitle = '', body, reportLab
     .official-sheet{width:100%;max-width:${sheetWidth};min-height:${sheetMinHeight};margin:0 auto;background:#fff;border:1.6px solid #151515;padding:0;position:relative;box-shadow:0 12px 34px rgba(15,23,32,.16);overflow:hidden}
     .official-inner{padding:0 0 7mm;min-height:inherit;position:relative}
     .official-top{direction:ltr;display:grid;grid-template-columns:38mm 1fr 42mm;align-items:start;gap:4mm;border-bottom:1.6px solid #151515;padding:3mm 4mm 4mm;min-height:${isInvoice ? '12mm' : '34mm'}}
-    .official-top.invoice-top{display:block;min-height:12mm;padding:1.8mm 4mm 2.4mm;position:relative;text-align:center;direction:rtl}.invoice-top .invoice-meta{position:absolute;left:4mm;top:1.6mm;text-align:right;line-height:1.9;font-size:13.5px;font-weight:850}.invoice-top .invoice-title{font-size:22px;font-weight:950;margin:0;text-decoration:underline;text-underline-offset:2px}.invoice-top .invoice-subtitle{font-size:12.5px;color:#444;margin-top:.8mm}
+    .official-top.invoice-top{display:block;min-height:12mm;padding:1.8mm 4mm 2.4mm;position:relative;text-align:center;direction:rtl}.invoice-top .invoice-meta{position:absolute;left:4mm;top:1.6mm;text-align:right;line-height:1.9;font-size:13.5px;font-weight:850}.invoice-top .invoice-title{font-size:22px;font-weight:950;margin:0;text-decoration:underline;text-underline-offset:2px}.invoice-top .invoice-subtitle{font-size:12.5px;color:#444;margin-top:.8mm}.invoice-top .logo-mini{position:absolute;right:4mm;top:1.6mm;width:28mm;height:13mm;object-fit:contain}
     .page-no{grid-column:1;text-align:left;direction:rtl;font-size:14px;font-weight:850;color:#111;white-space:nowrap;padding-top:1mm}.brand-center{grid-column:2;text-align:center;direction:rtl;padding-top:1mm}.brand-center h1{font-size:18px;margin:0 0 2mm;font-weight:950}.brand-center h2{font-size:24px;margin:0 0 2.5mm;font-weight:950;letter-spacing:-.02em}.brand-center p{font-size:14px;margin:0;line-height:1.75;font-weight:750}.brand-logo{grid-column:3;text-align:center;direction:ltr}.brand-logo img{width:32mm;height:21mm;object-fit:contain;display:block;margin:0 auto .5mm}.brand-logo span{display:block;font-size:14px;margin-top:0;color:#333;letter-spacing:.03em}
-    .section-label{display:block;text-align:center;background:#dddddd;border-top:1.25px solid #151515;border-bottom:1.25px solid #151515;padding:1.8mm 4mm;font-size:16px;font-weight:950;line-height:1.1;color:#111;margin:0}.box-row{border-bottom:1.45px solid #151515;padding:3mm 4mm;min-height:${isInvoice ? '24mm' : '22mm'}}.box-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:1.4mm 5mm}.box-grid.two{grid-template-columns:1fr 1fr}.box-grid.four{grid-template-columns:repeat(4,1fr)}.field{font-size:15px;line-height:2;min-height:6mm}.field b{font-weight:950;color:#111}.field span[dir="ltr"],.field[dir="ltr"]{font-family:"B Nazanin","Vazirmatn","IRANSansX",Tahoma,Arial,sans-serif;font-weight:850;font-variant-numeric:tabular-nums}.highlight-number span,.highlight-number{font-size:17px;font-weight:950;color:#111}
+    .section-label{display:block;text-align:center;background:#dddddd;border-top:1.25px solid #151515;border-bottom:1.25px solid #151515;padding:1.8mm 4mm;font-size:16px;font-weight:950;line-height:1.1;color:#111;margin:0}.box-row{border-bottom:1.45px solid #151515;padding:3mm 4mm;min-height:${isInvoice ? '24mm' : '22mm'}}.compact-box{border-bottom:1.45px solid #151515;padding:2mm 4mm}.box-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:1.4mm 5mm}.box-grid.two{grid-template-columns:1fr 1fr}.box-grid.four{grid-template-columns:repeat(4,1fr)}.info-grid{display:grid;grid-template-columns:${isLandscape ? '1.15fr 1fr 1fr 1fr' : '1fr 1fr'};gap:.7mm 4mm;align-items:center}.field{font-size:15px;line-height:2;min-height:6mm}.compact-box .field{line-height:1.55;min-height:5mm}.field.full{grid-column:1/-1}.field b{font-weight:950;color:#111}.field span[dir="ltr"],.field[dir="ltr"]{font-family:"B Nazanin","Vazirmatn","IRANSansX",Tahoma,Arial,sans-serif;font-weight:850;font-variant-numeric:tabular-nums}.highlight-number span,.highlight-number{font-size:17px;font-weight:950;color:#111}
     .official-table{width:100%;border-collapse:collapse;margin:0;font-size:${isLandscape ? '13.6px' : '14px'};table-layout:fixed}.official-table thead{display:table-header-group}.official-table tfoot{display:table-footer-group}.official-table tr{page-break-inside:avoid}.official-table th,.official-table td{border:1.15px solid #151515;padding:${isLandscape ? '1.6mm 1.25mm' : '2.1mm 1.5mm'};text-align:center;vertical-align:middle;line-height:1.65;word-break:break-word}.official-table th{background:#d9d9d9!important;color:#111;font-weight:950}.official-table td.desc{text-align:right}.official-table tbody tr:nth-child(even) td,.official-table tr.alt td{background:#f7f7f7!important}.official-table .money,.money{direction:ltr;text-align:left;font-family:"B Nazanin","Vazirmatn","IRANSansX",Tahoma,Arial,sans-serif!important;font-weight:850;white-space:nowrap;font-variant-numeric:tabular-nums}.rial-word{font-family:"Vazirmatn",Tahoma,Arial,sans-serif;font-weight:800;margin-right:2px}.official-table.compact th,.official-table.compact td{padding:1.6mm 1.25mm;font-size:13.5px}
     .totals-wrap{direction:ltr;display:grid;grid-template-columns:${isLandscape ? '58mm' : '50mm'} 1fr;gap:0;border-bottom:1.6px solid #151515;min-height:${isLandscape ? '25mm' : '34mm'}}.totals-table{direction:rtl;width:${isLandscape ? '58mm' : '50mm'};border-collapse:collapse;font-size:14px;margin:0}.totals-table td{border:1.15px solid #151515;padding:2mm;line-height:1.5}.totals-table td:first-child{font-weight:950;background:#eeeeee;color:#111}.totals-table td.money{direction:ltr;text-align:left;font-family:"B Nazanin","Vazirmatn","IRANSansX",Tahoma,Arial,sans-serif;font-weight:950;font-size:16px;font-variant-numeric:tabular-nums}.amount-words{direction:rtl;border:1.15px solid #151515;border-left:0;padding:3.5mm 4mm;font-size:15px;line-height:2.05;display:flex;flex-direction:column;justify-content:center}.amount-words b{font-weight:950}.notes-box{border-bottom:1.6px solid #151515;min-height:${isLandscape ? '15mm' : '18mm'};padding:3.5mm 4mm;font-size:15px;line-height:2}.notes-box b{font-weight:950}.statement-title{text-align:center;border-bottom:1.6px solid #151515;padding:4mm;margin:0}.statement-title h1{font-size:19px;margin:0 0 2mm;font-weight:950}.statement-title h2{font-size:14px;margin:0;font-weight:900}.statement-summary{display:grid;grid-template-columns:repeat(4,1fr);gap:0;border-bottom:1.6px solid #151515}.statement-summary div{border-left:1.15px solid #151515;padding:3mm;font-size:14px;min-height:18mm}.statement-summary div:nth-child(even){background:#f7f7f7}.statement-summary span{display:block;color:#4b5563;font-weight:800}.statement-summary strong{display:block;margin-top:1.5mm;font-size:16px;color:#111;font-weight:950}.status-cell{font-weight:950}.continued{text-align:left;font-size:13px;padding:2mm 4mm;color:#555}.signatures{display:grid;grid-template-columns:repeat(3,1fr);gap:14mm;min-height:${isLandscape ? '28mm' : '48mm'};align-items:end;padding:${isLandscape ? '12mm 14mm 8mm' : '18mm 12mm 9mm'};text-align:center;font-size:15px;page-break-inside:avoid}.signatures span{display:block;font-weight:850}.footer-line{position:absolute;left:4mm;right:4mm;bottom:1.8mm;border-top:1px solid #777;padding:1.5mm 0 0;font-size:11px;text-align:center;color:#444;display:${printSettings.showFooter === false ? 'none' : 'block'}}.soft-row{background:#f7f7f7!important}.no-print{display:none}
     body{font-size:${fs(14)}}.invoice-top .invoice-meta{font-size:${ns(13.5)}}.invoice-top .invoice-title{font-size:${fs(22)}}.invoice-top .invoice-subtitle{font-size:${fs(12.5)}}.page-no{font-size:${ns(14)}}.brand-center h1{font-size:${fs(18)}}.brand-center h2{font-size:${fs(24)}}.brand-center p{font-size:${fs(14)}}.section-label{font-size:${fs(16)}}.field{font-size:${fs(15)}}.official-table{font-size:${fs(isLandscape ? 13.6 : 14)}}.official-table .money,.money{font-size:${ns(15)}}.official-table.compact th,.official-table.compact td{font-size:${fs(13.5)}}.totals-table{font-size:${fs(14)}}.totals-table td.money{font-size:${ns(16)}}.amount-words,.notes-box{font-size:${fs(15)}}.statement-summary div{font-size:${fs(14)}}.statement-summary strong{font-size:${ns(16)}}.continued{font-size:${fs(13)}}.signatures{font-size:${fs(15)}}.footer-line{font-size:${fs(11)}}
     @media print{body{background:#fff;padding:0}.print-btn{display:none}.official-sheet{border:1.5px solid #151515;max-width:${sheetWidth};width:100%;min-height:${printMinHeight};box-shadow:none}.official-top{min-height:${isInvoice ? '12mm' : '31mm'}}.official-table th{background:#d9d9d9!important}.official-table tbody tr:nth-child(even) td,.official-table tr.alt td{background:#f7f7f7!important}}
   `;
   const standardHeader = `<header class="official-top"><div class="page-no">صفحه ۱ از ۱</div><div class="brand-center"><h1>${escapeHtml(reportLabel || title)}</h1><h2>${FINANCE_LEGAL_NAME_FA}</h2><p>${escapeHtml(subtitle || 'بوشهر، بهمنی، نخلج فارس، پردیس فناوری')}<br>تلفن‌های تماس: 09173742966</p></div><div class="brand-logo"><img src="${ARYAMAN_LOGO_DATA_URI}" alt="Aryaman"><span>aryaman</span></div></header>`;
-  const invoiceHeader = `<header class="official-top invoice-top"><div class="invoice-meta"><div>شماره: ${escapeHtml(meta.number || '—')}</div><div>تاریخ: ${escapeHtml(meta.date || '—')}</div></div><h1 class="invoice-title">${escapeHtml(reportLabel || title)}</h1>${subtitle ? `<div class="invoice-subtitle">${escapeHtml(subtitle)}</div>` : ''}</header>`;
+  const invoiceHeader = `<header class="official-top invoice-top"><img class="logo-mini" src="${ARYAMAN_LOGO_DATA_URI}" alt="Aryaman"><div class="invoice-meta"><div>شماره: ${escapeHtml(meta.number || '—')}</div><div>تاریخ: ${escapeHtml(meta.date || '—')}</div></div><h1 class="invoice-title">${escapeHtml(reportLabel || title)}</h1>${subtitle ? `<div class="invoice-subtitle">${escapeHtml(subtitle)}</div>` : ''}</header>`;
   const html = `<!doctype html><html dir="rtl" lang="fa"><head><meta charset="utf-8"><title>${safeTitle}</title><style>${css}</style></head><body><button class="print-btn" onclick="window.print()">چاپ / ذخیره PDF</button><main class="official-sheet"><section class="official-inner">${isInvoice ? invoiceHeader : standardHeader}${body}<div class="footer-line">این برگه توسط سامانه اتوماسیون آریامن تولید شده است.</div></section></main></body></html>`;
   const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
   const url = URL.createObjectURL(blob);
@@ -606,6 +606,40 @@ export async function createFinanceParty(payload) {
 }
 
 
+export async function updateFinanceParty(partyId, payload) {
+  const patch = {
+    party_type: payload.party_type || 'customer',
+    display_name: payload.display_name,
+    phone: payload.phone || null,
+    email: null,
+    address: payload.address || null,
+    national_id: payload.national_id || null,
+    economic_code: payload.economic_code || null,
+    registration_number: payload.registration_number || null,
+    postal_code: payload.postal_code || null,
+    opening_balance: Number(payload.opening_balance || 0),
+    notes: payload.notes || null,
+    is_active: payload.is_active !== false,
+  };
+  let res = await supabase.from('finance_parties').update(patch).eq('id', partyId).select('id').single();
+  if (res.error && isMissingColumn(res.error)) {
+    const { registration_number, postal_code, ...fallbackPatch } = patch;
+    res = await supabase.from('finance_parties').update(fallbackPatch).eq('id', partyId).select('id').single();
+  }
+  assertNoError(res, 'خطا در ویرایش شخص مالی');
+  return res.data;
+}
+
+export async function archiveFinanceParty(partyId, reason = '') {
+  const res = await supabase.from('finance_parties').update({
+    is_active: false,
+    notes: reason ? `حذف/غیرفعال‌سازی شخص: ${reason}` : 'حذف/غیرفعال‌سازی شخص',
+  }).eq('id', partyId).select('id').single();
+  assertNoError(res, 'خطا در حذف/غیرفعال‌سازی شخص مالی');
+  return res.data;
+}
+
+
 export async function createFinancePartiesBulk(rows = []) {
   const cleanRows = (rows || []).filter((row) => String(row.display_name || '').trim());
   const results = [];
@@ -750,5 +784,135 @@ export async function createFinanceOrderCost(payload) {
     created_by: userId,
   }).select('id').single();
   assertNoError(res, 'خطا در ثبت هزینه سفارش');
+  return res.data;
+}
+
+// -----------------------------------------------------------------------------
+// Payroll / حقوق و دستمزد
+// -----------------------------------------------------------------------------
+function payrollTotalsFromLines(baseSalary = 0, lines = [], paidAmount = 0) {
+  const benefits = (lines || []).filter((l) => l.line_type === 'earning').reduce((s, l) => s + Number(l.amount || 0), 0);
+  const carried = (lines || []).filter((l) => l.line_type === 'carry').reduce((s, l) => s + Number(l.amount || 0), 0);
+  const deductions = (lines || []).filter((l) => l.line_type === 'deduction').reduce((s, l) => s + Number(l.amount || 0), 0);
+  const gross = Number(baseSalary || 0) + benefits + carried;
+  const net = gross - deductions;
+  const paid = Number(paidAmount || 0);
+  return { benefits, carried, deductions, gross, net, paid, remaining: net - paid };
+}
+
+export async function createFinancePayrollEmployee(payload) {
+  const userId = await currentFinanceUserId();
+  const res = await supabase.from('finance_payroll_employees').insert({
+    employee_code: payload.employee_code || null,
+    display_name: payload.display_name,
+    role_title: payload.role_title || null,
+    department: payload.department || null,
+    national_id: payload.national_id || null,
+    phone: payload.phone || null,
+    bank_account_number: payload.bank_account_number || null,
+    bank_iban: payload.bank_iban || null,
+    base_salary: Number(payload.base_salary || 0),
+    notes: payload.notes || null,
+    is_active: payload.is_active !== false,
+    created_by: userId,
+  }).select('id').single();
+  assertNoError(res, 'خطا در ثبت کارمند حقوق و دستمزد');
+  return res.data;
+}
+
+export async function updateFinancePayrollEmployee(id, payload) {
+  const res = await supabase.from('finance_payroll_employees').update({
+    employee_code: payload.employee_code || null,
+    display_name: payload.display_name,
+    role_title: payload.role_title || null,
+    department: payload.department || null,
+    national_id: payload.national_id || null,
+    phone: payload.phone || null,
+    bank_account_number: payload.bank_account_number || null,
+    bank_iban: payload.bank_iban || null,
+    base_salary: Number(payload.base_salary || 0),
+    notes: payload.notes || null,
+    is_active: payload.is_active !== false,
+  }).eq('id', id).select('id').single();
+  assertNoError(res, 'خطا در ویرایش کارمند حقوق و دستمزد');
+  return res.data;
+}
+
+export async function archiveFinancePayrollEmployee(id, reason = '') {
+  const res = await supabase.from('finance_payroll_employees').update({
+    is_active: false,
+    notes: reason ? `حذف/غیرفعال‌سازی کارمند: ${reason}` : 'حذف/غیرفعال‌سازی کارمند',
+  }).eq('id', id).select('id').single();
+  assertNoError(res, 'خطا در حذف/غیرفعال‌سازی کارمند');
+  return res.data;
+}
+
+export async function saveFinancePayrollSlip({ slip, lines = [] }) {
+  const userId = await currentFinanceUserId();
+  const cleanLines = (lines || [])
+    .filter((line) => line.title_fa || Number(line.amount || 0) !== 0)
+    .map((line, index) => ({
+      line_no: index + 1,
+      line_type: line.line_type || 'earning',
+      title_fa: line.title_fa || 'ردیف حقوق',
+      amount: Number(line.amount || 0),
+      notes: line.notes || null,
+    }));
+  const totals = payrollTotalsFromLines(slip.base_salary, cleanLines, slip.paid_amount);
+  const payload = {
+    employee_id: slip.employee_id,
+    payroll_month: slip.payroll_month,
+    issue_date: slip.issue_date || new Date().toISOString().slice(0, 10),
+    base_salary: Number(slip.base_salary || 0),
+    carried_balance: totals.carried,
+    benefits_total: totals.benefits,
+    deductions_total: totals.deductions,
+    gross_amount: totals.gross,
+    net_payable: totals.net,
+    paid_amount: totals.paid,
+    remaining_balance: totals.remaining,
+    status: slip.status || (totals.remaining <= 0 ? 'paid' : 'approved'),
+    notes: slip.notes || null,
+    created_by: userId,
+  };
+
+  let slipId = slip.id;
+  if (slipId) {
+    const updateRes = await supabase.from('finance_payroll_slips').update(payload).eq('id', slipId).select('id').single();
+    assertNoError(updateRes, 'خطا در ویرایش فیش حقوقی');
+    const delRes = await supabase.from('finance_payroll_lines').delete().eq('slip_id', slipId);
+    assertNoError(delRes, 'خطا در پاکسازی ردیف‌های قبلی فیش');
+  } else {
+    const insertRes = await supabase.from('finance_payroll_slips').insert(payload).select('id').single();
+    assertNoError(insertRes, 'خطا در ثبت فیش حقوقی');
+    slipId = insertRes.data.id;
+  }
+
+  if (cleanLines.length > 0) {
+    const lineRes = await supabase.from('finance_payroll_lines').insert(cleanLines.map((line) => ({ ...line, slip_id: slipId })));
+    assertNoError(lineRes, 'خطا در ثبت ردیف‌های فیش حقوقی');
+  }
+  return { id: slipId };
+}
+
+export async function archiveFinancePayrollSlip(id, reason = '') {
+  const res = await supabase.from('finance_payroll_slips').update({
+    status: 'archived',
+    notes: reason ? `حذف/بایگانی فیش حقوقی: ${reason}` : 'حذف/بایگانی فیش حقوقی',
+  }).eq('id', id).select('id').single();
+  assertNoError(res, 'خطا در حذف/بایگانی فیش حقوقی');
+  return res.data;
+}
+
+export async function registerFinancePayrollPayment({ slipId, paidAmount, paidAt, bankAccountId, cashboxId, notes }) {
+  const res = await supabase.rpc('fn_finance_register_payroll_payment', {
+    p_slip_id: slipId,
+    p_paid_amount: Number(paidAmount || 0),
+    p_paid_at: paidAt || new Date().toISOString().slice(0, 10),
+    p_bank_account_id: bankAccountId || null,
+    p_cashbox_id: cashboxId || null,
+    p_notes: notes || null,
+  });
+  assertNoError(res, 'خطا در ثبت سند پرداخت حقوق');
   return res.data;
 }

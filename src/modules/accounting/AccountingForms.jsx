@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import JalaliDateInput from '../../components/JalaliDateInput';
 import ProductPicker from '../../components/ProductPicker';
+import SearchableSelect from '../../components/SearchableSelect';
 
 const DOC_TYPES = [
   ['sales_proforma', 'پیش‌فاکتور فروش'],
@@ -75,6 +76,13 @@ export function FinanceDocumentForm({ parties, orders = [], stock = [], initialD
     return { subtotal: acc.subtotal + base, tax: acc.tax + tax, total: acc.total + base + tax };
   }, { subtotal: 0, tax: 0, total: 0 }), [items]);
 
+  const partyOptions = useMemo(() => parties.map((p) => ({
+    value: p.party_id || p.id,
+    label: p.display_name || p.party_name || 'بدون نام',
+    description: `${p.phone || ''}${p.economic_code ? ` · کد اقتصادی ${p.economic_code}` : ''}${p.national_id ? ` · شناسه ${p.national_id}` : ''}`.trim(),
+    searchText: `${p.display_name || ''} ${p.phone || ''} ${p.economic_code || ''} ${p.registration_number || ''} ${p.national_id || ''} ${p.postal_code || ''}`,
+  })), [parties]);
+
   function updateItem(index, patch) {
     setItems((rows) => rows.map((row, i) => (i === index ? { ...row, ...patch } : row)));
   }
@@ -99,7 +107,7 @@ export function FinanceDocumentForm({ parties, orders = [], stock = [], initialD
   return <form onSubmit={submit}>
     <div className="finance-form-grid">
       <Field label="نوع سند"><select value={document.document_type} disabled={isConfirmedEdit} title={isConfirmedEdit ? 'در اصلاح فاکتور تأییدشده، نوع سند برای جلوگیری از به‌هم‌ریختن اسناد وابسته ثابت می‌ماند.' : ''} onChange={(e) => setDocument({ ...document, document_type: e.target.value })}>{DOC_TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></Field>
-      <Field label="شخص"><select value={document.party_id} onChange={(e) => setDocument({ ...document, party_id: e.target.value })}><option value="">بدون شخص</option>{parties.map((p) => <option key={p.party_id} value={p.party_id}>{p.display_name}</option>)}</select></Field>
+      <Field label="شخص"><SearchableSelect options={partyOptions} value={document.party_id} onChange={(value) => setDocument({ ...document, party_id: value })} placeholder="نام، تلفن، کد اقتصادی یا شناسه ملی شخص را بنویس..." emptyText="شخصی پیدا نشد." /></Field>
       <Field label="سفارش مرتبط"><select value={document.related_order_id} onChange={(e) => setDocument({ ...document, related_order_id: e.target.value })}><option value="">بدون سفارش</option>{orders.map((o) => <option key={o.id} value={o.id}>{o.order_code} · {o.customer_name || '—'}</option>)}</select></Field>
       <Field label="تاریخ صدور شمسی"><JalaliDateInput value={document.issue_date} onChange={(value) => setDocument({ ...document, issue_date: value })} /></Field>
       <Field label="سررسید شمسی"><JalaliDateInput value={document.due_date} onChange={(value) => setDocument({ ...document, due_date: value })} /></Field>
@@ -144,6 +152,13 @@ export function FinancePaymentForm({ parties, documents, accounts, initialDocume
     document_id: initialDocumentId || '',
   });
 
+  const partyOptions = useMemo(() => parties.map((p) => ({
+    value: p.party_id || p.id,
+    label: p.display_name || p.party_name || 'بدون نام',
+    description: `${p.phone || ''}${p.economic_code ? ` · کد اقتصادی ${p.economic_code}` : ''}${p.national_id ? ` · شناسه ${p.national_id}` : ''}`.trim(),
+    searchText: `${p.display_name || ''} ${p.phone || ''} ${p.economic_code || ''} ${p.registration_number || ''} ${p.national_id || ''} ${p.postal_code || ''}`,
+  })), [parties]);
+
   const payableDocs = documents.filter((d) => Number(d.balance_amount) > 0
     && !['void', 'cancelled'].includes(d.status)
     && (!payment.party_id || d.party_id === payment.party_id));
@@ -180,7 +195,7 @@ export function FinancePaymentForm({ parties, documents, accounts, initialDocume
       <Field label="نوع"><select value={payment.direction} onChange={(e) => setPayment({ ...payment, direction: e.target.value })}><option value="receipt">دریافت</option><option value="payment">پرداخت</option></select></Field>
       <Field label="روش"><select value={payment.method} onChange={(e) => setPayment({ ...payment, method: e.target.value })}><option value="bank_transfer">حواله بانکی</option><option value="cash">نقد</option><option value="pos">پوز</option><option value="check">چک</option><option value="offset">تهاتر</option></select></Field>
       <Field label="حساب"><select value={payment.bank_account_id} onChange={(e) => setPayment({ ...payment, bank_account_id: e.target.value })}><option value="">بدون حساب</option>{accounts.map((a) => <option key={a.id} value={a.id}>{a.account_name} - {a.bank_name}</option>)}</select></Field>
-      <Field label="شخص"><select value={payment.party_id} onChange={(e) => selectParty(e.target.value)}><option value="">بدون شخص</option>{parties.map((p) => <option key={p.party_id} value={p.party_id}>{p.display_name}</option>)}</select></Field>
+      <Field label="شخص"><SearchableSelect options={partyOptions} value={payment.party_id} onChange={(value) => selectParty(value)} placeholder="نام یا تلفن شخص را بنویس..." emptyText="شخصی پیدا نشد." /></Field>
       <Field label="فاکتور مرتبط"><select value={payment.document_id} onChange={(e) => selectDocument(e.target.value)}><option value="">بدون فاکتور</option>{payableDocs.map((d) => <option key={d.id} value={d.id}>{d.doc_number} · {d.party_name} · مانده {Number(d.balance_amount).toLocaleString('fa-IR')}</option>)}</select></Field>
       <Field label="تاریخ شمسی"><JalaliDateInput value={payment.payment_date} onChange={(value) => setPayment({ ...payment, payment_date: value })} /></Field>
       <Field label="مبلغ ریال"><input type="number" value={payment.amount} onChange={(e) => setPayment({ ...payment, amount: e.target.value })} required /></Field>

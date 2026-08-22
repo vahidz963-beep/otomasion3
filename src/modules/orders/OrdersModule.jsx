@@ -20,6 +20,7 @@ import { useOrdersData, useOrderDetails } from '../../hooks/useOrdersData';
 import ReferralPanel from '../../components/referrals/ReferralPanel';
 import JalaliDateInput from '../../components/JalaliDateInput';
 import ProductPicker from '../../components/ProductPicker';
+import SearchableSelect from '../../components/SearchableSelect';
 import { formatJalaliDate, formatJalaliDateTime, formatNumber, formatToman } from '../../lib/formatters';
 import {
   cancelOrder,
@@ -627,6 +628,12 @@ function OrderModal({ templates, templateSteps = [], customers, stock, busy, ini
   const [options, setOptions] = useState({ createProforma: true, refFinance: true, refWarehouse: false, refPath: true });
   const availableTemplates = templates.filter((t) => t.is_active !== false);
   const selectedTemplate = availableTemplates.find((t) => t.id === form.workflow_template_id) || availableTemplates[0];
+  const customerOptions = useMemo(() => customers.map((c) => ({
+    value: c.id,
+    label: c.company_name || 'بدون نام',
+    description: `${c.contact_phone || ''}${c.city ? ` · ${c.city}` : ''}${c.contact_person_name ? ` · ${c.contact_person_name}` : ''}`.trim(),
+    searchText: `${c.company_name || ''} ${c.contact_person_name || ''} ${c.contact_phone || ''} ${c.city || ''} ${c.acquisition_source || ''}`,
+  })), [customers]);
   const [items, setItems] = useState([{ item_name_fa: 'قلم سفارش', warehouse_item_code: '', quantity: 1, unit: 'عدد', unit_price: 0 }]);
 
   function chooseCustomer(id) {
@@ -667,7 +674,7 @@ function OrderModal({ templates, templateSteps = [], customers, stock, busy, ini
       <div className="form-grid order-create-grid">
         <label><span>نوع مشتری</span><select value={customerMode} onChange={(e) => setCustomerMode(e.target.value)}><option value="existing" disabled={customers.length === 0}>مشتری موجود</option><option value="new">مشتری/سرنخ جدید</option></select></label>
         {customerMode === 'existing'
-          ? <label><span>مشتری</span><select value={form.customer_id} onChange={(e) => chooseCustomer(e.target.value)}>{customers.map((c) => <option key={c.id} value={c.id}>{c.company_name}</option>)}</select></label>
+          ? <label><span>مشتری</span><SearchableSelect options={customerOptions} value={form.customer_id} onChange={(value) => chooseCustomer(value)} placeholder="نام، تلفن یا شهر مشتری را بنویس..." emptyText="مشتری پیدا نشد." /></label>
           : <label><span>نام مشتری</span><input value={form.company_name} onChange={(e) => setForm({ ...form, company_name: e.target.value })} required /></label>}
         <label><span>تلفن</span><input value={form.contact_phone} onChange={(e) => setForm({ ...form, contact_phone: e.target.value })} /></label>
         <label><span>شهر</span><input value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} /></label>
