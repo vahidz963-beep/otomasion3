@@ -1,5 +1,6 @@
 import { supabase } from './supabaseClient';
 import { ARYAMAN_BRAND_FA, ARYAMAN_LOGO_DATA_URI, brandedExcelTableHtml } from './reporting';
+import { jalaliToGregorian, toPersianDigits } from './formatters';
 
 const FINANCE_LEGAL_NAME_FA = 'پیشرو الکترونیک آریامن پارس';
 
@@ -89,6 +90,237 @@ export async function createSalesReturnFromInvoice(invoiceId, reason) {
   return res.data;
 }
 
+
+function pad2(value) { return String(value).padStart(2, '0'); }
+function gregorianToIso({ gy, gm, gd }) { return `${gy}-${pad2(gm)}-${pad2(gd)}`; }
+function previousGregorianDayIso({ gy, gm, gd }) {
+  const d = new Date(Date.UTC(Number(gy), Number(gm) - 1, Number(gd)));
+  d.setUTCDate(d.getUTCDate() - 1);
+  return `${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())}`;
+}
+const FISCAL_MONTH_NAMES_FA = ['فروردین','اردیبهشت','خرداد','تیر','مرداد','شهریور','مهر','آبان','آذر','دی','بهمن','اسفند'];
+function buildJalaliFiscalYearPayload(jalaliYear, title) {
+  const jy = Number(String(jalaliYear || '').replace(/[^0-9]/g, ''));
+  if (!Number.isInteger(jy) || jy < 1300 || jy > 1600) throw new Error('سال مالی باید یک سال شمسی معتبر باشد؛ مثال: ۱۴۰۶');
+  const startDate = gregorianToIso(jalaliToGregorian(jy, 1, 1));
+  const endDate = previousGregorianDayIso(jalaliToGregorian(jy + 1, 1, 1));
+  const periods = FISCAL_MONTH_NAMES_FA.map((name, index) => {
+    const jm = index + 1;
+    const periodStart = gregorianToIso(jalaliToGregorian(jy, jm, 1));
+    const nextStart = jm === 12 ? jalaliToGregorian(jy + 1, 1, 1) : jalaliToGregorian(jy, jm + 1, 1);
+    return {
+      period_no: jm,
+      title_fa: name,
+      title_en: `Month ${jm}`,
+      start_date: periodStart,
+      end_date: previousGregorianDayIso(nextStart),
+    };
+  });
+  return {
+    jalaliYear: jy,
+    title: title?.trim() || `سال مالی ${toPersianDigits(jy)}`,
+    startDate,
+    endDate,
+    periods,
+  };
+}
+
+export async function createFinanceFiscalYear({ jalaliYear, title }) {
+  const payload = buildJalaliFiscalYearPayload(jalaliYear, title);
+
+  const rpcRes = await supabase.rpc('fn_create_finance_fiscal_year_with_periods', {
+    p_title: payload.title,
+    p_start_date: payload.startDate,
+    p_end_date: payload.endDate,
+    p_periods: payload.periods,
+  });
+  if (!rpcRes.error) return { id: rpcRes.data, ...payload };
+  if (!isMissingRpc(rpcRes.error)) throw new Error(rpcRes.error.message || 'خطا در ثبت سال مالی');
+
+  // Backward-compatible fallback until SQL 063 is applied.
+  const duplicateRes = await supabase
+    .from('finance_fiscal_years')
+    .select('id')
+    .eq('start_date', payload.startDate)
+    .eq('end_date', payload.endDate)
+    .maybeSingle();
+  if (duplicateRes.error) throw new Error(duplicateRes.error.message || 'خطا در بررسی سال مالی تکراری');
+  if (duplicateRes.data?.id) throw new Error('این سال مالی قبلاً ثبت شده است.');
+
+  const yearRes = await supabase
+    .from('finance_fiscal_years')
+    .insert({ title: payload.title, start_date: payload.startDate, end_date: payload.endDate })
+    .select('id')
+    .single();
+  assertNoError(yearRes, 'خطا در ثبت سال مالی');
+
+  const periodsRes = await supabase
+    .from('finance_fiscal_periods')
+    .insert(payload.periods.map((period) => ({ ...period, fiscal_year_id: yearRes.data.id })));
+  assertNoError(periodsRes, 'سال مالی ثبت شد اما ایجاد ماه‌های مالی با خطا روبه‌رو شد');
+  return { id: yearRes.data.id, ...payload };
+}
+
+
+function normalAccountBalance(accountType, debitTotal, creditTotal) {
+  if (['asset', 'expense', 'cost_of_goods_sold'].includes(accountType)) return Number(debitTotal || 0) - Number(creditTotal || 0);
+  return Number(creditTotal || 0) - Number(debitTotal || 0);
+}
+function accountTypeLabelFa(type) {
+  return ({
+    asset: 'دارایی',
+    liability: 'بدهی',
+    equity: 'حقوق مالکانه',
+    revenue: 'درآمد',
+    expense: 'هزینه',
+    cost_of_goods_sold: 'بهای تمام‌شده',
+  }[type] || type || '—');
+}
+function roundRial(value) { return Math.round(Number(value || 0)); }
+function toFlatBalanceLine(row = {}) {
+  const account = row.finance_accounts || row.account || {};
+  const entry = row.finance_journal_entries || row.entry || {};
+  return {
+    entry_id: row.entry_id || entry.id || null,
+    entry_number: row.entry_number || entry.entry_number || null,
+    entry_date: row.entry_date || entry.entry_date || null,
+    account_id: row.account_id || account.id || null,
+    account_code: row.account_code || account.code || '',
+    account_name_fa: row.account_name_fa || account.name_fa || 'بدون عنوان',
+    account_name_en: row.account_name_en || account.name_en || '',
+    account_type: row.account_type || account.account_type || 'asset',
+    debit_amount: Number(row.debit_amount || 0),
+    credit_amount: Number(row.credit_amount || 0),
+    line_description: row.line_description || row.description || '',
+  };
+}
+async function fetchBalanceSheetLines(asOfDate) {
+  const rpcRes = await supabase.rpc('fn_finance_balance_sheet_lines', { p_as_of_date: asOfDate });
+  if (!rpcRes.error) return (rpcRes.data || []).map(toFlatBalanceLine);
+  if (!isMissingRpc(rpcRes.error)) throw new Error(rpcRes.error.message || 'خطا در دریافت خطوط ترازنامه');
+
+  // Backward-compatible fallback until SQL 064 is applied.
+  const all = [];
+  const pageSize = 1000;
+  let from = 0;
+  while (true) {
+    const res = await supabase
+      .from('finance_journal_lines')
+      .select('id, debit_amount, credit_amount, description, account_id, finance_accounts(id, code, name_fa, name_en, account_type), finance_journal_entries!inner(id, entry_number, entry_date, status)')
+      .eq('finance_journal_entries.status', 'posted')
+      .lte('finance_journal_entries.entry_date', asOfDate)
+      .range(from, from + pageSize - 1);
+    assertNoError(res, 'خطا در دریافت خطوط اسناد حسابداری برای ترازنامه');
+    all.push(...(res.data || []).map(toFlatBalanceLine));
+    if (!res.data || res.data.length < pageSize) break;
+    from += pageSize;
+  }
+  return all;
+}
+
+export async function fetchFinanceBalanceSheet({ fiscalYear, fiscalYearId, asOfDate } = {}) {
+  let year = fiscalYear || null;
+  if (!year && fiscalYearId) {
+    const yearRes = await supabase
+      .from('finance_fiscal_years')
+      .select('id, title, start_date, end_date, is_closed')
+      .eq('id', fiscalYearId)
+      .single();
+    assertNoError(yearRes, 'خطا در دریافت سال مالی برای ترازنامه');
+    year = yearRes.data;
+  }
+  if (!year) throw new Error('برای تهیه ترازنامه ابتدا یک سال مالی انتخاب کنید.');
+
+  const reportDate = asOfDate || year.end_date || new Date().toISOString().slice(0, 10);
+  const lines = await fetchBalanceSheetLines(reportDate);
+  const startDate = year.start_date || '0001-01-01';
+  const accountMap = new Map();
+  const uniqueEntryIds = new Set();
+
+  for (const line of lines) {
+    if (!line.account_id) continue;
+    uniqueEntryIds.add(line.entry_id || `${line.entry_number}-${line.entry_date}`);
+    const current = accountMap.get(line.account_id) || {
+      account_id: line.account_id,
+      account_code: line.account_code,
+      account_name_fa: line.account_name_fa,
+      account_name_en: line.account_name_en,
+      account_type: line.account_type,
+      account_type_label: accountTypeLabelFa(line.account_type),
+      debit_total: 0,
+      credit_total: 0,
+      period_debit_total: 0,
+      period_credit_total: 0,
+    };
+    current.debit_total += Number(line.debit_amount || 0);
+    current.credit_total += Number(line.credit_amount || 0);
+    if (String(line.entry_date || '') >= startDate && String(line.entry_date || '') <= reportDate) {
+      current.period_debit_total += Number(line.debit_amount || 0);
+      current.period_credit_total += Number(line.credit_amount || 0);
+    }
+    accountMap.set(line.account_id, current);
+  }
+
+  const allAccounts = [...accountMap.values()].map((account) => ({
+    ...account,
+    balance: roundRial(normalAccountBalance(account.account_type, account.debit_total, account.credit_total)),
+    period_balance: roundRial(normalAccountBalance(account.account_type, account.period_debit_total, account.period_credit_total)),
+  })).sort((a, b) => String(a.account_code).localeCompare(String(b.account_code), 'fa'));
+
+  const visible = (type) => allAccounts.filter((account) => account.account_type === type && Math.abs(Number(account.balance || 0)) > 0);
+  const assets = visible('asset');
+  const liabilities = visible('liability');
+  const equityBase = visible('equity');
+  const revenues = allAccounts.filter((account) => account.account_type === 'revenue' && Math.abs(Number(account.period_balance || 0)) > 0);
+  const expenses = allAccounts.filter((account) => ['expense', 'cost_of_goods_sold'].includes(account.account_type) && Math.abs(Number(account.period_balance || 0)) > 0);
+
+  const totalAssets = roundRial(assets.reduce((sum, account) => sum + Number(account.balance || 0), 0));
+  const totalLiabilities = roundRial(liabilities.reduce((sum, account) => sum + Number(account.balance || 0), 0));
+  const totalEquityBase = roundRial(equityBase.reduce((sum, account) => sum + Number(account.balance || 0), 0));
+  const totalRevenue = roundRial(revenues.reduce((sum, account) => sum + Number(account.period_balance || 0), 0));
+  const totalExpenses = roundRial(expenses.reduce((sum, account) => sum + Number(account.period_balance || 0), 0));
+  const netIncome = roundRial(totalRevenue - totalExpenses);
+  const equity = [
+    ...equityBase,
+    {
+      account_id: 'current-year-net-income',
+      account_code: 'نتیجه',
+      account_name_fa: netIncome >= 0 ? 'سود سال جاری' : 'زیان سال جاری',
+      account_type: 'equity',
+      account_type_label: 'حقوق مالکانه',
+      debit_total: 0,
+      credit_total: 0,
+      balance: netIncome,
+      period_balance: netIncome,
+      is_result_row: true,
+    },
+  ].filter((account) => Math.abs(Number(account.balance || 0)) > 0 || account.is_result_row);
+  const totalEquity = roundRial(totalEquityBase + netIncome);
+  const totalLiabilitiesAndEquity = roundRial(totalLiabilities + totalEquity);
+  const difference = roundRial(totalAssets - totalLiabilitiesAndEquity);
+
+  return {
+    fiscalYear: year,
+    asOfDate: reportDate,
+    generatedAt: new Date().toISOString(),
+    sourceEntryCount: uniqueEntryIds.size,
+    sourceLineCount: lines.length,
+    sections: { assets, liabilities, equity, revenues, expenses },
+    totals: {
+      assets: totalAssets,
+      liabilities: totalLiabilities,
+      equityBase: totalEquityBase,
+      revenue: totalRevenue,
+      expenses: totalExpenses,
+      netIncome,
+      equity: totalEquity,
+      liabilitiesAndEquity: totalLiabilitiesAndEquity,
+      difference,
+      isBalanced: Math.abs(difference) <= 1,
+    },
+  };
+}
+
 export async function closeFiscalPeriod(periodId) {
   const res = await supabase.rpc('fn_close_fiscal_period', {
     p_period_id: periodId,
@@ -118,6 +350,19 @@ export async function reopenFiscalYear(fiscalYearId) {
     p_fiscal_year_id: fiscalYearId,
   });
   assertNoError(res, 'خطا در بازگشایی سال مالی');
+
+  // In older database versions the year RPC reopens only the year row.
+  // Reopen all periods as well, while still using the admin-only period RPC.
+  const periodsRes = await supabase
+    .from('finance_fiscal_periods')
+    .select('id')
+    .eq('fiscal_year_id', fiscalYearId)
+    .eq('is_closed', true);
+  assertNoError(periodsRes, 'خطا در دریافت ماه‌های سال مالی برای بازگشایی');
+  for (const period of periodsRes.data || []) {
+    const periodRes = await supabase.rpc('fn_reopen_fiscal_period', { p_period_id: period.id });
+    assertNoError(periodRes, 'خطا در بازگشایی ماه‌های سال مالی');
+  }
   return res.data;
 }
 
@@ -222,6 +467,38 @@ export async function postFinancePayment(paymentId) {
   return res.data;
 }
 
+
+export async function getFinancePaymentForEdit(paymentId) {
+  const baseColumns = 'id, payment_number, direction, method, status, party_id, payment_date, amount, currency, bank_account_id, cashbox_id, related_order_id, source_module, source_record_id, description, created_at';
+  let paymentRes = await supabase
+    .from('finance_payments')
+    .select(`${baseColumns}, category_id, category_note`)
+    .eq('id', paymentId)
+    .single();
+  if (paymentRes.error && isMissingColumn(paymentRes.error)) {
+    paymentRes = await supabase
+      .from('finance_payments')
+      .select(baseColumns)
+      .eq('id', paymentId)
+      .single();
+  }
+  assertNoError(paymentRes, 'خطا در دریافت اطلاعات سند دریافت/پرداخت برای ویرایش');
+
+  const allocationsRes = await supabase
+    .from('finance_payment_allocations')
+    .select('document_id, amount')
+    .eq('payment_id', paymentId)
+    .order('created_at', { ascending: true });
+  assertNoError(allocationsRes, 'خطا در دریافت فاکتور مرتبط با پرداخت');
+  const firstAllocation = (allocationsRes.data || [])[0];
+  return {
+    ...paymentRes.data,
+    document_id: firstAllocation?.document_id || '',
+    allocation_amount: firstAllocation?.amount || null,
+    allocations: allocationsRes.data || [],
+  };
+}
+
 export async function createFinancePayment({ payment, allocations = [], post = true }) {
   const paymentRes = await supabase
     .from('finance_payments')
@@ -241,6 +518,107 @@ export async function createFinancePayment({ payment, allocations = [], post = t
   }
 
   if (post) await postFinancePayment(paymentId);
+  return paymentRes.data;
+}
+
+async function getEditableFinancePayment(paymentId) {
+  const res = await supabase
+    .from('finance_payments')
+    .select('id, payment_number, status, source_module, source_record_id, description')
+    .eq('id', paymentId)
+    .single();
+  assertNoError(res, 'خطا در دریافت سند دریافت/پرداخت');
+  if (res.data?.source_record_id) {
+    throw new Error('این سند از بخش دیگری ساخته شده است و برای حفظ سوابق باید از همان بخش اصلی اصلاح یا ابطال شود.');
+  }
+  if (['void', 'cancelled'].includes(res.data?.status)) {
+    throw new Error('سند باطل‌شده یا لغوشده قابل ویرایش نیست.');
+  }
+  return res.data;
+}
+
+async function recalculateAffectedFinanceDocuments(documentIds = []) {
+  const uniqueIds = [...new Set(documentIds.filter(Boolean))];
+  for (const documentId of uniqueIds) {
+    const recalcRes = await supabase.rpc('fn_finance_update_document_paid_amount', { p_document_id: documentId });
+    if (recalcRes.error && !isMissingRpc(recalcRes.error)) {
+      throw new Error(recalcRes.error.message || 'خطا در به‌روزرسانی مانده فاکتور مرتبط');
+    }
+  }
+}
+
+export async function updateFinancePayment(paymentId, { payment, allocations = [], post = true, reason = '' }) {
+  await getEditableFinancePayment(paymentId);
+
+  const oldAllocationsRes = await supabase
+    .from('finance_payment_allocations')
+    .select('document_id')
+    .eq('payment_id', paymentId);
+  assertNoError(oldAllocationsRes, 'خطا در دریافت تخصیص‌های قبلی پرداخت');
+  const oldDocumentIds = (oldAllocationsRes.data || []).map((a) => a.document_id);
+
+  const voidEntriesRes = await supabase
+    .from('finance_journal_entries')
+    .update({
+      status: 'void',
+      description: reason ? `ابطال سند حسابداری قبلی به دلیل ویرایش دریافت/پرداخت: ${reason}` : 'ابطال سند حسابداری قبلی به دلیل ویرایش دریافت/پرداخت',
+    })
+    .eq('related_payment_id', paymentId)
+    .in('status', ['draft', 'posted']);
+  assertNoError(voidEntriesRes, 'خطا در ابطال سند حسابداری قبلی پرداخت');
+
+  const paymentRes = await supabase
+    .from('finance_payments')
+    .update({ ...payment, status: post ? 'draft' : (payment.status || 'draft') })
+    .eq('id', paymentId)
+    .select('id, payment_number')
+    .single();
+  assertNoError(paymentRes, 'خطا در ویرایش دریافت/پرداخت');
+
+  const deleteRes = await supabase.from('finance_payment_allocations').delete().eq('payment_id', paymentId);
+  assertNoError(deleteRes, 'خطا در حذف تخصیص‌های قبلی پرداخت');
+
+  const cleanAllocations = allocations
+    .filter((a) => a.document_id && Number(a.amount) > 0)
+    .map((a) => ({ payment_id: paymentId, document_id: a.document_id, amount: Number(a.amount) }));
+  if (cleanAllocations.length > 0) {
+    const allocationRes = await supabase.from('finance_payment_allocations').insert(cleanAllocations);
+    assertNoError(allocationRes, 'خطا در ثبت تخصیص‌های جدید پرداخت');
+  }
+
+  if (post) await postFinancePayment(paymentId);
+  await recalculateAffectedFinanceDocuments([...oldDocumentIds, ...cleanAllocations.map((a) => a.document_id)]);
+  return paymentRes.data;
+}
+
+export async function voidFinancePayment(paymentId, reason = '') {
+  const existing = await getEditableFinancePayment(paymentId);
+  const oldAllocationsRes = await supabase
+    .from('finance_payment_allocations')
+    .select('document_id')
+    .eq('payment_id', paymentId);
+  assertNoError(oldAllocationsRes, 'خطا در دریافت تخصیص‌های پرداخت');
+
+  const voidEntriesRes = await supabase
+    .from('finance_journal_entries')
+    .update({
+      status: 'void',
+      description: reason ? `ابطال سند حسابداری دریافت/پرداخت: ${reason}` : 'ابطال سند حسابداری دریافت/پرداخت',
+    })
+    .eq('related_payment_id', paymentId)
+    .in('status', ['draft', 'posted']);
+  assertNoError(voidEntriesRes, 'خطا در ابطال سند حسابداری پرداخت');
+
+  const description = [existing.description, reason ? `ابطال/حذف امن: ${reason}` : 'ابطال/حذف امن'].filter(Boolean).join('\n');
+  const paymentRes = await supabase
+    .from('finance_payments')
+    .update({ status: 'void', description })
+    .eq('id', paymentId)
+    .select('id, payment_number')
+    .single();
+  assertNoError(paymentRes, 'خطا در ابطال دریافت/پرداخت');
+
+  await recalculateAffectedFinanceDocuments((oldAllocationsRes.data || []).map((a) => a.document_id));
   return paymentRes.data;
 }
 
@@ -431,13 +809,13 @@ export function openOfficialFinancePrint({ title, subtitle = '', body, reportLab
     body{margin:0;background:#eef1f4;color:#050505;direction:rtl;font-family:"B Nazanin","Vazirmatn","IRANSansX","IRANSans","Segoe UI",Tahoma,Arial,sans-serif;padding:${marginMm}mm;font-size:${fs(14)}}
     .print-btn{margin:0 auto 3mm;display:flex;align-items:center;justify-content:center;background:#10243d;color:#fff;border:0;border-radius:10px;padding:8px 14px;font-weight:900;cursor:pointer;box-shadow:0 8px 22px rgba(16,36,61,.20)}
     .official-sheet{width:100%;max-width:${sheetWidth};min-height:${sheetMinHeight};margin:0 auto;background:#fff;border:1.6px solid #151515;padding:0;position:relative;box-shadow:0 12px 34px rgba(15,23,32,.16);overflow:hidden}
-    .official-inner{padding:0 0 7mm;min-height:inherit;position:relative}
-    .official-top{direction:ltr;display:grid;grid-template-columns:38mm 1fr 42mm;align-items:start;gap:4mm;border-bottom:1.6px solid #151515;padding:3mm 4mm 4mm;min-height:${isInvoice ? '12mm' : '34mm'}}
-    .official-top.invoice-top{display:block;min-height:12mm;padding:1.8mm 4mm 2.4mm;position:relative;text-align:center;direction:rtl}.invoice-top .invoice-meta{position:absolute;left:4mm;top:1.6mm;text-align:right;line-height:1.9;font-size:13.5px;font-weight:850}.invoice-top .invoice-title{font-size:22px;font-weight:950;margin:0;text-decoration:underline;text-underline-offset:2px}.invoice-top .invoice-subtitle{font-size:12.5px;color:#444;margin-top:.8mm}.invoice-top .logo-mini{position:absolute;right:4mm;top:1.6mm;width:28mm;height:13mm;object-fit:contain}
-    .page-no{grid-column:1;text-align:left;direction:rtl;font-size:14px;font-weight:850;color:#111;white-space:nowrap;padding-top:1mm}.brand-center{grid-column:2;text-align:center;direction:rtl;padding-top:1mm}.brand-center h1{font-size:18px;margin:0 0 2mm;font-weight:950}.brand-center h2{font-size:24px;margin:0 0 2.5mm;font-weight:950;letter-spacing:-.02em}.brand-center p{font-size:14px;margin:0;line-height:1.75;font-weight:750}.brand-logo{grid-column:3;text-align:center;direction:ltr}.brand-logo img{width:32mm;height:21mm;object-fit:contain;display:block;margin:0 auto .5mm}.brand-logo span{display:block;font-size:14px;margin-top:0;color:#333;letter-spacing:.03em}
-    .section-label{display:block;text-align:center;background:#dddddd;border-top:1.25px solid #151515;border-bottom:1.25px solid #151515;padding:1.8mm 4mm;font-size:16px;font-weight:950;line-height:1.1;color:#111;margin:0}.box-row{border-bottom:1.45px solid #151515;padding:3mm 4mm;min-height:${isInvoice ? '24mm' : '22mm'}}.compact-box{border-bottom:1.45px solid #151515;padding:2mm 4mm}.box-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:1.4mm 5mm}.box-grid.two{grid-template-columns:1fr 1fr}.box-grid.four{grid-template-columns:repeat(4,1fr)}.info-grid{display:grid;grid-template-columns:${isLandscape ? '1.15fr 1fr 1fr 1fr' : '1fr 1fr'};gap:.7mm 4mm;align-items:center}.field{font-size:15px;line-height:2;min-height:6mm}.compact-box .field{line-height:1.55;min-height:5mm}.field.full{grid-column:1/-1}.field b{font-weight:950;color:#111}.field span[dir="ltr"],.field[dir="ltr"]{font-family:"B Nazanin","Vazirmatn","IRANSansX",Tahoma,Arial,sans-serif;font-weight:850;font-variant-numeric:tabular-nums}.highlight-number span,.highlight-number{font-size:17px;font-weight:950;color:#111}
-    .official-table{width:100%;border-collapse:collapse;margin:0;font-size:${isLandscape ? '13.6px' : '14px'};table-layout:fixed}.official-table thead{display:table-header-group}.official-table tfoot{display:table-footer-group}.official-table tr{page-break-inside:avoid}.official-table th,.official-table td{border:1.15px solid #151515;padding:${isLandscape ? '1.6mm 1.25mm' : '2.1mm 1.5mm'};text-align:center;vertical-align:middle;line-height:1.65;word-break:break-word}.official-table th{background:#d9d9d9!important;color:#111;font-weight:950}.official-table td.desc{text-align:right}.official-table tbody tr:nth-child(even) td,.official-table tr.alt td{background:#f7f7f7!important}.official-table .money,.money{direction:ltr;text-align:left;font-family:"B Nazanin","Vazirmatn","IRANSansX",Tahoma,Arial,sans-serif!important;font-weight:850;white-space:nowrap;font-variant-numeric:tabular-nums}.rial-word{font-family:"Vazirmatn",Tahoma,Arial,sans-serif;font-weight:800;margin-right:2px}.official-table.compact th,.official-table.compact td{padding:1.6mm 1.25mm;font-size:13.5px}
-    .totals-wrap{direction:ltr;display:grid;grid-template-columns:${isLandscape ? '58mm' : '50mm'} 1fr;gap:0;border-bottom:1.6px solid #151515;min-height:${isLandscape ? '25mm' : '34mm'}}.totals-table{direction:rtl;width:${isLandscape ? '58mm' : '50mm'};border-collapse:collapse;font-size:14px;margin:0}.totals-table td{border:1.15px solid #151515;padding:2mm;line-height:1.5}.totals-table td:first-child{font-weight:950;background:#eeeeee;color:#111}.totals-table td.money{direction:ltr;text-align:left;font-family:"B Nazanin","Vazirmatn","IRANSansX",Tahoma,Arial,sans-serif;font-weight:950;font-size:16px;font-variant-numeric:tabular-nums}.amount-words{direction:rtl;border:1.15px solid #151515;border-left:0;padding:3.5mm 4mm;font-size:15px;line-height:2.05;display:flex;flex-direction:column;justify-content:center}.amount-words b{font-weight:950}.notes-box{border-bottom:1.6px solid #151515;min-height:${isLandscape ? '15mm' : '18mm'};padding:3.5mm 4mm;font-size:15px;line-height:2}.notes-box b{font-weight:950}.statement-title{text-align:center;border-bottom:1.6px solid #151515;padding:4mm;margin:0}.statement-title h1{font-size:19px;margin:0 0 2mm;font-weight:950}.statement-title h2{font-size:14px;margin:0;font-weight:900}.statement-summary{display:grid;grid-template-columns:repeat(4,1fr);gap:0;border-bottom:1.6px solid #151515}.statement-summary div{border-left:1.15px solid #151515;padding:3mm;font-size:14px;min-height:18mm}.statement-summary div:nth-child(even){background:#f7f7f7}.statement-summary span{display:block;color:#4b5563;font-weight:800}.statement-summary strong{display:block;margin-top:1.5mm;font-size:16px;color:#111;font-weight:950}.status-cell{font-weight:950}.continued{text-align:left;font-size:13px;padding:2mm 4mm;color:#555}.signatures{display:grid;grid-template-columns:repeat(3,1fr);gap:14mm;min-height:${isLandscape ? '28mm' : '48mm'};align-items:end;padding:${isLandscape ? '12mm 14mm 8mm' : '18mm 12mm 9mm'};text-align:center;font-size:15px;page-break-inside:avoid}.signatures span{display:block;font-weight:850}.footer-line{position:absolute;left:4mm;right:4mm;bottom:1.8mm;border-top:1px solid #777;padding:1.5mm 0 0;font-size:11px;text-align:center;color:#444;display:${printSettings.showFooter === false ? 'none' : 'block'}}.soft-row{background:#f7f7f7!important}.no-print{display:none}
+    .official-inner{padding:0 0 ${isInvoice ? '2mm' : '7mm'};min-height:inherit;position:relative}
+    .official-top{direction:ltr;display:grid;grid-template-columns:38mm 1fr 42mm;align-items:start;gap:4mm;border-bottom:1.6px solid #151515;padding:${isInvoice ? '1.4mm 4mm 1.8mm' : '3mm 4mm 4mm'};min-height:${isInvoice ? '10mm' : '34mm'}}
+    .official-top.invoice-top{display:block;min-height:10mm;padding:1.1mm 4mm 1.4mm;position:relative;text-align:center;direction:rtl}.invoice-top .invoice-meta{position:absolute;left:4mm;top:1.6mm;text-align:right;line-height:1.9;font-size:${isInvoice ? ns(11.5) : ns(13.5)};font-weight:850}.invoice-top .invoice-title{font-size:${isInvoice ? fs(17) : fs(22)};font-weight:950;margin:0;text-decoration:underline;text-underline-offset:2px}.invoice-top .invoice-subtitle{font-size:${isInvoice ? fs(9.5) : fs(12.5)};color:#444;margin-top:.8mm}.invoice-top .logo-mini{position:absolute;right:4mm;top:1.6mm;width:28mm;height:13mm;object-fit:contain}
+    .page-no{grid-column:1;text-align:left;direction:rtl;font-size:14px;font-weight:850;color:#111;white-space:nowrap;padding-top:1mm}.brand-center{grid-column:2;text-align:center;direction:rtl;padding-top:1mm}.brand-center h1{font-size:18px;margin:0 0 2mm;font-weight:950}.brand-center h2{font-size:24px;margin:0 0 2.5mm;font-weight:950;letter-spacing:-.02em}.brand-center p{font-size:14px;margin:0;line-height:1.75;font-weight:750}.brand-logo{grid-column:3;text-align:center;direction:ltr}.brand-logo img{width:32mm;height:21mm;object-fit:contain;display:block;margin:0 auto .5mm}.brand-logo span{display:block;font-size:${fs(14)};margin-top:0;color:#333;letter-spacing:.03em}
+    .section-label{display:block;text-align:center;background:#dddddd;border-top:1.25px solid #151515;border-bottom:1.25px solid #151515;padding:${isInvoice ? '1mm 4mm' : '1.8mm 4mm'};font-size:${isInvoice ? fs(12.2) : fs(16)};font-weight:950;line-height:1.1;color:#111;margin:0}.box-row{border-bottom:1.45px solid #151515;padding:${isInvoice ? '1.5mm 4mm' : '3mm 4mm'};min-height:${isInvoice ? 'auto' : '22mm'}}.compact-box{border-bottom:1.45px solid #151515;padding:${isInvoice ? '1.15mm 4mm' : '2mm 4mm'}}.box-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:1.4mm 5mm}.box-grid.two{grid-template-columns:1fr 1fr}.box-grid.four{grid-template-columns:repeat(4,1fr)}.info-grid{display:grid;grid-template-columns:${isLandscape ? '1.15fr 1fr 1fr 1fr' : '1fr 1fr'};gap:${isInvoice ? '.25mm 3mm' : '.7mm 4mm'};align-items:center}.field{font-size:${isInvoice ? fs(11.3) : fs(15)};line-height:${isInvoice ? '1.28' : '2'};min-height:${isInvoice ? '3.7mm' : '6mm'}}.compact-box .field{line-height:${isInvoice ? '1.22' : '1.55'};min-height:${isInvoice ? '3.4mm' : '5mm'}}.field.full{grid-column:1/-1}.field b{font-weight:950;color:#111}.field span[dir="ltr"],.field[dir="ltr"]{font-family:"B Nazanin","Vazirmatn","IRANSansX",Tahoma,Arial,sans-serif;font-weight:850;font-variant-numeric:tabular-nums}.highlight-number span,.highlight-number{font-size:${isInvoice ? fs(12.5) : fs(17)};font-weight:950;color:#111}
+    .official-table{width:100%;border-collapse:collapse;margin:0;font-size:${isInvoice ? (isLandscape ? fs(9.2) : fs(8.6)) : (isLandscape ? fs(13.6) : fs(14))};table-layout:fixed}.official-table thead{display:table-header-group}.official-table tfoot{display:table-footer-group}.official-table tr{page-break-inside:avoid}.official-table th,.official-table td{border:1.15px solid #151515;padding:${isInvoice ? (isLandscape ? '.75mm .65mm' : '.62mm .55mm') : (isLandscape ? '1.6mm 1.25mm' : '2.1mm 1.5mm')};text-align:center;vertical-align:middle;line-height:1.65;word-break:break-word}.official-table th{background:#d9d9d9!important;color:#111;font-weight:950}.official-table td.desc{text-align:right}.official-table tbody tr:nth-child(even) td,.official-table tr.alt td{background:#f7f7f7!important}.official-table .money,.money{direction:ltr;text-align:left;font-family:"B Nazanin","Vazirmatn","IRANSansX",Tahoma,Arial,sans-serif!important;font-weight:850;white-space:nowrap;font-variant-numeric:tabular-nums}.rial-word{font-family:"Vazirmatn",Tahoma,Arial,sans-serif;font-weight:800;margin-right:2px}.official-table.compact th,.official-table.compact td{padding:${isInvoice ? '.7mm .6mm' : '1.6mm 1.25mm'};font-size:${isInvoice ? fs(9) : fs(13.5)}}
+    .totals-wrap{direction:ltr;display:grid;grid-template-columns:${isInvoice ? (isLandscape ? '48mm' : '42mm') : (isLandscape ? '58mm' : '50mm')} 1fr;gap:0;border-bottom:1.6px solid #151515;min-height:${isInvoice ? 'auto' : (isLandscape ? '25mm' : '34mm')}}.totals-table{direction:rtl;width:${isInvoice ? (isLandscape ? '48mm' : '42mm') : (isLandscape ? '58mm' : '50mm')};border-collapse:collapse;font-size:${isInvoice ? fs(10) : fs(14)};margin:0}.totals-table td{border:1.15px solid #151515;padding:${isInvoice ? '.85mm 1.2mm' : '2mm'};line-height:${isInvoice ? '1.22' : '1.5'}}.totals-table td:first-child{font-weight:950;background:#eeeeee;color:#111}.totals-table td.money{direction:ltr;text-align:left;font-family:"B Nazanin","Vazirmatn","IRANSansX",Tahoma,Arial,sans-serif;font-weight:950;font-size:${isInvoice ? ns(10.5) : ns(16)};font-variant-numeric:tabular-nums}.amount-words{direction:rtl;border:1.15px solid #151515;border-left:0;padding:${isInvoice ? '1.6mm 2.4mm' : '3.5mm 4mm'};font-size:${isInvoice ? fs(10.5) : fs(15)};line-height:${isInvoice ? '1.45' : '2.05'};display:flex;flex-direction:column;justify-content:center}.amount-words b{font-weight:950}.notes-box{border-bottom:1.6px solid #151515;min-height:${isInvoice ? 'auto' : (isLandscape ? '15mm' : '18mm')};padding:${isInvoice ? '1.4mm 4mm' : '3.5mm 4mm'};font-size:${isInvoice ? fs(10.2) : fs(15)};line-height:${isInvoice ? '1.35' : '2'}}.notes-box b{font-weight:950}.statement-title{text-align:center;border-bottom:1.6px solid #151515;padding:4mm;margin:0}.statement-title h1{font-size:19px;margin:0 0 2mm;font-weight:950}.statement-title h2{font-size:14px;margin:0;font-weight:900}.statement-summary{display:grid;grid-template-columns:repeat(4,1fr);gap:0;border-bottom:1.6px solid #151515}.statement-summary div{border-left:1.15px solid #151515;padding:3mm;font-size:14px;min-height:18mm}.statement-summary div:nth-child(even){background:#f7f7f7}.statement-summary span{display:block;color:#4b5563;font-weight:800}.statement-summary strong{display:block;margin-top:1.5mm;font-size:16px;color:#111;font-weight:950}.status-cell{font-weight:950}.continued{text-align:left;font-size:${isInvoice ? fs(9.5) : fs(13)};padding:${isInvoice ? '.8mm 4mm' : '2mm 4mm'};color:#555}.signatures{display:grid;grid-template-columns:repeat(3,1fr);gap:14mm;min-height:${isInvoice ? (isLandscape ? '13mm' : '16mm') : (isLandscape ? '28mm' : '48mm')};align-items:end;padding:${isInvoice ? (isLandscape ? '4mm 12mm 3mm' : '5mm 10mm 3mm') : (isLandscape ? '12mm 14mm 8mm' : '18mm 12mm 9mm')};text-align:center;font-size:${isInvoice ? fs(10.5) : fs(15)};page-break-inside:avoid}.signatures span{display:block;font-weight:850}.footer-line{position:absolute;left:4mm;right:4mm;bottom:1.8mm;border-top:1px solid #777;padding:1.5mm 0 0;font-size:${isInvoice ? fs(8.5) : fs(11)};text-align:center;color:#444;display:${printSettings.showFooter === false ? 'none' : 'block'}}.soft-row{background:#f7f7f7!important}.no-print{display:none}
     body{font-size:${fs(14)}}.invoice-top .invoice-meta{font-size:${ns(13.5)}}.invoice-top .invoice-title{font-size:${fs(22)}}.invoice-top .invoice-subtitle{font-size:${fs(12.5)}}.page-no{font-size:${ns(14)}}.brand-center h1{font-size:${fs(18)}}.brand-center h2{font-size:${fs(24)}}.brand-center p{font-size:${fs(14)}}.section-label{font-size:${fs(16)}}.field{font-size:${fs(15)}}.official-table{font-size:${fs(isLandscape ? 13.6 : 14)}}.official-table .money,.money{font-size:${ns(15)}}.official-table.compact th,.official-table.compact td{font-size:${fs(13.5)}}.totals-table{font-size:${fs(14)}}.totals-table td.money{font-size:${ns(16)}}.amount-words,.notes-box{font-size:${fs(15)}}.statement-summary div{font-size:${fs(14)}}.statement-summary strong{font-size:${ns(16)}}.continued{font-size:${fs(13)}}.signatures{font-size:${fs(15)}}.footer-line{font-size:${fs(11)}}
     @media print{body{background:#fff;padding:0}.print-btn{display:none}.official-sheet{border:1.5px solid #151515;max-width:${sheetWidth};width:100%;min-height:${printMinHeight};box-shadow:none}.official-top{min-height:${isInvoice ? '12mm' : '31mm'}}.official-table th{background:#d9d9d9!important}.official-table tbody tr:nth-child(even) td,.official-table tr.alt td{background:#f7f7f7!important}}
   `;
@@ -914,5 +1292,41 @@ export async function registerFinancePayrollPayment({ slipId, paidAmount, paidAt
     p_notes: notes || null,
   });
   assertNoError(res, 'خطا در ثبت سند پرداخت حقوق');
+  return res.data;
+}
+
+export async function createFinanceIncomeExpenseCategory(payload) {
+  const userId = await currentFinanceUserId();
+  const res = await supabase.from('finance_income_expense_categories').insert({
+    category_type: payload.category_type || 'expense',
+    parent_id: payload.parent_id || null,
+    code: payload.code || null,
+    name_fa: payload.name_fa,
+    name_en: payload.name_en || null,
+    notes: payload.notes || null,
+    created_by: userId,
+    is_active: payload.is_active !== false,
+  }).select('id').single();
+  assertNoError(res, 'خطا در ثبت دسته هزینه/درآمد');
+  return res.data;
+}
+
+export async function updateFinanceIncomeExpenseCategory(id, payload) {
+  const res = await supabase.from('finance_income_expense_categories').update({
+    category_type: payload.category_type || 'expense',
+    parent_id: payload.parent_id || null,
+    code: payload.code || null,
+    name_fa: payload.name_fa,
+    name_en: payload.name_en || null,
+    notes: payload.notes || null,
+    is_active: payload.is_active !== false,
+  }).eq('id', id).select('id').single();
+  assertNoError(res, 'خطا در ویرایش دسته هزینه/درآمد');
+  return res.data;
+}
+
+export async function archiveFinanceIncomeExpenseCategory(id) {
+  const res = await supabase.from('finance_income_expense_categories').update({ is_active: false }).eq('id', id).select('id').single();
+  assertNoError(res, 'خطا در حذف/غیرفعال‌سازی دسته هزینه/درآمد');
   return res.data;
 }

@@ -16,8 +16,38 @@ function isMissingRpc(error) {
   return error?.code === 'PGRST202' || msg.includes('could not find the function') || msg.includes('does not exist');
 }
 
+function isMissingSchema(error) {
+  const text = `${error?.message || ''} ${error?.details || ''} ${error?.hint || ''} ${error?.code || ''}`.toLowerCase();
+  return error?.code === 'PGRST202' || text.includes('does not exist') || text.includes('schema cache') || text.includes('pgrst204') || text.includes('42703') || text.includes('42p01');
+}
+
 export async function createOrUpdateCustomer(input) {
   const userId = await currentUserId();
+  const nextFollowUpAt = input.next_follow_up_at || null;
+  const rpcRes = await supabase.rpc('fn_upsert_customer_accounting_contact', {
+    p_customer_id: input.id || null,
+    p_finance_party_id: input.finance_party_id || null,
+    p_company_name: input.company_name,
+    p_contact_person_name: input.contact_person_name || null,
+    p_contact_phone: input.contact_phone || null,
+    p_contact_email: input.contact_email || null,
+    p_city: input.city || null,
+    p_address: input.address || null,
+    p_preferred_contact_channel: input.preferred_contact_channel || null,
+    p_acquisition_source: input.acquisition_source || null,
+    p_crm_status: input.crm_status || 'lead',
+    p_lead_score: Number(input.lead_score || 50),
+    p_next_follow_up_at: nextFollowUpAt,
+    p_economic_code: input.economic_code || null,
+    p_registration_number: input.registration_number || null,
+    p_national_id: input.national_id || null,
+    p_postal_code: input.postal_code || null,
+    p_notes: input.finance_notes || input.notes || null,
+  });
+  if (!rpcRes.error) return rpcRes.data;
+  if (!isMissingRpc(rpcRes.error)) assertNoError(rpcRes, 'خطا در ثبت/ویرایش مشتری مشترک با حسابداری');
+
+  // Fallback until SQL 065 is applied.
   const payload = {
     company_name: input.company_name,
     contact_person_name: input.contact_person_name || null,
@@ -28,23 +58,50 @@ export async function createOrUpdateCustomer(input) {
     acquisition_source: input.acquisition_source || null,
     crm_status: input.crm_status || 'lead',
     lead_score: Number(input.lead_score || 50),
-    next_follow_up_at: input.next_follow_up_at || null,
+    next_follow_up_at: nextFollowUpAt,
   };
   if (Object.prototype.hasOwnProperty.call(input, 'address')) payload.address = input.address || null;
 
-  if (input.id) {
-    const res = await supabase.from('customers').update(payload).eq('id', input.id).select('id').single();
+  let customerId = input.id;
+  if (customerId) {
+    const res = await supabase.from('customers').update(payload).eq('id', customerId).select('id').single();
     assertNoError(res, 'خطا در ویرایش مشتری');
-    return res.data.id;
+  } else {
+    const res = await supabase.from('customers').insert({ ...payload, created_by: userId, assigned_sales_id: userId }).select('id').single();
+    assertNoError(res, 'خطا در ثبت مشتری');
+    customerId = res.data.id;
   }
 
-  const res = await supabase.from('customers').insert({ ...payload, created_by: userId, assigned_sales_id: userId }).select('id').single();
-  assertNoError(res, 'خطا در ثبت مشتری');
-  return res.data.id;
+  if ((input.crm_status || 'lead') !== 'lead') {
+    const partyRpc = await supabase.rpc('fn_finance_party_for_customer', { p_customer_id: customerId });
+    if (partyRpc.error && !isMissingRpc(partyRpc.error)) throw new Error(partyRpc.error.message || 'خطا در همگام‌سازی مشتری با حسابداری');
+    const partyId = partyRpc.data || input.finance_party_id;
+    if (partyId) {
+      const patch = {
+        economic_code: input.economic_code || null,
+        registration_number: input.registration_number || null,
+        national_id: input.national_id || null,
+        postal_code: input.postal_code || null,
+        notes: input.finance_notes || input.notes || null,
+      };
+      const res = await supabase.from('finance_parties').update(patch).eq('id', partyId);
+      if (res.error && !isMissingSchema(res.error)) throw new Error(res.error.message || 'خطا در ثبت اطلاعات رسمی حسابداری مشتری');
+    }
+  }
+  return customerId;
 }
 
 export async function createOrderWithItems({ order, items, options = {} }) {
   await currentUserId();
+
+  if (order?.customer_id) {
+    // Once a lead receives an order, it becomes a real customer and must sync with Accounting.
+    await supabase
+      .from('customers')
+      .update({ crm_status: 'active_customer', updated_at: new Date().toISOString() })
+      .eq('id', order.customer_id)
+      .eq('crm_status', 'lead');
+  }
 
   const cleanItems = (items || [])
     .filter((item) => item.item_name_fa && Number(item.quantity) > 0)

@@ -1,5 +1,33 @@
 import { useEffect, useState } from 'react';
-import { isoDateToJalaliInput, jalaliInputToIsoDate } from '../lib/formatters';
+import { isoDateToJalaliInput, jalaliInputToIsoDate, toEnglishDigits } from '../lib/formatters';
+
+function formatJalaliTyping(value) {
+  const raw = toEnglishDigits(value).trim();
+  if (!raw) return '';
+  const normalized = raw.replace(/[.\-\s]+/g, '/');
+  const parts = normalized.split('/');
+
+  // If user intentionally types single-digit month/day with slash, keep it while typing.
+  if (parts.length >= 2 && ((parts[1] && parts[1].length === 1) || (parts[2] && parts[2].length === 1))) {
+    return normalized.slice(0, 10);
+  }
+
+  const digits = raw.replace(/\D/g, '').slice(0, 8);
+  if (digits.length <= 4) return digits;
+  if (digits.length <= 6) return `${digits.slice(0, 4)}/${digits.slice(4)}`;
+  return `${digits.slice(0, 4)}/${digits.slice(4, 6)}/${digits.slice(6, 8)}`;
+}
+
+function isPartialJalaliInput(value) {
+  const raw = toEnglishDigits(value).trim();
+  if (!raw) return true;
+  const normalized = raw.replace(/[.\-\s]+/g, '/');
+  const parts = normalized.split('/').filter(Boolean);
+  const digits = normalized.replace(/\D/g, '');
+  if (parts.length < 3 && digits.length < 8) return true;
+  if (digits.length > 0 && digits.length < 8 && parts.length < 3) return true;
+  return false;
+}
 
 export default function JalaliDateInput({ value, onChange, required = false, placeholder = '۱۴۰۵/۰۵/۱۷', className = '', style, ...props }) {
   const [text, setText] = useState(isoDateToJalaliInput(value));
@@ -11,7 +39,7 @@ export default function JalaliDateInput({ value, onChange, required = false, pla
   }, [value]);
 
   function handleChange(e) {
-    const next = e.target.value;
+    const next = formatJalaliTyping(e.target.value);
     setText(next);
     if (!next.trim()) {
       setInvalid(false);
@@ -23,7 +51,7 @@ export default function JalaliDateInput({ value, onChange, required = false, pla
       setInvalid(false);
       onChange?.(iso);
     } else {
-      setInvalid(true);
+      setInvalid(!isPartialJalaliInput(next));
     }
   }
 
@@ -32,6 +60,8 @@ export default function JalaliDateInput({ value, onChange, required = false, pla
     if (iso) {
       setText(isoDateToJalaliInput(iso));
       setInvalid(false);
+    } else if (text.trim() && !isPartialJalaliInput(text)) {
+      setInvalid(true);
     }
   }
 
@@ -52,7 +82,7 @@ export default function JalaliDateInput({ value, onChange, required = false, pla
         aria-invalid={invalid ? 'true' : 'false'}
       />
       <small className={invalid ? 'date-hint invalid' : 'date-hint'}>
-        {invalid ? 'فرمت تاریخ باید شمسی باشد؛ مثال: ۱۴۰۵/۰۵/۱۷' : 'تاریخ را شمسی وارد کن؛ مثال: ۱۴۰۵/۰۵/۱۷'}
+        {invalid ? 'فرمت تاریخ باید شمسی باشد؛ مثال: ۱۴۰۵/۰۵/۱۷' : 'عدد تاریخ را بنویس؛ مثال: ۱۴۰۵۰۵۱۷ خودش ۱۴۰۵/۰۵/۱۷ می‌شود'}
       </small>
     </>
   );

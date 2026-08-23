@@ -1,0 +1,13 @@
+# Keep the app shell fresh after every deploy so browsers do not reference old hashed chunks.
+/
+  Cache-Control: no-cache, no-store, must-revalidate
+/index.html
+  Cache-Control: no-cache, no-store, must-revalidate
+/*.html
+  Cache-Control: no-cache, no-store, must-revalidate
+
+# Hashed Vite assets can be cached aggressively.
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+/templates/*
+  Cache-Control: public, max-age=3600

@@ -23,11 +23,17 @@ function firstError(results) {
   return results.find((r) => r?.error)?.error || null;
 }
 
+function isMissingRelation(error) {
+  const text = `${error?.message || ''} ${error?.details || ''} ${error?.hint || ''} ${error?.code || ''}`.toLowerCase();
+  return text.includes('does not exist') || text.includes('schema cache') || text.includes('42p01') || text.includes('pgrst') || text.includes('42703');
+}
+
 export function useOrdersData() {
   const [state, setState] = useState(initialState);
 
-  const fetchData = useCallback(async () => {
-    setState((s) => ({ ...s, loading: true, error: null }));
+  const fetchData = useCallback(async (options = {}) => {
+    const { silent = false } = options || {};
+    if (!silent) setState((s) => ({ ...s, loading: true, error: null }));
 
     const [ordersRes, customersRes, followupsRes, interactionsRes, opportunitiesRes, stockRes, templatesRes, stepsRes, referralsRes] = await Promise.all([
       supabase
@@ -36,10 +42,10 @@ export function useOrdersData() {
         .order('registered_at', { ascending: false })
         .limit(200),
       supabase
-        .from('v_crm_customer_overview')
-        .select('id, company_name, contact_person_name, contact_phone, contact_email, city, preferred_contact_channel, acquisition_source, crm_status, lead_score, assigned_sales_id, assigned_sales_name, last_contacted_at, next_follow_up_at, total_orders, total_sales_amount, last_order_at, due_followups')
+        .from('v_customer_accounting_contacts')
+        .select('id, company_name, contact_person_name, contact_phone, contact_email, address, city, preferred_contact_channel, acquisition_source, crm_status, lead_score, assigned_sales_id, assigned_sales_name, last_contacted_at, next_follow_up_at, total_orders, total_sales_amount, last_order_at, due_followups, finance_party_id, finance_party_type, economic_code, registration_number, national_id, postal_code, opening_balance, finance_notes')
         .order('company_name', { ascending: true })
-        .limit(200),
+        .limit(500),
       supabase
         .from('v_crm_due_followups')
         .select('id, customer_id, company_name, contact_phone, preferred_contact_channel, related_order_id, order_code, title, due_at, is_done, assigned_to, assigned_to_name, is_overdue')
@@ -121,11 +127,20 @@ export function useOrdersData() {
       }
     }
 
+    let finalCustomersRes = customersRes;
+    if (customersRes.error && isMissingRelation(customersRes.error)) {
+      finalCustomersRes = await supabase
+        .from('v_crm_customer_overview')
+        .select('id, company_name, contact_person_name, contact_phone, contact_email, city, preferred_contact_channel, acquisition_source, crm_status, lead_score, assigned_sales_id, assigned_sales_name, last_contacted_at, next_follow_up_at, total_orders, total_sales_amount, last_order_at, due_followups')
+        .order('company_name', { ascending: true })
+        .limit(200);
+    }
+
     setState({
       loading: false,
-      error: firstError([ordersRes, customersRes, followupsRes, interactionsRes, opportunitiesRes, stockRes, templatesRes, stepsRes, referralsRes, productionRes, rndRes, productionStagesRes, rndStagesRes]),
+      error: firstError([ordersRes, finalCustomersRes, followupsRes, interactionsRes, opportunitiesRes, stockRes, templatesRes, stepsRes, referralsRes, productionRes, rndRes, productionStagesRes, rndStagesRes]),
       orders: ordersRes.data || [],
-      customers: customersRes.data || [],
+      customers: finalCustomersRes.data || [],
       dueFollowups: followupsRes.data || [],
       crmInteractions: interactionsRes.data || [],
       crmOpportunities: opportunitiesRes.data || [],
@@ -146,10 +161,12 @@ export function useOrdersData() {
     let timer;
     const scheduleRefetch = () => {
       clearTimeout(timer);
-      timer = setTimeout(fetchData, 500);
+      timer = setTimeout(() => fetchData({ silent: true }), 900);
     };
     const channel = supabase
       .channel('orders-live-sync')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'customers' }, scheduleRefetch)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'finance_parties' }, scheduleRefetch)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'warehouse_items' }, scheduleRefetch)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'warehouse_transactions' }, scheduleRefetch)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'warehouse_documents' }, scheduleRefetch)

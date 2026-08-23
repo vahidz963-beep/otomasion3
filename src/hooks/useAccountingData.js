@@ -42,6 +42,8 @@ const initialState = {
   payrollSlips: [],
   payrollLines: [],
   payrollPayments: [],
+  incomeExpenseCategories: [],
+  incomeExpenseLedger: [],
 };
 
 function softError(results) {
@@ -51,22 +53,23 @@ function softError(results) {
 export function useAccountingData() {
   const [state, setState] = useState(initialState);
 
-  const fetchData = useCallback(async () => {
-    setState((s) => ({ ...s, loading: true, error: null }));
+  const fetchData = useCallback(async (options = {}) => {
+    const { silent = false, background = true } = options || {};
+    if (!silent) setState((s) => ({ ...s, loading: true, error: null }));
 
+    // مرحله اول: فقط داده‌های ضروری برای باز شدن سریع حسابداری.
+    // تب‌های سنگین مثل کاردکس، سود سفارش، وام و حقوق بعد از نمایش اولیه در پس‌زمینه لود می‌شوند.
     const [
       dashboardRes,
       docsRes,
       partiesRes,
       partyDetailsRes,
       referralsRes,
-      profitRes,
       numberingRes,
       bankRes,
       cashboxRes,
       treasuryRes,
       ledgerRes,
-      investmentRes,
       paymentsRes,
       checksRes,
       fiscalYearsRes,
@@ -74,44 +77,30 @@ export function useAccountingData() {
       ioDocsRes,
       ordersRes,
       stockRes,
-      itemKardexRes,
-      itemLastSalesRes,
-      orderCostsRes,
-      loansRes,
-      loanInstallmentsRes,
-      payrollEmployeesRes,
-      payrollSlipsRes,
-      payrollLinesRes,
-      payrollPaymentsRes,
     ] = await Promise.all([
       supabase.from('v_finance_dashboard').select('*').maybeSingle(),
       supabase
         .from('v_finance_document_summary')
         .select('id, doc_number, document_type, status, issue_date, due_date, party_id, party_name, party_type, related_order_id, order_code, source_module, converted_from_document_id, subtotal_amount, discount_amount, tax_amount, total_amount, paid_amount, balance_amount, is_overdue')
         .order('issue_date', { ascending: false })
-        .limit(100),
+        .limit(80),
       supabase
         .from('v_party_balances')
         .select('party_id, display_name, party_type, phone, email, balance, total_debit, total_credit')
         .order('display_name', { ascending: true })
-        .limit(300),
+        .limit(200),
       supabase
         .from('finance_parties')
         .select('*')
         .eq('is_active', true)
         .order('display_name', { ascending: true })
-        .limit(300),
+        .limit(200),
       supabase
         .from('automation_referrals')
         .select('id, referral_number, source_module, target_module, referral_type, priority, status, title_fa, title_en, due_date, created_at, related_order_id, related_document_id')
         .eq('target_module', 'accounting')
         .order('created_at', { ascending: false })
-        .limit(50),
-      supabase
-        .from('v_order_profitability')
-        .select('order_id, order_code, title_fa, sales_path, company_name, revenue_before_tax, cost_before_tax, gross_profit, gross_margin_pct')
-        .order('gross_profit', { ascending: false })
-        .limit(50),
+        .limit(40),
       supabase
         .from('v_finance_numbering_overview')
         .select('rule_key, label_fa, label_en, prefix, reset_scope, padding, include_year, separator, period_key, current_counter, next_number_preview, is_active')
@@ -135,12 +124,7 @@ export function useAccountingData() {
         .from('v_finance_payment_ledger')
         .select('*')
         .order('payment_date', { ascending: false })
-        .limit(300),
-      supabase
-        .from('finance_investments')
-        .select('*')
-        .order('acquisition_date', { ascending: false })
-        .limit(200),
+        .limit(120),
       supabase
         .from('finance_payments')
         .select('id, payment_number, direction, method, status, party_id, payment_date, amount, currency, bank_account_id, cashbox_id, related_order_id, description, created_at')
@@ -155,7 +139,7 @@ export function useAccountingData() {
         .from('finance_fiscal_years')
         .select('id, title, start_date, end_date, is_closed, opening_entry_id, closing_entry_id, closed_by, closed_at')
         .order('start_date', { ascending: false })
-        .limit(5),
+        .limit(30),
       supabase
         .from('finance_fiscal_periods')
         .select('id, fiscal_year_id, period_no, title_fa, title_en, start_date, end_date, is_closed, closed_at')
@@ -164,63 +148,17 @@ export function useAccountingData() {
         .from('finance_io_documents')
         .select('id, io_number, io_type, status, title_fa, source_module, target_module, party_id, related_order_id, related_document_id, registered_at, created_at')
         .order('registered_at', { ascending: false })
-        .limit(80),
+        .limit(50),
       supabase
         .from('v_order_tracking')
         .select('id, order_code, customer_name, sales_path, current_stage, stage_name_fa, priority, expected_delivery_date, is_cancelled, created_at')
         .order('created_at', { ascending: false })
-        .limit(150),
+        .limit(120),
       supabase
         .from('v_app_inventory_catalog')
         .select('item_id, item_code, item_name_fa, item_name_en, category, item_group, item_group_label, is_produced_item, unit, current_qty, available_for_sale_qty, unit_price_estimate, effective_sale_price, last_sale_unit_price')
         .order('item_name_fa', { ascending: true })
-        .limit(2000),
-      supabase
-        .from('v_warehouse_kardex')
-        .select('item_id, item_code, item_name_fa, tx_id, transaction_type, direction, quantity, doc_number, document_status, note, created_at, running_balance')
-        .order('created_at', { ascending: false })
         .limit(1000),
-      supabase
-        .from('v_finance_item_last_sale')
-        .select('*')
-        .limit(500),
-      supabase
-        .from('v_order_unified_costs')
-        .select('order_id, source_type, source_id, cost_type, amount, notes, created_at')
-        .order('created_at', { ascending: false })
-        .limit(1000),
-      supabase
-        .from('v_finance_loan_overview')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(300),
-      supabase
-        .from('v_finance_loan_installments')
-        .select('*')
-        .order('due_date', { ascending: true })
-        .limit(2000),
-      supabase
-        .from('finance_payroll_employees')
-        .select('*')
-        .eq('is_active', true)
-        .order('display_name', { ascending: true })
-        .limit(500),
-      supabase
-        .from('v_finance_payroll_slips')
-        .select('*')
-        .order('payroll_month', { ascending: false })
-        .order('created_at', { ascending: false })
-        .limit(1000),
-      supabase
-        .from('finance_payroll_lines')
-        .select('*')
-        .order('line_no', { ascending: true })
-        .limit(5000),
-      supabase
-        .from('v_finance_payroll_payments')
-        .select('*')
-        .order('paid_at', { ascending: false })
-        .limit(2000),
     ]);
 
     const firstError = softError([
@@ -229,13 +167,11 @@ export function useAccountingData() {
       partiesRes,
       partyDetailsRes,
       referralsRes,
-      profitRes,
       numberingRes,
       bankRes,
       cashboxRes,
       treasuryRes,
       ledgerRes,
-      investmentRes,
       paymentsRes,
       checksRes,
       fiscalYearsRes,
@@ -243,17 +179,17 @@ export function useAccountingData() {
       ioDocsRes,
       ordersRes,
       stockRes,
-      itemKardexRes,
     ]);
 
     const partyDetails = partyDetailsRes.error ? [] : (partyDetailsRes.data || []);
     const partyDetailsById = Object.fromEntries(partyDetails.map((party) => [party.id, party]));
     const activePartyIds = new Set(partyDetails.map((party) => party.id));
     const parties = (partiesRes.data || [])
-      .map((party) => ({ ...party, ...(partyDetailsById[party.party_id] || {}) , party_id: party.party_id, balance: party.balance, total_debit: party.total_debit, total_credit: party.total_credit }))
+      .map((party) => ({ ...party, ...(partyDetailsById[party.party_id] || {}), party_id: party.party_id, balance: party.balance, total_debit: party.total_debit, total_credit: party.total_credit }))
       .filter((party) => partyDetails.length === 0 || activePartyIds.has(party.party_id));
 
-    setState({
+    setState((previous) => ({
+      ...previous,
       loading: false,
       error: firstError,
       dashboard: dashboardRes.data || emptyDashboard,
@@ -261,13 +197,11 @@ export function useAccountingData() {
       parties,
       partyDetails,
       referrals: referralsRes.data || [],
-      profitability: profitRes.data || [],
       numbering: numberingRes.data || [],
       bankAccounts: bankRes.data || [],
       cashboxes: cashboxRes.data || [],
       treasuryAccounts: treasuryRes.data || [],
       paymentLedger: ledgerRes.data || [],
-      investments: investmentRes.data || [],
       payments: paymentsRes.data || [],
       checks: checksRes.data || [],
       fiscalYears: fiscalYearsRes.data || [],
@@ -275,16 +209,116 @@ export function useAccountingData() {
       ioDocuments: ioDocsRes.data || [],
       orders: ordersRes.data || [],
       stock: stockRes.data || [],
-      itemKardex: itemKardexRes.data || [],
-      itemLastSales: itemLastSalesRes.error ? [] : (itemLastSalesRes.data || []),
-      orderCosts: orderCostsRes.error ? [] : (orderCostsRes.data || []),
-      loans: loansRes.error ? [] : (loansRes.data || []),
-      loanInstallments: loanInstallmentsRes.error ? [] : (loanInstallmentsRes.data || []),
-      payrollEmployees: payrollEmployeesRes.error ? [] : (payrollEmployeesRes.data || []),
-      payrollSlips: payrollSlipsRes.error ? [] : (payrollSlipsRes.data || []),
-      payrollLines: payrollLinesRes.error ? [] : (payrollLinesRes.data || []),
-      payrollPayments: payrollPaymentsRes.error ? [] : (payrollPaymentsRes.data || []),
-    });
+    }));
+
+    // مرحله دوم: داده‌های سنگین در پس‌زمینه، بدون کندکردن ورود اولیه.
+    if (background === false) return;
+    const scheduleHeavyFetch = typeof window !== 'undefined' && window.requestIdleCallback
+      ? (callback) => window.requestIdleCallback(callback, { timeout: 2500 })
+      : (callback) => setTimeout(callback, 250);
+    scheduleHeavyFetch(async () => {
+      const [
+        profitRes,
+        investmentRes,
+        itemKardexRes,
+        itemLastSalesRes,
+        orderCostsRes,
+        loansRes,
+        loanInstallmentsRes,
+        payrollEmployeesRes,
+        payrollSlipsRes,
+        payrollLinesRes,
+        payrollPaymentsRes,
+        incomeExpenseCategoriesRes,
+        incomeExpenseLedgerRes,
+      ] = await Promise.all([
+        supabase
+          .from('v_order_profitability')
+          .select('order_id, order_code, title_fa, sales_path, company_name, revenue_before_tax, cost_before_tax, gross_profit, gross_margin_pct')
+          .order('gross_profit', { ascending: false })
+          .limit(50),
+        supabase
+          .from('finance_investments')
+          .select('*')
+          .order('acquisition_date', { ascending: false })
+          .limit(200),
+        supabase
+          .from('v_warehouse_kardex')
+          .select('item_id, item_code, item_name_fa, tx_id, transaction_type, direction, quantity, doc_number, document_status, note, created_at, running_balance')
+          .order('created_at', { ascending: false })
+          .limit(300),
+        supabase
+          .from('v_finance_item_last_sale')
+          .select('*')
+          .limit(500),
+        supabase
+          .from('v_order_unified_costs')
+          .select('order_id, source_type, source_id, cost_type, amount, notes, created_at')
+          .order('created_at', { ascending: false })
+          .limit(500),
+        supabase
+          .from('v_finance_loan_overview')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .limit(200),
+        supabase
+          .from('v_finance_loan_installments')
+          .select('*')
+          .order('due_date', { ascending: true })
+          .limit(1000),
+        supabase
+          .from('finance_payroll_employees')
+          .select('*')
+          .eq('is_active', true)
+          .order('display_name', { ascending: true })
+          .limit(300),
+        supabase
+          .from('v_finance_payroll_slips')
+          .select('*')
+          .order('payroll_month', { ascending: false })
+          .order('created_at', { ascending: false })
+          .limit(600),
+        supabase
+          .from('finance_payroll_lines')
+          .select('*')
+          .order('line_no', { ascending: true })
+          .limit(2000),
+        supabase
+          .from('v_finance_payroll_payments')
+          .select('*')
+          .order('paid_at', { ascending: false })
+          .limit(1000),
+        supabase
+          .from('v_finance_income_expense_categories')
+          .select('*')
+          .eq('is_active', true)
+          .order('category_type', { ascending: true })
+          .order('name_fa', { ascending: true })
+          .limit(500),
+        supabase
+          .from('v_finance_income_expense_ledger')
+          .select('*')
+          .order('payment_date', { ascending: false })
+          .limit(500),
+      ]);
+
+      setState((previous) => ({
+        ...previous,
+        profitability: profitRes.error ? previous.profitability : (profitRes.data || []),
+        investments: investmentRes.error ? previous.investments : (investmentRes.data || []),
+        itemKardex: itemKardexRes.error ? previous.itemKardex : (itemKardexRes.data || []),
+        itemLastSales: itemLastSalesRes.error ? previous.itemLastSales : (itemLastSalesRes.data || []),
+        orderCosts: orderCostsRes.error ? previous.orderCosts : (orderCostsRes.data || []),
+        loans: loansRes.error ? previous.loans : (loansRes.data || []),
+        loanInstallments: loanInstallmentsRes.error ? previous.loanInstallments : (loanInstallmentsRes.data || []),
+        payrollEmployees: payrollEmployeesRes.error ? previous.payrollEmployees : (payrollEmployeesRes.data || []),
+        payrollSlips: payrollSlipsRes.error ? previous.payrollSlips : (payrollSlipsRes.data || []),
+        payrollLines: payrollLinesRes.error ? previous.payrollLines : (payrollLinesRes.data || []),
+        payrollPayments: payrollPaymentsRes.error ? previous.payrollPayments : (payrollPaymentsRes.data || []),
+        incomeExpenseCategories: incomeExpenseCategoriesRes.error ? previous.incomeExpenseCategories : (incomeExpenseCategoriesRes.data || []),
+        incomeExpenseLedger: incomeExpenseLedgerRes.error ? previous.incomeExpenseLedger : (incomeExpenseLedgerRes.data || []),
+      }));
+    }, 80);
   }, []);
 
   useEffect(() => { fetchData(); }, [fetchData]);
@@ -293,10 +327,12 @@ export function useAccountingData() {
     let timer;
     const scheduleRefetch = () => {
       clearTimeout(timer);
-      timer = setTimeout(fetchData, 500);
+      timer = setTimeout(() => fetchData({ silent: true, background: false }), 900);
     };
     const channel = supabase
       .channel('accounting-live-sync')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'customers' }, scheduleRefetch)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'finance_parties' }, scheduleRefetch)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'finance_documents' }, scheduleRefetch)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'finance_document_items' }, scheduleRefetch)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'finance_payments' }, scheduleRefetch)
@@ -442,7 +478,7 @@ export function useFinanceDocumentBundle(documentId) {
     if (documentRes.data?.party_id) {
       const partyRes = await supabase
         .from('finance_parties')
-        .select('id, display_name, party_type, phone, email, address, national_id, economic_code, registration_number, postal_code')
+        .select('id, display_name, party_type, linked_customer_id, phone, email, address, national_id, economic_code, registration_number, postal_code')
         .eq('id', documentRes.data.party_id)
         .maybeSingle();
       party = partyRes.data || null;

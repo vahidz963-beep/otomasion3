@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import JalaliDateInput from '../../components/JalaliDateInput';
 import ProductPicker from '../../components/ProductPicker';
 import SearchableSelect from '../../components/SearchableSelect';
+import MoneyInput from '../../components/MoneyInput';
 
 const DOC_TYPES = [
   ['sales_proforma', 'پیش‌فاکتور فروش'],
@@ -126,8 +127,8 @@ export function FinanceDocumentForm({ parties, orders = [], stock = [], initialD
           <td><input value={item.description_fa} onChange={(e) => updateItem(index, { description_fa: e.target.value })} /></td>
           <td><input type="number" value={item.quantity} onChange={(e) => updateItem(index, { quantity: e.target.value })} /></td>
           <td><input value={item.unit} onChange={(e) => updateItem(index, { unit: e.target.value })} /></td>
-          <td><input type="number" value={item.unit_price} onChange={(e) => updateItem(index, { unit_price: e.target.value })} /></td>
-          <td><input type="number" value={item.discount_amount} onChange={(e) => updateItem(index, { discount_amount: e.target.value })} /></td>
+          <td><MoneyInput value={item.unit_price} onChange={(value) => updateItem(index, { unit_price: value })} /></td>
+          <td><MoneyInput value={item.discount_amount} onChange={(value) => updateItem(index, { discount_amount: value })} /></td>
           <td><input type="number" value={item.tax_rate} onChange={(e) => updateItem(index, { tax_rate: e.target.value })} /></td>
           <td><button type="button" onClick={() => setItems((rows) => rows.filter((_, i) => i !== index))}>×</button></td>
         </tr>)}</tbody>
@@ -139,17 +140,22 @@ export function FinanceDocumentForm({ parties, orders = [], stock = [], initialD
   </form>;
 }
 
-export function FinancePaymentForm({ parties, documents, accounts, initialDocumentId, onCancel, onSubmit, busy }) {
+export function FinancePaymentForm({ parties, documents, accounts, categories = [], initialDocumentId, initialDirection = 'receipt', initialPayment = null, categoryMode = false, onCancel, onSubmit, busy }) {
   const initialDoc = documents.find((d) => d.id === initialDocumentId);
   const [payment, setPayment] = useState({
-    direction: 'receipt',
-    method: 'bank_transfer',
-    party_id: initialDoc?.party_id || '',
-    payment_date: today(),
-    amount: initialDoc?.balance_amount || '',
-    bank_account_id: accounts[0]?.id || '',
-    description: initialDoc ? `تسویه سند ${initialDoc.doc_number}` : '',
-    document_id: initialDocumentId || '',
+    id: initialPayment?.id || null,
+    direction: initialPayment?.direction || (initialDoc ? 'receipt' : initialDirection),
+    method: initialPayment?.method || 'bank_transfer',
+    party_id: initialPayment?.party_id || initialDoc?.party_id || '',
+    payment_date: initialPayment?.payment_date || today(),
+    amount: initialPayment?.amount || initialDoc?.balance_amount || '',
+    bank_account_id: initialPayment?.bank_account_id || accounts[0]?.id || '',
+    cashbox_id: initialPayment?.cashbox_id || '',
+    source_module: initialPayment?.source_module || '',
+    description: initialPayment?.description || (initialDoc ? `تسویه سند ${initialDoc.doc_number}` : ''),
+    document_id: initialPayment?.document_id || initialDocumentId || '',
+    category_id: initialPayment?.category_id || '',
+    category_note: initialPayment?.category_note || '',
   });
 
   const partyOptions = useMemo(() => parties.map((p) => ({
@@ -159,9 +165,19 @@ export function FinancePaymentForm({ parties, documents, accounts, initialDocume
     searchText: `${p.display_name || ''} ${p.phone || ''} ${p.economic_code || ''} ${p.registration_number || ''} ${p.national_id || ''} ${p.postal_code || ''}`,
   })), [parties]);
 
-  const payableDocs = documents.filter((d) => Number(d.balance_amount) > 0
+  const categoryOptions = useMemo(() => {
+    const wantedType = payment.direction === 'receipt' ? 'income' : 'expense';
+    return (categories || []).filter((c) => c.category_type === wantedType && c.is_active !== false).map((c) => ({
+      value: c.id,
+      label: c.parent_name_fa ? `${c.parent_name_fa} / ${c.name_fa}` : c.name_fa,
+      description: c.notes || c.code || '',
+      searchText: `${c.name_fa || ''} ${c.parent_name_fa || ''} ${c.code || ''} ${c.notes || ''}`,
+    }));
+  }, [categories, payment.direction]);
+
+  const payableDocs = documents.filter((d) => (Number(d.balance_amount) > 0 || d.id === payment.document_id)
     && !['void', 'cancelled'].includes(d.status)
-    && (!payment.party_id || d.party_id === payment.party_id));
+    && (!payment.party_id || d.party_id === payment.party_id || d.id === payment.document_id));
 
   function selectParty(id) {
     const keepDocument = payment.document_id && documents.find((d) => d.id === payment.document_id && (!id || d.party_id === id));
@@ -177,6 +193,7 @@ export function FinancePaymentForm({ parties, documents, accounts, initialDocume
     e.preventDefault();
     const allocation = payment.document_id ? [{ document_id: payment.document_id, amount: Number(payment.amount || 0) }] : [];
     onSubmit({
+      paymentId: payment.id || null,
       payment: {
         direction: payment.direction,
         method: payment.method,
@@ -184,6 +201,10 @@ export function FinancePaymentForm({ parties, documents, accounts, initialDocume
         payment_date: payment.payment_date,
         amount: Number(payment.amount || 0),
         bank_account_id: payment.bank_account_id || null,
+        cashbox_id: payment.bank_account_id ? null : (payment.cashbox_id || null),
+        category_id: payment.category_id || null,
+        category_note: payment.category_note || null,
+        source_module: payment.source_module || (categoryMode ? 'accounting' : 'manual'),
         description: payment.description,
       },
       allocations: allocation,
@@ -192,16 +213,17 @@ export function FinancePaymentForm({ parties, documents, accounts, initialDocume
 
   return <form onSubmit={submit}>
     <div className="finance-form-grid">
-      <Field label="نوع"><select value={payment.direction} onChange={(e) => setPayment({ ...payment, direction: e.target.value })}><option value="receipt">دریافت</option><option value="payment">پرداخت</option></select></Field>
+      <Field label="نوع"><select value={payment.direction} onChange={(e) => setPayment({ ...payment, direction: e.target.value, category_id: '' })}><option value="receipt">دریافت</option><option value="payment">پرداخت</option></select></Field>
+      <Field label={payment.direction === 'receipt' ? 'دسته درآمد' : 'دسته هزینه'}><SearchableSelect options={categoryOptions} value={payment.category_id} onChange={(value) => setPayment({ ...payment, category_id: value })} placeholder={payment.direction === 'receipt' ? 'دسته درآمد را انتخاب کن...' : 'دسته هزینه را انتخاب کن...'} emptyText="دسته‌ای پیدا نشد." /></Field>
       <Field label="روش"><select value={payment.method} onChange={(e) => setPayment({ ...payment, method: e.target.value })}><option value="bank_transfer">حواله بانکی</option><option value="cash">نقد</option><option value="pos">پوز</option><option value="check">چک</option><option value="offset">تهاتر</option></select></Field>
       <Field label="حساب"><select value={payment.bank_account_id} onChange={(e) => setPayment({ ...payment, bank_account_id: e.target.value })}><option value="">بدون حساب</option>{accounts.map((a) => <option key={a.id} value={a.id}>{a.account_name} - {a.bank_name}</option>)}</select></Field>
       <Field label="شخص"><SearchableSelect options={partyOptions} value={payment.party_id} onChange={(value) => selectParty(value)} placeholder="نام یا تلفن شخص را بنویس..." emptyText="شخصی پیدا نشد." /></Field>
-      <Field label="فاکتور مرتبط"><select value={payment.document_id} onChange={(e) => selectDocument(e.target.value)}><option value="">بدون فاکتور</option>{payableDocs.map((d) => <option key={d.id} value={d.id}>{d.doc_number} · {d.party_name} · مانده {Number(d.balance_amount).toLocaleString('fa-IR')}</option>)}</select></Field>
+      {!categoryMode && <Field label="فاکتور مرتبط"><select value={payment.document_id} onChange={(e) => selectDocument(e.target.value)}><option value="">بدون فاکتور</option>{payableDocs.map((d) => <option key={d.id} value={d.id}>{d.doc_number} · {d.party_name} · مانده {Number(d.balance_amount).toLocaleString('fa-IR')}</option>)}</select></Field>}
       <Field label="تاریخ شمسی"><JalaliDateInput value={payment.payment_date} onChange={(value) => setPayment({ ...payment, payment_date: value })} /></Field>
-      <Field label="مبلغ ریال"><input type="number" value={payment.amount} onChange={(e) => setPayment({ ...payment, amount: e.target.value })} required /></Field>
-      <Field label="شرح" full><textarea value={payment.description} onChange={(e) => setPayment({ ...payment, description: e.target.value })} /></Field>
+      <Field label="مبلغ ریال"><MoneyInput value={payment.amount} onChange={(value) => setPayment({ ...payment, amount: value })} required /></Field>
+      <Field label="یادداشت دسته" full><textarea value={payment.category_note} onChange={(e) => setPayment({ ...payment, category_note: e.target.value })} placeholder="توضیح مرتبط با دسته هزینه/درآمد..." /></Field><Field label="شرح سند" full><textarea value={payment.description} onChange={(e) => setPayment({ ...payment, description: e.target.value })} /></Field>
     </div>
-    <HiddenSubmit busy={busy} onCancel={onCancel} />
+    <HiddenSubmit busy={busy} onCancel={onCancel} label={initialPayment ? 'ذخیره ویرایش' : 'ثبت'} />
   </form>;
 }
 
@@ -220,7 +242,7 @@ export function FinanceCheckForm({ parties, onCancel, onSubmit, busy }) {
     <Field label="صاحب چک"><input value={check.owner_name} onChange={(e) => setCheck({ ...check, owner_name: e.target.value })} /></Field>
     <Field label="تاریخ صدور شمسی"><JalaliDateInput value={check.issue_date} onChange={(value) => setCheck({ ...check, issue_date: value })} /></Field>
     <Field label="تاریخ وصول/سررسید شمسی"><JalaliDateInput value={check.due_date} onChange={(value) => setCheck({ ...check, due_date: value })} /></Field>
-    <Field label="مبلغ ریال"><input type="number" value={check.amount} onChange={(e) => setCheck({ ...check, amount: e.target.value })} required /></Field>
+    <Field label="مبلغ ریال"><MoneyInput value={check.amount} onChange={(value) => setCheck({ ...check, amount: value })} required /></Field>
     <Field label="شرح" full><textarea value={check.description} onChange={(e) => setCheck({ ...check, description: e.target.value })} /></Field>
   </div><HiddenSubmit busy={busy} onCancel={onCancel} /></form>;
 }
@@ -250,8 +272,8 @@ export function FinanceReferralForm({ documents, initialDocumentId, onCancel, on
   </div><HiddenSubmit busy={busy} onCancel={onCancel} /></form>;
 }
 
-function HiddenSubmit({ busy, onCancel }) {
-  return <div className="finance-form-actions"><button type="button" onClick={onCancel}>انصراف</button><button type="submit" disabled={busy}>{busy ? 'در حال ثبت...' : 'ثبت'}</button></div>;
+function HiddenSubmit({ busy, onCancel, label = 'ثبت' }) {
+  return <div className="finance-form-actions"><button type="button" onClick={onCancel}>انصراف</button><button type="submit" disabled={busy}>{busy ? 'در حال ثبت...' : label}</button></div>;
 }
 
 export function OrderInvoiceForm({ orders = [], onCancel, onSubmit, busy }) {

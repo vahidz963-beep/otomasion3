@@ -66,6 +66,7 @@ export default function ProductPicker({
         <input
           value={query}
           disabled={disabled}
+          style={{ paddingLeft: 36, paddingRight: 12 }}
           onFocus={() => setOpen(true)}
           onChange={(event) => {
             setQuery(event.target.value);
@@ -82,7 +83,7 @@ export default function ProductPicker({
           placeholder={placeholder}
           autoComplete="off"
         />
-        {query && !disabled && <button type="button" className="product-picker-clear" onClick={clear}>×</button>}
+        {query && !disabled && <button type="button" className="product-picker-clear" style={{ left: 7, right: 'auto', insetInlineStart: 'auto', insetInlineEnd: 'auto' }} aria-label="پاک کردن انتخاب کالا" title="پاک کردن" onClick={clear}>×</button>}
       </div>
       {open && !disabled && normalize(query).length >= minChars && (
         <div className="product-picker-menu">

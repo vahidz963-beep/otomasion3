@@ -149,3 +149,6 @@
 /* Order item picker: clear button on left and product search as first column */
 .order-create-modal .item-editor .product-picker-clear,
 .searchable-items .product-picker-clear{left:7px!important;right:auto!important;inset-inline-start:auto!important;inset-inline-end:auto!important}.order-create-modal .item-editor .product-picker input,.searchable-items .product-picker input{padding-left:36px!important;padding-right:12px!important}.searchable-items table th:first-child,.searchable-items table td:first-child{min-width:260px}.searchable-items table th:nth-child(2),.searchable-items table td:nth-child(2){min-width:220px}
+
+/* Unified customer/accounting contact fields */
+.orders-accounting-sync-box{margin:12px 0;border:1px solid #f0dbc3;background:#fffaf5;border-radius:16px;padding:12px}.orders-accounting-sync-box>b{display:block;color:#10243d;margin-bottom:4px;font-weight:950}.orders-accounting-sync-box>small{display:block;color:#5b6670;line-height:1.8;margin-bottom:10px}.orders-accounting-sync-box input:disabled,.orders-accounting-sync-box textarea:disabled{opacity:.65;background:#f3f5f6;cursor:not-allowed}

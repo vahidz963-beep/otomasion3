@@ -631,8 +631,8 @@ function OrderModal({ templates, templateSteps = [], customers, stock, busy, ini
   const customerOptions = useMemo(() => customers.map((c) => ({
     value: c.id,
     label: c.company_name || 'بدون نام',
-    description: `${c.contact_phone || ''}${c.city ? ` · ${c.city}` : ''}${c.contact_person_name ? ` · ${c.contact_person_name}` : ''}`.trim(),
-    searchText: `${c.company_name || ''} ${c.contact_person_name || ''} ${c.contact_phone || ''} ${c.city || ''} ${c.acquisition_source || ''}`,
+    description: `${c.contact_phone || ''}${c.city ? ` · ${c.city}` : ''}${c.contact_person_name ? ` · ${c.contact_person_name}` : ''}${c.finance_party_id ? ' · متصل به حسابداری' : ''}`.trim(),
+    searchText: `${c.company_name || ''} ${c.contact_person_name || ''} ${c.contact_phone || ''} ${c.city || ''} ${c.acquisition_source || ''} ${c.economic_code || ''} ${c.registration_number || ''} ${c.national_id || ''} ${c.postal_code || ''}`,
   })), [customers]);
   const [items, setItems] = useState([{ item_name_fa: 'قلم سفارش', warehouse_item_code: '', quantity: 1, unit: 'عدد', unit_price: 0 }]);
 
@@ -649,7 +649,7 @@ function OrderModal({ templates, templateSteps = [], customers, stock, busy, ini
           contact_phone: form.contact_phone,
           city: form.city,
           preferred_contact_channel: form.preferred_contact_channel,
-          crm_status: 'lead',
+          crm_status: 'active_customer',
           acquisition_source: 'ثبت سفارش',
         }
       : null;
@@ -746,14 +746,49 @@ function CustomerModal({ initialCustomer, busy, onClose, onSubmit }) {
     crm_status: initialCustomer?.crm_status || 'lead',
     lead_score: initialCustomer?.lead_score ?? 50,
     next_follow_up_at: initialCustomer?.next_follow_up_at ? String(initialCustomer.next_follow_up_at).slice(0, 10) : tomorrow,
+    finance_party_id: initialCustomer?.finance_party_id || null,
+    economic_code: initialCustomer?.economic_code || '',
+    registration_number: initialCustomer?.registration_number || '',
+    national_id: initialCustomer?.national_id || '',
+    postal_code: initialCustomer?.postal_code || '',
+    finance_notes: initialCustomer?.finance_notes || '',
   });
+  const isLead = form.crm_status === 'lead';
   function submit(e) {
     e.preventDefault();
     const payload = { ...form, next_follow_up_at: form.next_follow_up_at ? `${form.next_follow_up_at}T09:00:00` : null };
     if (initialCustomer && initialCustomer.address === undefined && !payload.address) delete payload.address;
     onSubmit(payload);
   }
-  return <Modal title={initialCustomer ? 'ویرایش اطلاعات مشتری' : 'ثبت مشتری / سرنخ CRM'} onClose={onClose}><form onSubmit={submit}><div className="form-grid"><label><span>نام شرکت/مشتری</span><input value={form.company_name} onChange={(e) => setForm({ ...form, company_name: e.target.value })} required /></label><label><span>نام شخص تماس</span><input value={form.contact_person_name} onChange={(e) => setForm({ ...form, contact_person_name: e.target.value })} /></label><label><span>تلفن</span><input value={form.contact_phone} onChange={(e) => setForm({ ...form, contact_phone: e.target.value })} /></label><label><span>ایمیل</span><input type="email" value={form.contact_email} onChange={(e) => setForm({ ...form, contact_email: e.target.value })} /></label><label><span>شهر</span><input value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} /></label><label><span>روش ارتباط</span><select value={form.preferred_contact_channel} onChange={(e) => setForm({ ...form, preferred_contact_channel: e.target.value })}>{Object.entries(CHANNEL_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label><label><span>روش جذب</span><input value={form.acquisition_source} onChange={(e) => setForm({ ...form, acquisition_source: e.target.value })} placeholder="سایت، معرفی، نمایشگاه..." /></label><label><span>وضعیت CRM</span><select value={form.crm_status} onChange={(e) => setForm({ ...form, crm_status: e.target.value })}>{Object.entries(CRM_STATUS_LABELS).filter(([k]) => k !== 'inactive').map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label><label><span>امتیاز سرنخ</span><input type="number" min="0" max="100" value={form.lead_score} onChange={(e) => setForm({ ...form, lead_score: e.target.value })} /></label><label><span>پیگیری بعدی شمسی</span><JalaliDateInput value={form.next_follow_up_at} onChange={(value) => setForm({ ...form, next_follow_up_at: value })} /></label><label className="full"><span>آدرس</span><textarea value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} /></label></div><div className="modal-actions"><button type="button" onClick={onClose}>انصراف</button><button type="submit" disabled={busy}>{busy ? 'در حال ذخیره...' : initialCustomer ? 'ذخیره ویرایش' : 'ثبت مشتری'}</button></div></form></Modal>;
+  return <Modal title={initialCustomer ? 'ویرایش اطلاعات مشتری' : 'ثبت مشتری / سرنخ CRM'} onClose={onClose}>
+    <form onSubmit={submit}>
+      <div className="form-grid">
+        <label><span>نام شرکت/مشتری</span><input value={form.company_name} onChange={(e) => setForm({ ...form, company_name: e.target.value })} required /></label>
+        <label><span>نام شخص تماس</span><input value={form.contact_person_name} onChange={(e) => setForm({ ...form, contact_person_name: e.target.value })} /></label>
+        <label><span>تلفن</span><input value={form.contact_phone} onChange={(e) => setForm({ ...form, contact_phone: e.target.value })} /></label>
+        <label><span>ایمیل</span><input type="email" value={form.contact_email} onChange={(e) => setForm({ ...form, contact_email: e.target.value })} /></label>
+        <label><span>شهر</span><input value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} /></label>
+        <label><span>روش ارتباط</span><select value={form.preferred_contact_channel} onChange={(e) => setForm({ ...form, preferred_contact_channel: e.target.value })}>{Object.entries(CHANNEL_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label>
+        <label><span>روش جذب</span><input value={form.acquisition_source} onChange={(e) => setForm({ ...form, acquisition_source: e.target.value })} placeholder="سایت، معرفی، نمایشگاه..." /></label>
+        <label><span>وضعیت CRM</span><select value={form.crm_status} onChange={(e) => setForm({ ...form, crm_status: e.target.value })}>{Object.entries(CRM_STATUS_LABELS).filter(([k]) => k !== 'inactive').map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label>
+        <label><span>امتیاز سرنخ</span><input type="number" min="0" max="100" value={form.lead_score} onChange={(e) => setForm({ ...form, lead_score: e.target.value })} /></label>
+        <label><span>پیگیری بعدی شمسی</span><JalaliDateInput value={form.next_follow_up_at} onChange={(value) => setForm({ ...form, next_follow_up_at: value })} /></label>
+        <label className="full"><span>آدرس</span><textarea value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} /></label>
+      </div>
+      <div className="orders-accounting-sync-box">
+        <b>اطلاعات مشترک با حسابداری</b>
+        <small>{isLead ? 'این رکورد فعلاً سرنخ است و جدا از حسابداری می‌ماند. وقتی وضعیت را مشتری فعال/VIP/در خطر بگذاری یا برایش سفارش ثبت شود، با اشخاص حسابداری همگام می‌شود.' : 'این اطلاعات از هر دو بخش سفارش‌ها و حسابداری قابل خواندن/ویرایش است.'}</small>
+        <div className="form-grid">
+          <label><span>کد اقتصادی</span><input dir="ltr" value={form.economic_code} onChange={(e) => setForm({ ...form, economic_code: e.target.value })} disabled={isLead} /></label>
+          <label><span>شماره ثبت</span><input dir="ltr" value={form.registration_number} onChange={(e) => setForm({ ...form, registration_number: e.target.value })} disabled={isLead} /></label>
+          <label><span>شناسه ملی</span><input dir="ltr" value={form.national_id} onChange={(e) => setForm({ ...form, national_id: e.target.value })} disabled={isLead} /></label>
+          <label><span>کد پستی</span><input dir="ltr" value={form.postal_code} onChange={(e) => setForm({ ...form, postal_code: e.target.value })} disabled={isLead} /></label>
+          <label className="full"><span>یادداشت حسابداری</span><textarea value={form.finance_notes} onChange={(e) => setForm({ ...form, finance_notes: e.target.value })} disabled={isLead} /></label>
+        </div>
+      </div>
+      <div className="modal-actions"><button type="button" onClick={onClose}>انصراف</button><button type="submit" disabled={busy}>{busy ? 'در حال ذخیره...' : initialCustomer ? 'ذخیره ویرایش' : 'ثبت مشتری'}</button></div>
+    </form>
+  </Modal>;
 }
 
 function Modal({ title, onClose, children, className = '' }) { return <div className="orders-modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}><div className={`orders-modal ${className}`.trim()}><header><h3>{title}</h3><button onClick={onClose}>×</button></header><div>{children}</div></div></div>; }

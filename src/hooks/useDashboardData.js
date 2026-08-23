@@ -101,7 +101,7 @@ export function useDashboardData(filters) {
     setState((s) => ({ ...s, loading: true, error: null }));
     const dateToExclusive = addDaysIso(filters.dateTo, 1);
 
-    const [ordersRes, completedOrdersRes, financeRes, paymentsRes, stockRes, referralsRes, productionRes, rndRes, checksRes, forecastRes, importantPayablesRes, healthRes] = await Promise.all([
+    const [ordersRes, completedOrdersRes, financeRes, paymentsRes, stockRes, referralsRes, productionRes, rndRes, checksRes, forecastRes, importantPayablesRes] = await Promise.all([
       supabase
         .from('v_order_lifecycle_overview')
         .select('id, order_code, customer_name, sales_path, current_stage, current_stage_name_fa, workflow_template_id, total_stages, done_stages, progress_percent, delivery_status, days_to_delivery, financial_status, stock_status, registered_at, expected_delivery_date')
@@ -159,7 +159,6 @@ export function useDashboardData(filters) {
         .order('due_date', { ascending: true })
         .order('priority', { ascending: true })
         .limit(80),
-      supabase.rpc('fn_system_health_report'),
     ]);
 
     const orders = okArray(ordersRes);
@@ -191,7 +190,7 @@ export function useDashboardData(filters) {
     const checks = okArray(checksRes);
     const forecast = forecastRes?.error ? [] : (forecastRes.data || []);
     const importantPayables = importantPayablesRes?.error ? [] : (importantPayablesRes.data || []);
-    const health = healthRes?.error ? null : healthRes.data;
+    const health = null;
 
     const trend = buildTrends({ orders, completedOrders: completedOrdersForTrend, payments, dateFrom: filters.dateFrom, dateTo: filters.dateTo, stageMaxByOrder });
     const cashflowTotals = payments.reduce((acc, payment) => {
@@ -210,7 +209,7 @@ export function useDashboardData(filters) {
     const activeRnd = rnd.filter((p) => !['approved', 'sent_to_production', 'archived', 'rejected'].includes(p.status));
     const dueChecks = checks.filter((c) => !['cleared', 'cancelled'].includes(c.status) && c.due_date && new Date(c.due_date) <= new Date(Date.now() + 7 * 86400000));
 
-    const queryErrors = [ordersRes, completedOrdersRes, stageInstancesRes, financeRes, paymentsRes, stockRes, referralsRes, productionRes, rndRes, checksRes, forecastRes, importantPayablesRes, healthRes]
+    const queryErrors = [ordersRes, completedOrdersRes, stageInstancesRes, financeRes, paymentsRes, stockRes, referralsRes, productionRes, rndRes, checksRes, forecastRes, importantPayablesRes]
       .filter((r) => r?.error)
       .map((r) => getFriendlyErrorMessage(r.error, 'یکی از منابع داده داشبورد آماده نیست.'));
 
@@ -248,6 +247,16 @@ export function useDashboardData(filters) {
       health,
       queryErrors,
     });
+
+    const loadHealth = async () => {
+      const healthRes = await supabase.rpc('fn_system_health_report');
+      if (!healthRes.error) setState((previous) => ({ ...previous, health: healthRes.data }));
+    };
+    if (typeof window !== 'undefined' && window.requestIdleCallback) {
+      window.requestIdleCallback(loadHealth, { timeout: 3000 });
+    } else {
+      setTimeout(loadHealth, 500);
+    }
   }, [filters]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
