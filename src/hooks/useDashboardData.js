@@ -75,6 +75,38 @@ function buildTrends({ orders = [], completedOrders = [], payments = [], dateFro
 
 function okArray(res) { return res?.error ? [] : (res?.data || []); }
 function okObject(res, fallback = {}) { return res?.error ? fallback : (res?.data || fallback); }
+function isMissingRelation(error) {
+  const text = `${error?.message || ''} ${error?.details || ''} ${error?.hint || ''} ${error?.code || ''}`.toLowerCase();
+  return text.includes('does not exist') || text.includes('schema cache') || text.includes('could not find the function') || text.includes('pgrst') || text.includes('42p01') || text.includes('42703');
+}
+function isStatementTimeout(error) {
+  const text = `${error?.message || ''} ${error?.details || ''} ${error?.hint || ''} ${error?.code || ''}`.toLowerCase();
+  return text.includes('statement timeout') || text.includes('canceling statement due to statement timeout') || text.includes('زمان پاسخگویی');
+}
+function scheduleIdle(callback) {
+  if (typeof window !== 'undefined' && window.requestIdleCallback) return window.requestIdleCallback(callback, { timeout: 2500 });
+  return setTimeout(callback, 350);
+}
+async function fetchDashboardOrders(filters) {
+  const rpcRes = await supabase.rpc('fn_orders_fast_overview', {
+    p_date_from: filters.dateFrom || null,
+    p_date_to: filters.dateTo || null,
+    p_sales_path: filters.salesPath || null,
+    p_limit: 250,
+  });
+  if (!rpcRes.error) return { data: rpcRes.data || [], error: null };
+  if (!isMissingRelation(rpcRes.error)) return rpcRes;
+
+  let query = supabase
+    .from('v_order_lifecycle_overview')
+    .select('id, order_code, customer_name, sales_path, current_stage, current_stage_name_fa, workflow_template_id, total_stages, done_stages, progress_percent, delivery_status, days_to_delivery, financial_status, stock_status, registered_at, expected_delivery_date, created_at, updated_at')
+    .gte('registered_at', filters.dateFrom)
+    .lte('registered_at', filters.dateTo)
+    .order('registered_at', { ascending: false })
+    .limit(250);
+  if (filters.salesPath) query = query.eq('sales_path', filters.salesPath);
+  return query;
+}
 
 export function useDashboardData(filters) {
   const [state, setState] = useState({
@@ -98,24 +130,19 @@ export function useDashboardData(filters) {
   });
 
   const fetchData = useCallback(async () => {
-    setState((s) => ({ ...s, loading: true, error: null }));
+    setState((s) => ({ ...s, loading: true, error: null, queryErrors: [] }));
     const dateToExclusive = addDaysIso(filters.dateTo, 1);
 
-    const [ordersRes, completedOrdersRes, financeRes, paymentsRes, stockRes, referralsRes, productionRes, rndRes, checksRes, forecastRes, importantPayablesRes] = await Promise.all([
-      supabase
-        .from('v_order_lifecycle_overview')
-        .select('id, order_code, customer_name, sales_path, current_stage, current_stage_name_fa, workflow_template_id, total_stages, done_stages, progress_percent, delivery_status, days_to_delivery, financial_status, stock_status, registered_at, expected_delivery_date')
-        .gte('registered_at', filters.dateFrom)
-        .lte('registered_at', filters.dateTo)
-        .order('registered_at', { ascending: false })
-        .limit(250),
+    // مرحله اول: منابع اصلی و سبک داشبورد. هیچ گزارش سنگینی این مرحله را معطل نمی‌کند.
+    const [ordersRes, completedOrdersRes, financeRes, paymentsRes, referralsRes, checksRes] = await Promise.all([
+      fetchDashboardOrders(filters),
       supabase
         .from('v_order_tracking')
         .select('id, order_code, current_stage, stage_name_fa, stage_order, is_terminal, is_cancelled, created_at, updated_at, expected_delivery_date')
         .gte('updated_at', filters.dateFrom)
         .lt('updated_at', dateToExclusive)
         .order('updated_at', { ascending: false })
-        .limit(300),
+        .limit(250),
       supabase.from('v_finance_dashboard').select('*').maybeSingle(),
       supabase
         .from('v_finance_payment_ledger')
@@ -123,42 +150,18 @@ export function useDashboardData(filters) {
         .gte('payment_date', filters.dateFrom)
         .lte('payment_date', filters.dateTo)
         .order('payment_date', { ascending: false })
-        .limit(250),
-      supabase
-        .from('v_app_inventory_catalog')
-        .select('item_id, item_code, item_name_fa, unit, current_qty, is_low_stock, reorder_point, min_stock_threshold, stock_value_estimate, location, item_group_label, is_produced_item')
-        .limit(250),
+        .limit(180),
       supabase
         .from('automation_referrals')
         .select('id, referral_number, source_module, target_module, priority, status, title_fa, due_date, created_at')
         .in('status', ['open', 'in_progress', 'answered'])
         .order('created_at', { ascending: false })
-        .limit(100),
-      supabase
-        .from('v_production_order_overview')
-        .select('id, code, source_order_id, product_name_fa, customer_name, status, progress_percent, current_stage_name_fa, delivery_status, days_to_delivery, planned_end')
-        .order('updated_at', { ascending: false })
-        .limit(100),
-      supabase
-        .from('v_rnd_project_overview')
-        .select('id, code, source_order_id, title_fa, customer_name, requester_name, status, progress_percent, current_stage_name_fa, delivery_status, days_to_delivery')
-        .order('updated_at', { ascending: false })
-        .limit(100),
+        .limit(80),
       supabase
         .from('finance_checks')
         .select('id, internal_check_code, check_type, status, due_date, amount, bank_name, owner_name')
         .order('due_date', { ascending: true })
-        .limit(80),
-      supabase
-        .from('v_finance_receivable_forecast')
-        .select('*')
-        .limit(80),
-      supabase
-        .from('v_dashboard_important_payables')
-        .select('*')
-        .order('due_date', { ascending: true })
-        .order('priority', { ascending: true })
-        .limit(80),
+        .limit(60),
     ]);
 
     const orders = okArray(ordersRes);
@@ -171,7 +174,7 @@ export function useDashboardData(filters) {
         .from('order_stage_instances')
         .select('order_id, stage_order')
         .in('order_id', completedCandidateIds)
-        .limit(Math.max(1000, completedCandidateIds.length * 40));
+        .limit(Math.max(600, completedCandidateIds.length * 25));
       if (!stageInstancesRes.error) {
         stageMaxByOrder = (stageInstancesRes.data || []).reduce((map, stage) => {
           const current = Number(map.get(stage.order_id) || 0);
@@ -181,17 +184,11 @@ export function useDashboardData(filters) {
         }, new Map());
       }
     }
+
     const finance = okObject(financeRes, {});
     const payments = okArray(paymentsRes);
-    const stock = okArray(stockRes);
     const referrals = okArray(referralsRes);
-    const production = okArray(productionRes);
-    const rnd = okArray(rndRes);
     const checks = okArray(checksRes);
-    const forecast = forecastRes?.error ? [] : (forecastRes.data || []);
-    const importantPayables = importantPayablesRes?.error ? [] : (importantPayablesRes.data || []);
-    const health = null;
-
     const trend = buildTrends({ orders, completedOrders: completedOrdersForTrend, payments, dateFrom: filters.dateFrom, dateTo: filters.dateTo, stageMaxByOrder });
     const cashflowTotals = payments.reduce((acc, payment) => {
       if (payment.status !== 'confirmed') return acc;
@@ -200,22 +197,19 @@ export function useDashboardData(filters) {
       return acc;
     }, { receipts: 0, payments: 0 });
     const activeOrders = orders.filter((o) => !['closed', 'cancelled', 'completed', 'delivered'].includes(o.delivery_status) && !isOrderCompleted(o, stageMaxByOrder));
-    const productionCompletedOrderIds = new Set(production.filter((p) => ['completed','delivered_to_warehouse'].includes(p.status)).map((p) => p.source_order_id).filter(Boolean));
-    const rndCompletedOrderIds = new Set(rnd.filter((r) => ['approved','sent_to_production','archived'].includes(r.status)).map((r) => r.source_order_id).filter(Boolean));
     const completedTrackingIds = new Set(completedOrdersForTrend.filter((o) => isOrderCompleted(o, stageMaxByOrder)).map((o) => o.id));
-    const completedOrders = orders.filter((o) => isOrderCompleted(o, stageMaxByOrder) || productionCompletedOrderIds.has(o.id) || rndCompletedOrderIds.has(o.id) || completedTrackingIds.has(o.id));
+    const completedOrders = orders.filter((o) => isOrderCompleted(o, stageMaxByOrder) || completedTrackingIds.has(o.id));
     const cancelledOrders = orders.filter((o) => o.delivery_status === 'cancelled');
-    const activeProduction = production.filter((p) => !['completed', 'delivered_to_warehouse', 'cancelled'].includes(p.status));
-    const activeRnd = rnd.filter((p) => !['approved', 'sent_to_production', 'archived', 'rejected'].includes(p.status));
     const dueChecks = checks.filter((c) => !['cleared', 'cancelled'].includes(c.status) && c.due_date && new Date(c.due_date) <= new Date(Date.now() + 7 * 86400000));
 
-    const queryErrors = [ordersRes, completedOrdersRes, stageInstancesRes, financeRes, paymentsRes, stockRes, referralsRes, productionRes, rndRes, checksRes, forecastRes, importantPayablesRes]
-      .filter((r) => r?.error)
-      .map((r) => getFriendlyErrorMessage(r.error, 'یکی از منابع داده داشبورد آماده نیست.'));
+    const queryErrors = [ordersRes, completedOrdersRes, stageInstancesRes, financeRes, paymentsRes, referralsRes, checksRes]
+      .filter((r) => r?.error && !isStatementTimeout(r.error))
+      .map((r) => getFriendlyErrorMessage(r.error, 'یکی از منابع اصلی داشبورد آماده نیست.'));
 
-    setState({
+    setState((previous) => ({
+      ...previous,
       loading: false,
-      error: null,
+      error: ordersRes.error && orders.length === 0 ? ordersRes.error : null,
       kpis: {
         active_orders: activeOrders.length,
         completed_orders: completedOrders.length,
@@ -226,9 +220,9 @@ export function useDashboardData(filters) {
         receivable_total: finance.receivable_total || 0,
         payable_total: finance.payable_total || 0,
         overdue_total: finance.overdue_total || 0,
-        low_stock: stock.filter((i) => i.is_low_stock).length,
-        active_production: activeProduction.length,
-        active_rnd: activeRnd.length,
+        low_stock: previous.stock.filter((i) => i.is_low_stock).length,
+        active_production: previous.production.filter((p) => !['completed', 'delivered_to_warehouse', 'cancelled'].includes(p.status)).length,
+        active_rnd: previous.rnd.filter((p) => !['approved', 'sent_to_production', 'archived', 'rejected'].includes(p.status)).length,
         open_referrals: referrals.length,
         due_checks: dueChecks.length,
       },
@@ -236,27 +230,61 @@ export function useDashboardData(filters) {
       revenueTrend: trend.map((d) => ({ day: d.day, income: d.income, expense: d.expense })),
       orders,
       referrals,
-      stock,
-      production,
-      rnd,
       checks,
       payments,
       finance,
-      receivableForecast: forecast,
-      importantPayables,
-      health,
       queryErrors,
-    });
+    }));
 
-    const loadHealth = async () => {
-      const healthRes = await supabase.rpc('fn_system_health_report');
-      if (!healthRes.error) setState((previous) => ({ ...previous, health: healthRes.data }));
-    };
-    if (typeof window !== 'undefined' && window.requestIdleCallback) {
-      window.requestIdleCallback(loadHealth, { timeout: 3000 });
-    } else {
-      setTimeout(loadHealth, 500);
-    }
+    // مرحله دوم: جدول‌ها و گزارش‌های سنگین، بعد از باز شدن داشبورد.
+    scheduleIdle(async () => {
+      const [stockRes, productionRes, rndRes, forecastRes, importantPayablesRes, healthRes] = await Promise.all([
+        supabase
+          .from('v_app_inventory_catalog')
+          .select('item_id, item_code, item_name_fa, unit, current_qty, is_low_stock, reorder_point, min_stock_threshold, stock_value_estimate, location, item_group_label, is_produced_item')
+          .limit(180),
+        supabase
+          .from('v_production_order_overview')
+          .select('id, code, source_order_id, product_name_fa, customer_name, status, progress_percent, current_stage_name_fa, delivery_status, days_to_delivery, planned_end')
+          .order('updated_at', { ascending: false })
+          .limit(60),
+        supabase
+          .from('v_rnd_project_overview')
+          .select('id, code, source_order_id, title_fa, customer_name, requester_name, status, progress_percent, current_stage_name_fa, delivery_status, days_to_delivery')
+          .order('updated_at', { ascending: false })
+          .limit(60),
+        supabase
+          .from('v_finance_receivable_forecast')
+          .select('*')
+          .limit(60),
+        supabase
+          .from('v_dashboard_important_payables')
+          .select('*')
+          .order('due_date', { ascending: true })
+          .order('priority', { ascending: true })
+          .limit(60),
+        supabase.rpc('fn_system_health_report'),
+      ]);
+
+      const stock = stockRes.error ? null : (stockRes.data || []);
+      const production = productionRes.error ? null : (productionRes.data || []);
+      const rnd = rndRes.error ? null : (rndRes.data || []);
+      setState((previous) => ({
+        ...previous,
+        stock: stock || previous.stock,
+        production: production || previous.production,
+        rnd: rnd || previous.rnd,
+        receivableForecast: forecastRes.error ? previous.receivableForecast : (forecastRes.data || []),
+        importantPayables: importantPayablesRes.error ? previous.importantPayables : (importantPayablesRes.data || []),
+        health: healthRes.error ? previous.health : healthRes.data,
+        kpis: previous.kpis ? {
+          ...previous.kpis,
+          low_stock: (stock || previous.stock).filter((i) => i.is_low_stock).length,
+          active_production: (production || previous.production).filter((p) => !['completed', 'delivered_to_warehouse', 'cancelled'].includes(p.status)).length,
+          active_rnd: (rnd || previous.rnd).filter((p) => !['approved', 'sent_to_production', 'archived', 'rejected'].includes(p.status)).length,
+        } : previous.kpis,
+      }));
+    });
   }, [filters]);
 
   useEffect(() => { fetchData(); }, [fetchData]);

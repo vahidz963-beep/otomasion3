@@ -1,0 +1,14 @@
+﻿customer_id,company_name,contact_person_name,contact_phone,contact_email,address,tier,notes,is_active,created_at,updated_at
+029cf69d-6319-4d63-84e9-9cefef65ad1e,اقساط بانک ملت,null,null,null,null,normal,null,true,2026-08-20 01:22:45.684973+00,2026-09-01 07:32:25.605859+00
+f1b5f7e0-3c09-4e5e-a09b-55658eafd80c,بانک پارسیان اصغر زنده بودی,null,null,null,null,normal,null,true,2026-08-20 01:22:03.10092+00,2026-09-01 07:32:25.605859+00
+60695b8e-48e7-4733-8bc9-cab4ce0f1905,بانک پارسیان فاطمه زنده بودی,null,null,null,null,normal,null,true,2026-08-20 01:22:03.255638+00,2026-09-01 07:32:25.605859+00
+f5d8b5e5-cad4-4f46-a529-e0602a33c5c8,بانک پارسیان گل شیرین زنده بودی,null,null,null,null,normal,null,true,2026-08-20 01:22:03.444689+00,2026-09-01 07:32:25.605859+00
+54ceb52c-beeb-468b-a147-4a6c04bf6698,دستگاه مورف 00,null,null,null,null,normal,null,true,2026-08-20 01:22:22.694575+00,2026-09-01 07:32:25.605859+00
+20daf645-24bb-478c-a24a-c461f705470f,سعید بوشهری سنگی زاده,null,null,null,null,normal,null,true,2026-08-20 01:22:23.8177+00,2026-09-01 07:32:25.605859+00
+7139e00a-98e1-4af6-a6ff-38b655c178c9,غلامرضا اسدی-کولر,null,null,null,null,normal,null,true,2026-08-20 01:22:12.099845+00,2026-09-01 07:32:25.605859+00
+994f2221-ebfc-4031-b430-a4347a4f02d5,کلثوم زنده بودی-وام بانک ملی,null,null,null,null,normal,null,true,2026-08-20 01:22:34.613778+00,2026-09-01 07:32:25.605859+00
+dec1c6d0-61d9-4da3-8dac-338d9c063016,مبلمان شمس,null,null,null,null,normal,null,true,2026-08-20 01:22:15.375999+00,2026-09-01 07:32:25.605859+00
+9f11aa36-0086-4482-80b9-7b16b64864da,مهندس  جعفری,null,09133275031,null,null,normal,null,true,2026-08-29 11:22:27.790258+00,2026-09-01 07:32:25.605859+00
+9ee6b73f-747a-406b-a84d-330519e1924e,وام بانک ملی ابراهیم بچاچری,null,null,null,null,normal,null,true,2026-08-20 01:22:18.271441+00,2026-09-01 07:32:25.605859+00
+bacb0adb-b08f-45d6-a2f7-2bf1d29a8b95,وام علی زنده بودی بانک ملی,null,null,null,null,normal,null,true,2026-08-20 01:22:18.42914+00,2026-09-01 07:32:25.605859+00
+ca496477-3bf6-4bd4-869d-d6caec5b6e92,وحید زنده بودی-هزینه حمل,null,null,null,null,normal,null,true,2026-08-20 01:22:18.583657+00,2026-09-01 07:32:25.605859+00

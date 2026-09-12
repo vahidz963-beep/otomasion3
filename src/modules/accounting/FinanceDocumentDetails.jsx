@@ -122,6 +122,7 @@ function printDocument(bundle, variant = 'company') {
       <section class="compact-box">
         <div class="info-grid">
           <div class="field"><b>نام شخص حقیقی / حقوقی:</b> ${esc(party.display_name || order.customer_name || '—')}</div>
+          <div class="field"><b>کد مشتری:</b> ${esc(party.customer_code || '—')}</div>
           <div class="field"><b>شماره اقتصادی:</b> ${esc(party.economic_code || '—')}</div>
           <div class="field"><b>شماره ثبت:</b> ${esc(party.registration_number || '—')}</div>
           <div class="field"><b>شناسه ملی:</b> ${esc(party.national_id || shortCode(party.id || d.party_id))}</div>

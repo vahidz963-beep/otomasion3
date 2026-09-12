@@ -79,7 +79,7 @@ export function FinanceDocumentForm({ parties, orders = [], stock = [], initialD
 
   const partyOptions = useMemo(() => parties.map((p) => ({
     value: p.party_id || p.id,
-    label: p.display_name || p.party_name || 'بدون نام',
+    label: `${p.customer_code ? `${p.customer_code} · ` : ''}${p.display_name || p.party_name || 'بدون نام'}`,
     description: `${p.phone || ''}${p.economic_code ? ` · کد اقتصادی ${p.economic_code}` : ''}${p.national_id ? ` · شناسه ${p.national_id}` : ''}`.trim(),
     searchText: `${p.display_name || ''} ${p.phone || ''} ${p.economic_code || ''} ${p.registration_number || ''} ${p.national_id || ''} ${p.postal_code || ''}`,
   })), [parties]);
@@ -160,7 +160,7 @@ export function FinancePaymentForm({ parties, documents, accounts, categories = 
 
   const partyOptions = useMemo(() => parties.map((p) => ({
     value: p.party_id || p.id,
-    label: p.display_name || p.party_name || 'بدون نام',
+    label: `${p.customer_code ? `${p.customer_code} · ` : ''}${p.display_name || p.party_name || 'بدون نام'}`,
     description: `${p.phone || ''}${p.economic_code ? ` · کد اقتصادی ${p.economic_code}` : ''}${p.national_id ? ` · شناسه ${p.national_id}` : ''}`.trim(),
     searchText: `${p.display_name || ''} ${p.phone || ''} ${p.economic_code || ''} ${p.registration_number || ''} ${p.national_id || ''} ${p.postal_code || ''}`,
   })), [parties]);

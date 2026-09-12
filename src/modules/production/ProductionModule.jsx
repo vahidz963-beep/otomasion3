@@ -115,14 +115,14 @@ export default function ProductionModule({ lang = 'fa' }) {
   }
 
   function exportOrders() {
-    const headers = ['کد تولید', 'سفارش', 'مشتری', 'محصول', 'وضعیت', 'مرحله', 'پیشرفت', 'تعداد', 'شروع', 'پایان', 'روز مانده', 'نفرساعت'];
-    const rows = filteredOrders.map((o) => [o.code, o.order_code || o.source_order_code, o.customer_name, o.product_name_fa, STATUS_LABELS[o.status] || o.status, o.current_stage_name_fa, `${o.progress_percent || 0}%`, o.quantity_planned, formatDate(o.planned_start), formatDate(o.planned_end), daysText(o.days_to_delivery, o.delivery_status), o.total_man_hours || '—']);
+    const headers = ['کد تولید', 'سفارش', 'کد مشتری', 'مشتری', 'محصول', 'وضعیت', 'مرحله', 'پیشرفت', 'تعداد', 'شروع', 'پایان', 'روز مانده', 'نفرساعت'];
+    const rows = filteredOrders.map((o) => [o.code, o.order_code || o.source_order_code, o.customer_code || '—', o.customer_name, o.product_name_fa, STATUS_LABELS[o.status] || o.status, o.current_stage_name_fa, `${o.progress_percent || 0}%`, o.quantity_planned, formatDate(o.planned_start), formatDate(o.planned_end), daysText(o.days_to_delivery, o.delivery_status), o.total_man_hours || '—']);
     downloadProductionExcel('production-orders.xls', headers, rows, 'گزارش سفارش‌های تولید');
   }
 
   function printOrders() {
-    const rows = filteredOrders.map((o) => `<tr><td>${safe(o.code)}</td><td>${safe(o.order_code || o.source_order_code || '—')}</td><td>${safe(o.customer_name || '—')}</td><td>${safe(o.product_name_fa)}</td><td>${STATUS_LABELS[o.status] || o.status}</td><td>${safe(o.current_stage_name_fa || '—')}</td><td>${formatNumber(o.progress_percent)}٪</td><td>${daysText(o.days_to_delivery, o.delivery_status)}</td></tr>`).join('');
-    openProductionPrintable('گزارش سفارش‌های تولید', `<h1>گزارش سفارش‌های تولید</h1><table><thead><tr><th>کد تولید</th><th>سفارش</th><th>مشتری</th><th>محصول</th><th>وضعیت</th><th>مرحله</th><th>پیشرفت</th><th>موعد</th></tr></thead><tbody>${rows}</tbody></table>`);
+    const rows = filteredOrders.map((o) => `<tr><td>${safe(o.code)}</td><td>${safe(o.order_code || o.source_order_code || '—')}</td><td>${safe(o.customer_code || '—')}</td><td>${safe(o.customer_name || '—')}</td><td>${safe(o.product_name_fa)}</td><td>${STATUS_LABELS[o.status] || o.status}</td><td>${safe(o.current_stage_name_fa || '—')}</td><td>${formatNumber(o.progress_percent)}٪</td><td>${daysText(o.days_to_delivery, o.delivery_status)}</td></tr>`).join('');
+    openProductionPrintable('گزارش سفارش‌های تولید', `<h1>گزارش سفارش‌های تولید</h1><table><thead><tr><th>کد تولید</th><th>سفارش</th><th>کد مشتری</th><th>مشتری</th><th>محصول</th><th>وضعیت</th><th>مرحله</th><th>پیشرفت</th><th>موعد</th></tr></thead><tbody>${rows}</tbody></table>`);
   }
 
   return <div className="production-page" dir="rtl" lang={lang}>
@@ -189,7 +189,7 @@ function Overview({ kpis, orders, incoming, setTab, onSelect }) {
 }
 
 function IncomingOrders({ orders, templates, busy, onAccept }) {
-  return <section className="production-card"><CardTitle icon={CheckCircle2} title="تأیید سفارش‌های رسیده از سفارش‌ها" />{orders.length === 0 ? <Empty text="سفارش جدیدی برای تولید وجود ندارد." /> : <div className="production-table-wrap"><table><thead><tr><th>کد سفارش</th><th>مشتری</th><th>عنوان</th><th>موعد</th><th>اقلام</th><th>اولویت</th><th>عملیات</th></tr></thead><tbody>{orders.map((o) => <tr key={o.order_id}><td dir="ltr">{o.order_code}</td><td>{o.customer_name}</td><td>{o.title_fa}</td><td>{formatDate(o.expected_delivery_date)}</td><td>{formatNumber(o.item_count)} قلم / {formatNumber(o.total_quantity)}</td><td>{priorityText(o.priority)}</td><td><button disabled={busy} onClick={() => onAccept(o)}>تأیید و ورود به تولید</button></td></tr>)}</tbody></table></div>}</section>;
+  return <section className="production-card"><CardTitle icon={CheckCircle2} title="تأیید سفارش‌های رسیده از سفارش‌ها" />{orders.length === 0 ? <Empty text="سفارش جدیدی برای تولید وجود ندارد." /> : <div className="production-table-wrap"><table><thead><tr><th>کد سفارش</th><th>کد مشتری</th><th>مشتری</th><th>عنوان</th><th>موعد</th><th>اقلام</th><th>اولویت</th><th>عملیات</th></tr></thead><tbody>{orders.map((o) => <tr key={o.order_id}><td dir="ltr">{o.order_code}</td><td dir="ltr">{o.customer_code || '—'}</td><td>{o.customer_name}</td><td>{o.title_fa}</td><td>{formatDate(o.expected_delivery_date)}</td><td>{formatNumber(o.item_count)} قلم / {formatNumber(o.total_quantity)}</td><td>{priorityText(o.priority)}</td><td><button disabled={busy} onClick={() => onAccept(o)}>تأیید و ورود به تولید</button></td></tr>)}</tbody></table></div>}</section>;
 }
 
 function FlowSection({ orders, stages, selectedOrder, selectedStages, selectedPlan, selectedQc, selectedDocs, selectedMaterials, query, setQuery, busy, onSelect, onClose, onSetStage, onPlan, onQc, onDocument, onPrepareMaterials, onIssueAllMaterials, onIssueMaterial, onOutput, onExport, onPrint }) {
@@ -198,7 +198,7 @@ function FlowSection({ orders, stages, selectedOrder, selectedStages, selectedPl
     {orders.length === 0 ? <Empty /> : <div className="production-flow-list">{orders.map((o) => {
       const orderStages = stages.filter((s) => s.production_order_id === o.id).sort((a, b) => Number(a.order_index) - Number(b.order_index));
       return <article key={o.id} className="production-flow-card">
-        <div className="flow-card-top"><div><h3>{o.code} · {o.product_name_fa}</h3><small>{o.customer_name || '—'} · سفارش {o.order_code || o.source_order_code || '—'} · مرحله فعلی: {o.current_stage_name_fa || '—'}</small></div><div className="flow-badges"><Status status={o.delivery_status} /><span>{STATUS_LABELS[o.status] || o.status}</span></div></div>
+        <div className="flow-card-top"><div><h3>{o.code} · {o.product_name_fa}</h3><small>{o.customer_name || '—'} · کد مشتری: {o.customer_code || '—'} · سفارش {o.order_code || o.source_order_code || '—'} · مرحله فعلی: {o.current_stage_name_fa || '—'}</small></div><div className="flow-badges"><Status status={o.delivery_status} /><span>{STATUS_LABELS[o.status] || o.status}</span></div></div>
         <div className="advanced-progress"><span style={{ width: `${Number(o.progress_percent || 0)}%` }} /></div>
         <div className="flow-progress-note">پیشرفت: {formatNumber(o.progress_percent)}٪ · نفرساعت: {o.total_man_hours || '—'} · روز کاری: {o.work_days || '—'}</div>
         <div className="stage-stepper production-stepper">{orderStages.map((s, i) => <div key={s.id} className={`stage-step ${s.status}`}><div className="stage-dot">{s.status === 'completed' ? '✓' : i + 1}</div><small>{stageName(s)}</small></div>)}</div>

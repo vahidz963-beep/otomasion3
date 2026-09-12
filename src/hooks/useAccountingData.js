@@ -50,6 +50,20 @@ function softError(results) {
   return results.find((r) => r?.error)?.error || null;
 }
 
+// PostgREST projects commonly cap a single response at 1,000 rows. Load
+// parties in pages so the accounting/contact list does not silently stop at
+// an arbitrary 200/1,000-row boundary.
+async function fetchAllRows(queryFactory, pageSize = 1000) {
+  const all = [];
+  for (let from = 0; ; from += pageSize) {
+    const response = await queryFactory().range(from, from + pageSize - 1);
+    if (response.error) return { data: all, error: response.error };
+    all.push(...(response.data || []));
+    if (!response.data || response.data.length < pageSize) break;
+  }
+  return { data: all, error: null };
+}
+
 export function useAccountingData() {
   const [state, setState] = useState(initialState);
 
@@ -81,20 +95,18 @@ export function useAccountingData() {
       supabase.from('v_finance_dashboard').select('*').maybeSingle(),
       supabase
         .from('v_finance_document_summary')
-        .select('id, doc_number, document_type, status, issue_date, due_date, party_id, party_name, party_type, related_order_id, order_code, source_module, converted_from_document_id, subtotal_amount, discount_amount, tax_amount, total_amount, paid_amount, balance_amount, is_overdue')
+        .select('id, doc_number, document_type, status, issue_date, due_date, party_id, party_name, party_type, related_order_id, order_code, source_module, converted_from_document_id, subtotal_amount, discount_amount, tax_amount, total_amount, paid_amount, balance_amount, is_overdue, customer_code')
         .order('issue_date', { ascending: false })
         .limit(80),
-      supabase
+      fetchAllRows(() => supabase
         .from('v_party_balances')
-        .select('party_id, display_name, party_type, phone, email, balance, total_debit, total_credit')
-        .order('display_name', { ascending: true })
-        .limit(200),
-      supabase
+        .select('party_id, display_name, party_type, phone, email, balance, total_debit, total_credit, customer_code')
+        .order('display_name', { ascending: true })),
+      fetchAllRows(() => supabase
         .from('finance_parties')
         .select('*')
         .eq('is_active', true)
-        .order('display_name', { ascending: true })
-        .limit(200),
+        .order('display_name', { ascending: true })), 
       supabase
         .from('automation_referrals')
         .select('id, referral_number, source_module, target_module, referral_type, priority, status, title_fa, title_en, due_date, created_at, related_order_id, related_document_id')
@@ -359,17 +371,17 @@ export function usePartyStatement(partyId, flowFilter = 'all') {
         return;
       }
       setState({ loading: true, error: null, rows: [] });
-      let query = supabase
-        .from('v_party_statement')
-        .select('entry_date, ref_number, entry_type, description, debit_amount, credit_amount, running_balance, related_order_id, document_id, payment_id')
-        .eq('party_id', partyId)
-        .order('entry_date', { ascending: true })
-        .limit(200);
-
-      if (flowFilter === 'debit') query = query.gt('debit_amount', 0);
-      if (flowFilter === 'credit') query = query.gt('credit_amount', 0);
-
-      const { data, error } = await query;
+      const queryFactory = () => {
+        let query = supabase
+          .from('v_party_statement')
+          .select('entry_date, ref_number, entry_type, description, debit_amount, credit_amount, running_balance, related_order_id, document_id, payment_id')
+          .eq('party_id', partyId)
+          .order('entry_date', { ascending: true });
+        if (flowFilter === 'debit') query = query.gt('debit_amount', 0);
+        if (flowFilter === 'credit') query = query.gt('credit_amount', 0);
+        return query;
+      };
+      const { data, error } = await fetchAllRows(queryFactory);
       if (!cancelled) setState({ loading: false, error, rows: data || [] });
     }
 
@@ -478,7 +490,7 @@ export function useFinanceDocumentBundle(documentId) {
     if (documentRes.data?.party_id) {
       const partyRes = await supabase
         .from('finance_parties')
-        .select('id, display_name, party_type, linked_customer_id, phone, email, address, national_id, economic_code, registration_number, postal_code')
+        .select('id, display_name, party_type, linked_customer_id, customer_code, phone, email, address, national_id, economic_code, registration_number, postal_code')
         .eq('id', documentRes.data.party_id)
         .maybeSingle();
       party = partyRes.data || null;
