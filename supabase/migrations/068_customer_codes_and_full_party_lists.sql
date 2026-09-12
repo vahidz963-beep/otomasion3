@@ -14,7 +14,9 @@ alter table public.customers
 alter table public.finance_parties
   add column if not exists customer_code text;
 
--- Continue an existing CUS-###### series when possible.
+-- Continue the existing numeric series when possible.
+-- PostgreSQL sequences cannot be set to zero; use 293,true for an empty
+-- legacy import so the first new customer code is 294.
 do $$
 declare
   v_last bigint;
@@ -23,8 +25,11 @@ begin
     into v_last
   from public.customers
   where customer_code ~ '^[0-9]+$';
-  if v_last is null then v_last := 0; end if;
-  perform setval('public.customer_code_seq', v_last, v_last > 0);
+  if coalesce(v_last, 0) < 293 then
+    perform setval('public.customer_code_seq', 293, true);
+  else
+    perform setval('public.customer_code_seq', v_last, true);
+  end if;
 end $$;
 
 -- Do not backfill existing customers here. Legacy mapping is applied separately

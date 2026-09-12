@@ -169,8 +169,31 @@ grant select on public.v_rnd_project_overview to authenticated, service_role;
 create or replace view public.v_warehouse_shipment_overview
 with (security_invoker = true)
 as
+-- Do not use s.* here. Migration 043 added source_record_id after this view
+-- was originally created; s.* would shift existing view columns and make
+-- CREATE OR REPLACE VIEW fail. Keep the historical column order explicit.
 select
-  s.*,
+  s.id,
+  s.shipment_number,
+  s.source_type,
+  s.warehouse_document_id,
+  s.finance_document_id,
+  s.related_order_id,
+  s.customer_name,
+  s.customer_city,
+  s.shipment_date,
+  s.item_summary,
+  s.total_quantity,
+  s.carton_count,
+  s.total_value,
+  s.carrier_name,
+  s.tracking_code,
+  s.receiver_name,
+  s.status,
+  s.notes,
+  s.created_by,
+  s.created_at,
+  s.updated_at,
   wd.doc_number as warehouse_doc_number,
   fd.doc_number as finance_doc_number,
   o.order_code,
