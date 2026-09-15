@@ -1432,14 +1432,18 @@ function printStatement(party, rows, lang) {
     subtitle: 'بوشهر، بهمنی، خلیج فارس، پردیس فناوری',
     orientation: 'portrait',
     layout: 'statement',
-    meta: { number: String(party.party_id || '').slice(0, 8), date: formatDate(new Date().toISOString().slice(0, 10), lang) },
+    meta: { number: party.customer_code || party.party_id || '—', date: formatDate(new Date().toISOString().slice(0, 10), lang) },
     body: `
       <section class="box-row">
         <div class="box-grid four">
-          <div class="field"><b>کد:</b> ${htmlSafe(String(party.party_id || '').slice(0, 8) || '—')}</div>
-          <div class="field"><b>عنوان:</b> ${htmlSafe(party.display_name || '—')}</div>
+          <div class="field"><b>کد مشتری:</b> ${htmlSafe(party.customer_code || '—')}</div>
+          <div class="field"><b>نام شخص:</b> ${htmlSafe(party.display_name || '—')}</div>
           <div class="field"><b>نوع شخص:</b> ${partyTypeLabel(party.party_type, lang)}</div>
-          <div class="field"><b>تلفن:</b> ${htmlSafe(party.phone || party.email || '—')}</div>
+          <div class="field"><b>تلفن:</b> ${htmlSafe(party.phone || '—')}</div>
+          <div class="field"><b>شناسه ملی:</b> ${htmlSafe(party.national_id || '—')}</div>
+          <div class="field"><b>کد اقتصادی:</b> ${htmlSafe(party.economic_code || '—')}</div>
+          <div class="field"><b>شماره ثبت:</b> ${htmlSafe(party.registration_number || '—')}</div>
+          <div class="field"><b>کد پستی:</b> ${htmlSafe(party.postal_code || '—')}</div>
         </div>
       </section>
       <table class="official-table">
@@ -1448,7 +1452,7 @@ function printStatement(party, rows, lang) {
         <tfoot><tr class="alt"><td colspan="3"><b>جمع و مانده نهایی</b></td><td class="money"><b>${formatRial(totalDebit)}</b></td><td class="money"><b>${formatRial(totalCredit)}</b></td><td><b>${lastBalance >= 0 ? 'بدهکار' : 'بستانکار'}</b></td><td class="money"><b>${formatRial(Math.abs(lastBalance))}</b></td></tr></tfoot>
       </table>
       <div class="continued">${rows.length > 18 ? 'ادامه دارد ...' : ''}</div>
-      <div class="notes-box"><b>مانده نهایی حساب:</b> ${formatRial(Math.abs(lastBalance))} ${lastBalance >= 0 ? 'بدهکار' : 'بستانکار'} است.<br><b>مانده به حروف:</b> ${rialToPersianWords(Math.abs(lastBalance))} ${lastBalance >= 0 ? 'بدهکار می‌باشد.' : 'بستانکار می‌باشد.'}</div>
+      <div class="notes-box"><b>مانده اول دوره:</b> ${formatRial(party.opening_balance || 0)}<br><b>جمع بدهکار:</b> ${formatRial(totalDebit)}<br><b>جمع بستانکار:</b> ${formatRial(totalCredit)}<br><b>مانده نهایی حساب:</b> ${formatRial(Math.abs(lastBalance))} ${lastBalance >= 0 ? 'بدهکار' : 'بستانکار'} است.<br><b>مانده به حروف:</b> ${rialToPersianWords(Math.abs(lastBalance))} ${lastBalance >= 0 ? 'بدهکار می‌باشد.' : 'بستانکار می‌باشد.'}</div>
       <section class="signatures"><span>امضاء حسابداری</span><span>امضاء تأییدکننده</span><span>مهر شرکت</span></section>
     `,
   });
