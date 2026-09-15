@@ -36,6 +36,7 @@ import {
   openPrintable,
   reserveOrderInventory,
   setOrderStage,
+  toggleOrderShipment,
   updateWorkflowTemplate,
   updateWorkflowStep,
   createWorkflowStep,
@@ -80,16 +81,21 @@ export default function OrdersModule({ lang = 'fa' }) {
       && (deliveryFilter === 'all' || o.delivery_status === deliveryFilter);
   }), [activeOrders, query, pathFilter, deliveryFilter]);
 
-  const kpis = useMemo(() => ({
-    active: activeOrders.filter((o) => o.current_stage !== 'closed').length,
-    late: activeOrders.filter((o) => o.delivery_status === 'late').length,
-    dueSoon: activeOrders.filter((o) => o.delivery_status === 'due_soon').length,
-    finance: activeOrders.filter((o) => ['none', 'proforma'].includes(o.financial_status)).length,
-    stock: activeOrders.filter((o) => o.stock_status !== 'available').length,
-    production: activeOrders.filter((o) => o.sales_path === 'production' && o.current_stage !== 'closed').length,
-    rnd: activeOrders.filter((o) => o.sales_path === 'rnd' && o.current_stage !== 'closed').length,
-    paid: activeOrders.filter((o) => o.financial_status === 'paid').length,
-  }), [activeOrders]);
+  const kpis = useMemo(() => {
+    const open = activeOrders.filter((o) => o.delivery_status !== 'cancelled' && o.current_stage !== 'closed' && o.delivery_status !== 'closed');
+    const overdue = open.filter((o) => Number(o.days_to_delivery) < 0);
+    const dueSoon = open.filter((o) => Number(o.days_to_delivery) >= 0 && Number(o.days_to_delivery) <= 10);
+    return {
+      active: open.length,
+      late: overdue.length,
+      dueSoon: dueSoon.length,
+      finance: open.filter((o) => ['none', 'proforma'].includes(o.financial_status)).length,
+      stock: open.filter((o) => o.stock_status !== 'available').length,
+      production: open.filter((o) => o.sales_path === 'production').length,
+      rnd: open.filter((o) => o.sales_path === 'rnd').length,
+      paid: open.filter((o) => o.financial_status === 'paid').length,
+    };
+  }, [activeOrders]);
 
   async function runAction(fn, ok) {
     setBusy(true);
@@ -189,7 +195,7 @@ export default function OrdersModule({ lang = 'fa' }) {
 
       {!data.loading && tab === 'overview' && <Overview kpis={kpis} followups={activeDueFollowups} orders={activeOrders} onOpenOrder={setSelectedOrderId} onNewFollowup={openFollowup} setTab={setTab} />}
       {!data.loading && tab === 'crm' && <CrmSection customers={data.customers} followups={activeDueFollowups} interactions={data.crmInteractions} opportunities={data.crmOpportunities} orders={activeOrders} busy={busy} onNewFollowup={openFollowup} onNewCustomer={() => openCustomerModal()} onQuickOrder={(customer) => openOrderModal({ customerId: customer.id })} onEditCustomer={(customer) => openCustomerModal(customer)} onDeactivateCustomer={(customer) => { if (window.confirm(`مشتری «${customer.company_name}» غیرفعال شود؟`)) runAction(() => deactivateCustomer(customer.id), 'مشتری غیرفعال شد.'); }} onMarkDone={(followup) => runAction(() => markCrmFollowupDone(followup.id), 'پیگیری انجام شد و از فهرست باز حذف شد.')} onExport={() => exportCrm('excel')} onPrint={printCrm} />}
-      {!data.loading && tab === 'flow' && <FlowSection orders={filteredOrders} templateSteps={data.templateSteps} production={data.production} rnd={data.rnd} productionStages={data.productionStages} rndStages={data.rndStages} details={details} selectedOrder={selectedOrder} busy={busy} onSelect={setSelectedOrderId} onSetStage={(stage) => selectedOrder && runAction(() => setOrderStage(selectedOrder.id, stage, 'تغییر مرحله از ماژول سفارش'), 'مرحله سفارش تغییر کرد.')} onProforma={(id) => runAction(() => createSalesProformaFromOrder(id), 'پیش‌فاکتور سفارش ساخته شد.')} onReserve={(id) => runAction(() => reserveOrderInventory(id), 'موجودی سفارش رزرو شد.')} onReferral={(id, targetModule, targetRole, label) => runAction(() => createOrderReferral({ orderId: id, targetModule, targetRole, title: `ارجاع سفارش به ${label}`, priority: 2 }), `ارجاع به ${label} ثبت شد.`)} onCancelOrder={(id) => confirmCancelOrder(activeOrders.find((o) => o.id === id) || id)} onCloseDetails={() => setSelectedOrderId(null)} />}
+      {!data.loading && tab === 'flow' && <FlowSection orders={filteredOrders} templateSteps={data.templateSteps} production={data.production} rnd={data.rnd} productionStages={data.productionStages} rndStages={data.rndStages} details={details} selectedOrder={selectedOrder} busy={busy} onSelect={setSelectedOrderId} onSetStage={(stage) => selectedOrder && runAction(() => setOrderStage(selectedOrder.id, stage, 'تغییر مرحله از ماژول سفارش'), 'مرحله سفارش تغییر کرد.')} onToggleShipment={(enabled) => selectedOrder && runAction(() => toggleOrderShipment(selectedOrder.id, enabled), enabled ? 'ارسال سفارش ثبت شد و در لیست ارسال/انبار قرار گرفت.' : 'ارسال سفارش لغو شد.')} onProforma={(id) => runAction(() => createSalesProformaFromOrder(id), 'پیش‌فاکتور سفارش ساخته شد.')} onReserve={(id) => runAction(() => reserveOrderInventory(id), 'موجودی سفارش رزرو شد.')} onReferral={(id, targetModule, targetRole, label) => runAction(() => createOrderReferral({ orderId: id, targetModule, targetRole, title: `ارجاع سفارش به ${label}`, priority: 2 }), `ارجاع به ${label} ثبت شد.`)} onCancelOrder={(id) => confirmCancelOrder(activeOrders.find((o) => o.id === id) || id)} onCloseDetails={() => setSelectedOrderId(null)} />}
       {!data.loading && tab === 'list' && <ListSection orders={filteredOrders} query={query} setQuery={setQuery} pathFilter={pathFilter} setPathFilter={setPathFilter} deliveryFilter={deliveryFilter} setDeliveryFilter={setDeliveryFilter} onSelect={(id) => { setSelectedOrderId(id); setTab('flow'); }} onCancel={confirmCancelOrder} onExcel={() => exportOrders('excel')} onPrint={printOrders} />}
       {!data.loading && tab === 'stock' && <StockSection stock={data.stock} />}
       {!data.loading && tab === 'referrals' && <div className="orders-grid"><ReferralPanel sourceModule="orders" title="ارجاع و اسناد سفارش‌ها" defaultTarget="accounting" /></div>}
@@ -213,7 +219,7 @@ function Overview({ kpis, followups, orders, onOpenOrder, onNewFollowup, setTab 
     </section>
     <div className="orders-grid two">
       <section className="orders-card"><CardTitle icon={CalendarClock} title="پیگیری‌های مهم CRM" action={<button onClick={() => setTab('crm')}>رفتن به CRM</button>} />{followups.length === 0 ? <Empty text="پیگیری بازی برای امروز ثبت نشده است." /> : <div className="orders-timeline">{followups.slice(0, 8).map((f) => <article key={f.id}><strong>{f.company_name}</strong><small>{f.title} · {formatDateTime(f.due_at)} · {f.assigned_to_name || '—'}</small><div className="timeline-actions"><button onClick={() => onNewFollowup({ customerId: f.customer_id, orderId: f.related_order_id || '', title: `پیگیری مجدد: ${f.title}` })}>پیگیری مجدد</button></div></article>)}</div>}</section>
-      <section className="orders-card"><CardTitle icon={PackageCheck} title="نزدیک‌ترین تحویل‌ها" action={<button onClick={() => setTab('flow')}>مراحل</button>} />{near.map((o) => <button key={o.id} className="near-order" onClick={() => onOpenOrder(o.id)}><span><b>{o.order_code}</b><small>{o.customer_name} · {o.current_stage_name_fa}</small></span><Status status={o.delivery_status} /></button>)}</section>
+      <section className="orders-card"><CardTitle icon={PackageCheck} title="نزدیک‌ترین تحویل‌ها" action={<button onClick={() => setTab('flow')}>مراحل</button>} />{near.map((o) => <button key={o.id} className="near-order" onClick={() => onOpenOrder(o.id)}><span className="near-order-main"><b>{o.customer_name}</b><small>{o.order_code} · {o.current_stage_name_fa}</small><em>{formatDate(o.expected_delivery_date)} · {daysText(o.days_to_delivery, o.delivery_status)}</em></span><Status status={o.delivery_status} /></button>)}</section>
     </div>
   </>;
 }
@@ -314,9 +320,12 @@ function Pipeline({ opportunities, customers }) {
   return <div className="crm-pipeline">{stages.map((s) => <div key={s.key} className="pipeline-stage"><span>{s.label}</span><b>{formatNumber(s.count)}</b><small>{formatMoney(s.amount)}</small></div>)}</div>;
 }
 
-function FlowSection({ orders, templateSteps = [], production = [], rnd = [], productionStages = [], rndStages = [], selectedOrder, details, busy, onSelect, onCloseDetails, onSetStage, onProforma, onReserve, onReferral, onCancelOrder }) {
+function FlowSection({ orders, templateSteps = [], production = [], rnd = [], productionStages = [], rndStages = [], selectedOrder, details, busy, onSelect, onCloseDetails, onSetStage, onToggleShipment, onProforma, onReserve, onReferral, onCancelOrder }) {
   const [flowPath, setFlowPath] = useState('all');
   const [flowStatus, setFlowStatus] = useState('all');
+  const [flowFromDate, setFlowFromDate] = useState('');
+  const [flowToDate, setFlowToDate] = useState('');
+  const [flowLimit, setFlowLimit] = useState(10);
   const productionByOrderId = useMemo(() => Object.fromEntries((production || []).filter((p) => p.source_order_id).map((p) => [p.source_order_id, p])), [production]);
   const rndByOrderId = useMemo(() => Object.fromEntries((rnd || []).filter((r) => r.source_order_id).map((r) => [r.source_order_id, r])), [rnd]);
   const productionStagesByOrderId = useMemo(() => {
@@ -336,13 +345,17 @@ function FlowSection({ orders, templateSteps = [], production = [], rnd = [], pr
     return Object.fromEntries((rnd || []).filter((r) => r.source_order_id).map((r) => [r.source_order_id, (byRndId[r.id] || []).sort((a, b) => Number(a.order_index || 0) - Number(b.order_index || 0))]));
   }, [rnd, rndStages]);
   const flowOrders = useMemo(() => orders.filter((o) => (
-    (flowPath === 'all' || o.sales_path === flowPath)
+    o.delivery_status !== 'cancelled'
+    && (flowPath === 'all' || o.sales_path === flowPath)
     && (flowStatus === 'all'
       || (flowStatus === 'late' && o.delivery_status === 'late')
       || (flowStatus === 'due_soon' && o.delivery_status === 'due_soon')
       || (flowStatus === 'waitingFinance' && ['none', 'proforma'].includes(o.financial_status))
       || (flowStatus === 'stockIssue' && o.stock_status !== 'available'))
-  )).sort((a, b) => compareOrderValues(a, b, { key: 'registered_at', dir: 'desc' }) || String(b.order_code || '').localeCompare(String(a.order_code || ''), 'fa')), [orders, flowPath, flowStatus]);
+    && (!flowFromDate || String(o.registered_at || '').slice(0, 10) >= flowFromDate)
+    && (!flowToDate || String(o.registered_at || '').slice(0, 10) <= flowToDate)
+  )).sort((a, b) => compareOrderValues(a, b, { key: 'registered_at', dir: 'desc' }) || String(b.order_code || '').localeCompare(String(a.order_code || ''), 'fa')), [orders, flowPath, flowStatus, flowFromDate, flowToDate]);
+  const visibleFlowOrders = flowOrders.slice(0, flowLimit);
 
   return <section className="orders-card flow-workspace-card">
     <div className="flow-section-head">
@@ -352,10 +365,10 @@ function FlowSection({ orders, templateSteps = [], production = [], rnd = [], pr
       </div>
       <div className="filters flow-filters">
         <select value={flowPath} onChange={(e) => setFlowPath(e.target.value)}><option value="all">همه مسیرها</option><option value="trading">بازرگانی</option><option value="rnd">R&D</option><option value="production">تولید مستقیم</option></select>
-        <select value={flowStatus} onChange={(e) => setFlowStatus(e.target.value)}><option value="all">همه وضعیت‌ها</option><option value="late">فقط عقب‌افتاده</option><option value="due_soon">تحویل نزدیک</option><option value="waitingFinance">در انتظار مالی</option><option value="stockIssue">نیاز به بررسی انبار</option></select>
+        <select value={flowStatus} onChange={(e) => { setFlowStatus(e.target.value); setFlowLimit(10); }}><option value="all">همه وضعیت‌ها</option><option value="late">فقط عقب‌افتاده</option><option value="due_soon">تحویل نزدیک</option><option value="waitingFinance">در انتظار مالی</option><option value="stockIssue">نیاز به بررسی انبار</option></select><label className="flow-date-filter">از تاریخ <input type="date" value={flowFromDate} onChange={(e) => { setFlowFromDate(e.target.value); setFlowLimit(10); }} /></label><label className="flow-date-filter">تا تاریخ <input type="date" value={flowToDate} onChange={(e) => { setFlowToDate(e.target.value); setFlowLimit(10); }} /></label>
       </div>
     </div>
-    {flowOrders.length === 0 ? <Empty /> : <div className="flow-list advanced-flow-list">{flowOrders.map((o) => {
+    {flowOrders.length === 0 ? <Empty /> : <div className="flow-list advanced-flow-list">{visibleFlowOrders.map((o) => {
       const linkedProduction = productionByOrderId[o.id];
       const linkedRnd = rndByOrderId[o.id];
       const linkedInfo = o.sales_path === 'production' ? linkedProduction : o.sales_path === 'rnd' ? linkedRnd : null;
@@ -396,10 +409,11 @@ function FlowSection({ orders, templateSteps = [], production = [], rnd = [], pr
         </div>
       </article>;
     })}</div>}
+    {flowOrders.length > flowLimit && <div className="flow-more-row"><span>نمایش {visibleFlowOrders.length} از {flowOrders.length} سفارش</span><button type="button" onClick={() => setFlowLimit((n) => n + 10)}>نمایش بیشتر</button></div>}
 
     {selectedOrder && <div className="order-drawer-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onCloseDetails?.()}>
       <aside className="order-detail-drawer-left">
-        <OrderDetailPanel order={selectedOrder} details={details} busy={busy} onClose={onCloseDetails} onSetStage={onSetStage} onProforma={onProforma} onReserve={onReserve} onReferral={onReferral} onCancelOrder={onCancelOrder} />
+        <OrderDetailPanel order={selectedOrder} details={details} busy={busy} onClose={onCloseDetails} onSetStage={onSetStage} onToggleShipment={onToggleShipment} onProforma={onProforma} onReserve={onReserve} onReferral={onReferral} onCancelOrder={onCancelOrder} />
       </aside>
     </div>}
   </section>;
@@ -438,7 +452,8 @@ function stageStepsForOrder(order, templateSteps, linkedInfo = null, linkedStage
 
 
 
-function OrderDetailPanel({ order, details, busy, onClose, onSetStage, onProforma, onReserve, onReferral, onCancelOrder }) {
+function OrderDetailPanel({ order, details, busy, onClose, onSetStage, onToggleShipment, onProforma, onReserve, onReferral, onCancelOrder }) {
+  const [shipmentEnabled, setShipmentEnabled] = useState(false);
   if (!order) return <section className="orders-card"><div className="orders-empty">یک سفارش را انتخاب کنید.</div></section>;
   const hasProforma = Number(order.proforma_count || 0) > 0 || details.documents.some((d) => d.document_type === 'sales_proforma' && d.status !== 'void');
   const productionStages = details.productionStages || [];
@@ -455,6 +470,7 @@ function OrderDetailPanel({ order, details, busy, onClose, onSetStage, onProform
   return <section className="orders-card detail-card"><CardTitle icon={FileText} title={`جزئیات ${order.order_code}`} action={onClose ? <button onClick={onClose}>بستن ×</button> : null} />
     <div className="detail-mini-grid"><Info label="مشتری" value={order.customer_name} /><Info label="مرحله" value={isDelegated ? (linkedInfo?.current_stage_name_fa || order.current_stage_name_fa) : order.current_stage_name_fa} /><Info label="تاریخ ثبت" value={formatDate(order.registered_at)} /><Info label="پیشرفت" value={`${formatNumber(isDelegated ? (linkedInfo?.progress_percent ?? order.progress_percent) : (order.progress_percent || 0))}٪`} /><Info label="تحویل" value={daysText(order.days_to_delivery, order.delivery_status)} /><Info label="مالی" value={FINANCE_LABELS[order.financial_status] || order.financial_status} /><Info label="انبار" value={STOCK_LABELS[order.stock_status] || order.stock_status} /><Info label="مانده" value={formatMoney(order.balance_amount)} /></div>
     <div className="detail-actions"><button disabled={busy || hasProforma} title={hasProforma ? 'برای این سفارش قبلاً پیش‌فاکتور صادر شده است.' : ''} onClick={() => onProforma(order.id)}>{hasProforma ? 'پیش‌فاکتور صادر شده' : 'صدور پیش‌فاکتور'}</button><button disabled={busy} onClick={() => onReserve(order.id)}>رزرو انبار</button><button disabled={busy} onClick={() => onReferral(order.id, 'accounting', 'accountant', 'مالی')}>ارجاع مالی</button><button disabled={busy} onClick={() => onReferral(order.id, 'warehouse', 'warehouse', 'انبار')}>ارجاع انبار</button><button disabled={busy} onClick={() => onReferral(order.id, 'admin', 'admin', 'مدیر کل')}>ارجاع مدیر کل</button><button className="danger" disabled={busy || order.delivery_status === 'cancelled'} onClick={() => onCancelOrder(order.id)}>لغو سفارش</button></div>
+    <label className="order-shipment-toggle"><input type="checkbox" checked={shipmentEnabled} disabled={busy || order.delivery_status === 'cancelled'} onChange={(e) => { const enabled = e.target.checked; setShipmentEnabled(enabled); onToggleShipment?.(enabled); }} /><span>ارسال شده و خروج از انبار</span></label>
     {hasProforma && <p className="orders-info-note">برای این سفارش پیش‌فاکتور قبلاً صادر شده است؛ صدور مجدد از بخش سفارش‌ها مجاز نیست.</p>}
     {isDelegated && <p className="orders-info-note delegated">این سفارش بعد از ورود به {isDelegatedToProduction ? 'تولید' : 'R&D'}، مراحلش از همان بخش کنترل می‌شود و فروش فقط روند را مشاهده می‌کند.</p>}
     {isDelegated ? <section className="detail-block delegated-stage-block"><h3>{delegatedTitle}</h3><p className="orders-info-note delegated">نوار اصلی این سفارش از مراحل زنده {isDelegatedToProduction ? 'تولید' : 'R&D'} در کارت روند سفارش نمایش داده می‌شود. فروش/مدیر فروش برای تغییر مرحله این سفارش دسترسی ندارد.</p></section> : <section className="detail-block"><h3>تغییر مرحله فروش/سفارش</h3>{details.stages.length === 0 ? <p className="muted">مرحله‌ای ثبت نشده است.</p> : <div className="stage-buttons">{details.stages.map((s) => <button key={s.id} disabled={busy || s.status === 'current' || order.delivery_status === 'cancelled'} className={s.status} onClick={() => onSetStage(s.stage_key)}>{s.stage_order}. {s.stage_name_fa}</button>)}</div>}</section>}
@@ -497,7 +513,7 @@ function ListSection({ orders, query, setQuery, pathFilter, setPathFilter, deliv
   const [sort, setSort] = useState({ key: 'registered_at', dir: 'desc' });
   const sortedOrders = useMemo(() => [...orders].sort((a, b) => compareOrderValues(a, b, sort)), [orders, sort]);
   const th = (key, label) => <th><button type="button" className="sort-th" onClick={() => setSort(nextSort(sort, key))}>{label}<span>{sort.key === key ? (sort.dir === 'asc' ? '▲' : '▼') : '↕'}</span></button></th>;
-  return <section className="orders-card"><div className="section-head"><CardTitle icon={Search} title="لیست سفارش‌ها" /><div><button onClick={onExcel}>Excel</button><button onClick={onPrint}>PDF</button></div></div><div className="filters"><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="جست‌وجو..." /><select value={pathFilter} onChange={(e) => setPathFilter(e.target.value)}><option value="all">همه مسیرها</option><option value="trading">بازرگانی</option><option value="rnd">R&D</option><option value="production">تولید</option></select><select value={deliveryFilter} onChange={(e) => setDeliveryFilter(e.target.value)}><option value="all">همه وضعیت تحویل</option><option value="late">عقب‌افتاده</option><option value="due_soon">تحویل نزدیک</option><option value="on_track">طبق برنامه</option><option value="closed">بسته‌شده</option></select></div><div className="orders-table-wrap"><table><thead><tr>{th('order_code','کد')}{th('registered_at','تاریخ')}{th('customer_name','مشتری')}{th('customer_code','کد مشتری')}{th('contact_phone','تلفن')}{th('customer_city','شهر')}{th('preferred_contact_channel','روش ارتباط')}{th('sales_path','مسیر')}{th('current_stage_name_fa','مرحله')}{th('progress_percent','پیشرفت')}{th('days_to_delivery','روز مانده')}{th('financial_status','مالی')}{th('stock_status','انبار')}<th>عملیات</th></tr></thead><tbody>{sortedOrders.map((o) => <tr key={o.id}><td dir="ltr">{o.order_code}</td><td>{formatDate(o.registered_at)}</td><td>{o.customer_name}</td><td dir="ltr">{o.customer_code || '—'}</td><td dir="ltr">{o.contact_phone || '—'}</td><td>{o.customer_city || '—'}</td><td>{CHANNEL_LABELS[o.preferred_contact_channel] || o.preferred_contact_channel || '—'}</td><td>{PATH_LABELS[o.sales_path]}</td><td>{o.current_stage_name_fa}</td><td>{formatNumber(o.progress_percent || 0)}٪</td><td>{daysText(o.days_to_delivery, o.delivery_status)}</td><td>{FINANCE_LABELS[o.financial_status] || o.financial_status}</td><td>{STOCK_LABELS[o.stock_status] || o.stock_status}</td><td><div className="row-actions"><button onClick={() => onSelect(o.id)}>جزئیات</button><button className="danger" disabled={o.delivery_status === 'cancelled'} onClick={() => onCancel(o)}>لغو</button></div></td></tr>)}</tbody></table></div></section>;
+  return <section className="orders-card"><div className="section-head"><CardTitle icon={Search} title="لیست سفارش‌ها" /><div><button onClick={onExcel}>Excel</button><button onClick={onPrint}>PDF</button></div></div><div className="filters"><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="جست‌وجو..." /><select value={pathFilter} onChange={(e) => setPathFilter(e.target.value)}><option value="all">همه مسیرها</option><option value="trading">بازرگانی</option><option value="rnd">R&D</option><option value="production">تولید</option></select><select value={deliveryFilter} onChange={(e) => setDeliveryFilter(e.target.value)}><option value="all">همه وضعیت تحویل</option><option value="late">عقب‌افتاده</option><option value="due_soon">تحویل نزدیک</option><option value="on_track">طبق برنامه</option><option value="closed">بسته‌شده</option></select></div><div className="orders-table-wrap orders-list-scroll"><table><thead><tr><th className="row-number-column">ردیف</th>{th('order_code','کد')}{th('registered_at','تاریخ')}{th('customer_name','مشتری')}{th('customer_code','کد مشتری')}{th('contact_phone','تلفن')}{th('customer_city','شهر')}{th('preferred_contact_channel','روش ارتباط')}{th('sales_path','مسیر')}{th('current_stage_name_fa','مرحله')}{th('progress_percent','پیشرفت')}{th('days_to_delivery','روز مانده')}{th('financial_status','مالی')}{th('stock_status','انبار')}<th>عملیات</th></tr></thead><tbody>{sortedOrders.map((o, index) => <tr key={o.id}><td className="row-number-column">{index + 1}</td><td dir="ltr">{o.order_code}</td><td>{formatDate(o.registered_at)}</td><td>{o.customer_name}</td><td dir="ltr">{o.customer_code || '—'}</td><td dir="ltr">{o.contact_phone || '—'}</td><td>{o.customer_city || '—'}</td><td>{CHANNEL_LABELS[o.preferred_contact_channel] || o.preferred_contact_channel || '—'}</td><td>{PATH_LABELS[o.sales_path]}</td><td>{o.current_stage_name_fa}</td><td>{formatNumber(o.progress_percent || 0)}٪</td><td>{daysText(o.days_to_delivery, o.delivery_status)}</td><td>{FINANCE_LABELS[o.financial_status] || o.financial_status}</td><td>{STOCK_LABELS[o.stock_status] || o.stock_status}</td><td><div className="row-actions"><button onClick={() => onSelect(o.id)}>جزئیات</button><button className="danger" disabled={o.delivery_status === 'cancelled'} onClick={() => onCancel(o)}>لغو</button></div></td></tr>)}</tbody></table></div></section>;
 }
 
 

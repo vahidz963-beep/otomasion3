@@ -138,6 +138,15 @@ export async function setOrderStage(orderId, stageKey, note = '') {
   return res.data;
 }
 
+export async function toggleOrderShipment(orderId, enabled = true) {
+  const res = await supabase.rpc('fn_toggle_order_shipment', {
+    p_order_id: orderId,
+    p_enabled: Boolean(enabled),
+  });
+  assertNoError(res, enabled ? 'خطا در ثبت ارسال سفارش' : 'خطا در لغو ارسال سفارش');
+  return res.data;
+}
+
 export async function reserveOrderInventory(orderId) {
   const res = await supabase.rpc('fn_reserve_order_inventory', { p_order_id: orderId });
   assertNoError(res, 'خطا در رزرو موجودی سفارش');

@@ -494,16 +494,13 @@ function PartiesSection({ parties, allParties, payments = [], filter, setFilter,
 
 function StatementTable({ rows, payments = [], lang, onOpenDocument, onOpenPayment }) {
   const paymentById = useMemo(() => Object.fromEntries((payments || []).map((p) => [p.id, p])), [payments]);
+  const totals = useMemo(() => rows.reduce((a, r) => ({ debit: a.debit + Number(r.debit_amount || 0), credit: a.credit + Number(r.credit_amount || 0) }), { debit: 0, credit: 0 }), [rows]);
+  const finalBalance = Number(rows[rows.length - 1]?.running_balance || 0);
   function openRow(row) {
-    if (row.document_id) {
-      onOpenDocument?.(row.document_id, row);
-      return;
-    }
-    if (row.payment_id) {
-      onOpenPayment?.(paymentById[row.payment_id] || null, row);
-    }
+    if (row.document_id) { onOpenDocument?.(row.document_id, row); return; }
+    if (row.payment_id) onOpenPayment?.(paymentById[row.payment_id] || null, row);
   }
-  return <div className="table-scroll"><table className="finance-table compact"><thead><tr><th>تاریخ</th><th>شماره</th><th>نوع</th><th>شرح</th><th>بدهکار</th><th>بستانکار</th><th>تشخیص</th><th>مانده</th><th>جزئیات</th></tr></thead><tbody>{rows.map((r, i) => { const clickable = Boolean(r.document_id || r.payment_id); return <tr key={`${r.ref_number}-${i}`} className={clickable ? 'clickable-row statement-clickable-row' : ''} onClick={() => clickable && openRow(r)}><td>{formatDate(r.entry_date, lang)}</td><td dir="ltr">{r.ref_number}</td><td>{entryTypeLabel(r.entry_type, lang)}</td><td>{r.description || '—'}</td><td>{formatMoney(r.debit_amount, lang)}</td><td>{formatMoney(r.credit_amount, lang)}</td><td>{Number(r.running_balance) >= 0 ? 'بدهکار' : 'بستانکار'}</td><td className={Number(r.running_balance) >= 0 ? 'positive' : 'negative'}>{formatMoney(r.running_balance, lang)}</td><td>{clickable ? <button type="button" className="mini-btn" onClick={(e)=>{e.stopPropagation();openRow(r);}}>مشاهده</button> : '—'}</td></tr>; })}</tbody></table></div>;
+  return <div className="party-statement-wrap"><div className="statement-summary-cards"><div><span>جمع بدهکار</span><b>{formatMoney(totals.debit, lang)}</b></div><div><span>جمع بستانکار</span><b>{formatMoney(totals.credit, lang)}</b></div><div><span>مانده نهایی</span><b className={finalBalance >= 0 ? 'negative' : 'positive'}>{formatMoney(Math.abs(finalBalance), lang)} · {finalBalance >= 0 ? 'بدهکار' : 'بستانکار'}</b></div></div><div className="table-scroll"><table className="finance-table compact"><thead><tr><th>تاریخ</th><th>شماره</th><th>نوع</th><th>شرح</th><th>بدهکار</th><th>بستانکار</th><th>وضعیت</th><th>مانده</th><th>جزئیات</th></tr></thead><tbody>{rows.map((r, i) => { const clickable = Boolean(r.document_id || r.payment_id); return <tr key={`${r.ref_number}-${i}`} className={clickable ? 'clickable-row statement-clickable-row' : ''} onClick={() => clickable && openRow(r)}><td>{formatDate(r.entry_date, lang)}</td><td dir="ltr">{r.ref_number}</td><td>{entryTypeLabel(r.entry_type, lang)}</td><td>{r.description || '—'}</td><td>{Number(r.debit_amount) ? formatMoney(r.debit_amount, lang) : '—'}</td><td>{Number(r.credit_amount) ? formatMoney(r.credit_amount, lang) : '—'}</td><td>{Number(r.running_balance) >= 0 ? 'بدهکار' : 'بستانکار'}</td><td className={Number(r.running_balance) >= 0 ? 'negative' : 'positive'}>{formatMoney(Math.abs(r.running_balance), lang)}</td><td>{clickable ? <button type="button" className="mini-btn" onClick={(e)=>{e.stopPropagation();openRow(r);}}>مشاهده</button> : '—'}</td></tr>; })}</tbody></table></div></div>;
 }
 
 function PaymentDetailModal({ payment, row, onClose }) {

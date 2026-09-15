@@ -5,6 +5,21 @@ function assertNoError({ error }, fallbackMessage) {
   if (error) throw new Error(error.message || fallbackMessage);
 }
 
+export async function getWarehouseExchangeRates() {
+  const res = await supabase.rpc('fn_get_warehouse_exchange_rates');
+  assertNoError(res, 'خطا در دریافت نرخ ارز');
+  return res.data;
+}
+
+export async function setWarehouseExchangeRates({ usdToman, cnyToman }) {
+  const res = await supabase.rpc('fn_set_warehouse_exchange_rates', {
+    p_usd_toman: Number(usdToman),
+    p_cny_toman: Number(cnyToman),
+  });
+  assertNoError(res, 'خطا در ثبت نرخ ارز');
+  return res.data;
+}
+
 export async function createWarehouseItem(payload) {
   const res = await supabase
     .from('warehouse_items')
@@ -245,6 +260,16 @@ export async function createWarehouseShipment(payload) {
     notes: payload.notes || null,
   }).select('id').single();
   assertNoError(res, 'خطا در ثبت ارسال دستی');
+  return res.data;
+}
+
+export async function archiveWarehouseShipment(id, reason = 'بایگانی ارسال از لیست ارسال‌ها') {
+  const res = await supabase.from('warehouse_shipments').update({
+    status: 'cancelled',
+    notes: reason,
+    updated_at: new Date().toISOString(),
+  }).eq('id', id).select('id').single();
+  assertNoError(res, 'خطا در بایگانی ارسال');
   return res.data;
 }
 
