@@ -265,7 +265,7 @@ export async function createWarehouseShipment(payload) {
 
 export async function archiveWarehouseShipment(id, reason = 'بایگانی ارسال از لیست ارسال‌ها') {
   const res = await supabase.from('warehouse_shipments').update({
-    status: 'cancelled',
+    archived_at: new Date().toISOString(),
     notes: reason,
     updated_at: new Date().toISOString(),
   }).eq('id', id).select('id').single();

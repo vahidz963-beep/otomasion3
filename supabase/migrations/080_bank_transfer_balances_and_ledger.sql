@@ -1,3 +1,7 @@
+-- 080 expose account transfers in existing views without changing view columns.
+-- Important: v_finance_account_turnover and v_finance_payment_ledger keep their
+-- historical column order so CREATE OR REPLACE VIEW remains compatible.
+
 create or replace function public.fn_post_finance_payment(p_payment_id uuid)
 returns uuid language plpgsql security definer set search_path = public as $$
 declare v_payment public.finance_payments%rowtype; v_entry_id uuid; v_cash_account uuid; v_to_account uuid;
@@ -32,21 +36,29 @@ end; $$;
 
 grant execute on function public.fn_post_finance_payment(uuid) to authenticated;
 
--- 080 expose transfer as decrease on source and increase on destination.
-create or replace view public.v_finance_account_turnover with (security_invoker=true) as
-select 'bank'::text account_kind, ba.id account_id, ba.account_name, ba.bank_name, ba.account_number, ba.iban, ba.currency, ba.account_usage::text account_usage, ba.opening_balance,
+-- The previous draft of 080 may have added transfer columns to the ledger view.
+-- Drop and recreate only these read-only views so their schema is deterministic.
+drop view if exists public.v_finance_account_turnover;
+drop view if exists public.v_finance_payment_ledger;
+
+create view public.v_finance_account_turnover with (security_invoker=true) as
+select 'bank'::text account_kind,ba.id account_id,ba.account_name,ba.bank_name,ba.account_number,ba.iban,ba.currency,ba.account_usage::text account_usage,ba.opening_balance,
 coalesce(sum(case when p.status='confirmed' and ((p.direction='receipt' and p.bank_account_id=ba.id) or (p.method='account_transfer' and p.transfer_to_bank_account_id=ba.id)) then p.amount else 0 end),0) total_receipts,
 coalesce(sum(case when p.status='confirmed' and ((p.direction='payment' and p.bank_account_id=ba.id) or (p.method='account_transfer' and p.bank_account_id=ba.id)) then p.amount else 0 end),0) total_payments,
-ba.opening_balance + coalesce(sum(case when p.status='confirmed' and ((p.direction='receipt' and p.bank_account_id=ba.id) or (p.method='account_transfer' and p.transfer_to_bank_account_id=ba.id)) then p.amount else 0 end),0) - coalesce(sum(case when p.status='confirmed' and ((p.direction='payment' and p.bank_account_id=ba.id) or (p.method='account_transfer' and p.bank_account_id=ba.id)) then p.amount else 0 end),0) current_balance,
-max(case when p.bank_account_id=ba.id or p.transfer_to_bank_account_id=ba.id then p.payment_date end) last_movement_date
-from public.finance_bank_accounts ba left join public.finance_payments p on p.bank_account_id=ba.id or p.transfer_to_bank_account_id=ba.id group by ba.id;
+ba.opening_balance+coalesce(sum(case when p.status='confirmed' and ((p.direction='receipt' and p.bank_account_id=ba.id) or (p.method='account_transfer' and p.transfer_to_bank_account_id=ba.id)) then p.amount else 0 end),0)-coalesce(sum(case when p.status='confirmed' and ((p.direction='payment' and p.bank_account_id=ba.id) or (p.method='account_transfer' and p.bank_account_id=ba.id)) then p.amount else 0 end),0) current_balance,max(case when p.bank_account_id=ba.id or p.transfer_to_bank_account_id=ba.id then p.payment_date end) last_movement_date,
+ba.card_number,ba.branch_name,ba.account_holder_name,ba.notes,ba.is_active
+from public.finance_bank_accounts ba left join public.finance_payments p on p.bank_account_id=ba.id or p.transfer_to_bank_account_id=ba.id
+where ba.is_active is true
+group by ba.id
+union all
+select 'cashbox'::text,cb.id,cb.name,'صندوق'::text,null::text,null::text,cb.currency,'cash'::text,cb.opening_balance,
+coalesce(sum(case when p.direction='receipt' and p.status='confirmed' then p.amount else 0 end),0),coalesce(sum(case when p.direction='payment' and p.status='confirmed' then p.amount else 0 end),0),cb.opening_balance+coalesce(sum(case when p.direction='receipt' and p.status='confirmed' then p.amount else 0 end),0)-coalesce(sum(case when p.direction='payment' and p.status='confirmed' then p.amount else 0 end),0),max(p.payment_date),null::text,null::text,null::text,null::text,cb.is_active
+from public.finance_cashboxes cb left join public.finance_payments p on p.cashbox_id=cb.id
+where cb.is_active is true
+group by cb.id;
 
-create or replace view public.v_finance_payment_ledger with (security_invoker=true) as
-select p.id,p.payment_number,p.direction,p.method,p.status,p.party_id,fp.display_name party_name,p.payment_date,p.amount,p.currency,
-case when p.bank_account_id is not null then 'bank' else 'cashbox' end account_kind,coalesce(p.bank_account_id,p.cashbox_id) account_id,
-coalesce(ba.account_name,cb.name) account_name,coalesce(ba.bank_name,'صندوق') bank_name,
-p.transfer_to_bank_account_id, dest.account_name transfer_to_account_name,dest.bank_name transfer_to_bank_name,
-p.related_order_id,o.order_code,p.source_module,p.source_record_id,p.description,p.created_at
-from public.finance_payments p left join public.finance_parties fp on fp.id=p.party_id left join public.finance_bank_accounts ba on ba.id=p.bank_account_id left join public.finance_bank_accounts dest on dest.id=p.transfer_to_bank_account_id left join public.finance_cashboxes cb on cb.id=p.cashbox_id left join public.orders o on o.id=p.related_order_id;
+create view public.v_finance_payment_ledger with (security_invoker=true) as
+select p.id,p.payment_number,p.direction,p.method,p.status,p.party_id,fp.display_name party_name,p.payment_date,p.amount,p.currency,case when p.bank_account_id is not null then 'bank' else 'cashbox' end account_kind,coalesce(p.bank_account_id,p.cashbox_id) account_id,coalesce(ba.account_name,cb.name) account_name,coalesce(ba.bank_name,'صندوق') bank_name,p.related_order_id,o.order_code,p.source_module,p.source_record_id,p.description,p.created_at
+from public.finance_payments p left join public.finance_parties fp on fp.id=p.party_id left join public.finance_bank_accounts ba on ba.id=p.bank_account_id left join public.finance_cashboxes cb on cb.id=p.cashbox_id left join public.orders o on o.id=p.related_order_id;
 
 notify pgrst,'reload schema';
