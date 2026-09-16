@@ -151,6 +151,7 @@ export function FinancePaymentForm({ parties, documents, accounts, categories = 
     amount: initialPayment?.amount || initialDoc?.balance_amount || '',
     bank_account_id: initialPayment?.bank_account_id || accounts[0]?.id || '',
     cashbox_id: initialPayment?.cashbox_id || '',
+    transfer_to_bank_account_id: initialPayment?.transfer_to_bank_account_id || '',
     source_module: initialPayment?.source_module || '',
     description: initialPayment?.description || (initialDoc ? `تسویه سند ${initialDoc.doc_number}` : ''),
     document_id: initialPayment?.document_id || initialDocumentId || '',
@@ -191,6 +192,10 @@ export function FinancePaymentForm({ parties, documents, accounts, categories = 
 
   function submit(e) {
     e.preventDefault();
+    if (payment.method === 'account_transfer' && (!payment.bank_account_id || !payment.transfer_to_bank_account_id || payment.bank_account_id === payment.transfer_to_bank_account_id)) {
+      window.alert('برای انتقال بین حساب‌ها، حساب مبدأ و مقصد متفاوت را انتخاب کنید.');
+      return;
+    }
     const allocation = payment.document_id ? [{ document_id: payment.document_id, amount: Number(payment.amount || 0) }] : [];
     onSubmit({
       paymentId: payment.id || null,
@@ -201,7 +206,8 @@ export function FinancePaymentForm({ parties, documents, accounts, categories = 
         payment_date: payment.payment_date,
         amount: Number(payment.amount || 0),
         bank_account_id: payment.bank_account_id || null,
-        cashbox_id: payment.bank_account_id ? null : (payment.cashbox_id || null),
+        cashbox_id: payment.method === 'account_transfer' || payment.bank_account_id ? null : (payment.cashbox_id || null),
+        transfer_to_bank_account_id: payment.method === 'account_transfer' ? (payment.transfer_to_bank_account_id || null) : null,
         category_id: payment.category_id || null,
         category_note: payment.category_note || null,
         source_module: payment.source_module || (categoryMode ? 'accounting' : 'manual'),
@@ -215,8 +221,9 @@ export function FinancePaymentForm({ parties, documents, accounts, categories = 
     <div className="finance-form-grid">
       <Field label="نوع"><select value={payment.direction} onChange={(e) => setPayment({ ...payment, direction: e.target.value, category_id: '' })}><option value="receipt">دریافت</option><option value="payment">پرداخت</option></select></Field>
       <Field label={payment.direction === 'receipt' ? 'دسته درآمد' : 'دسته هزینه'}><SearchableSelect options={categoryOptions} value={payment.category_id} onChange={(value) => setPayment({ ...payment, category_id: value })} placeholder={payment.direction === 'receipt' ? 'دسته درآمد را انتخاب کن...' : 'دسته هزینه را انتخاب کن...'} emptyText="دسته‌ای پیدا نشد." /></Field>
-      <Field label="روش"><select value={payment.method} onChange={(e) => setPayment({ ...payment, method: e.target.value })}><option value="bank_transfer">حواله بانکی</option><option value="cash">نقد</option><option value="pos">پوز</option><option value="check">چک</option><option value="offset">تهاتر</option></select></Field>
-      <Field label="حساب"><select value={payment.bank_account_id} onChange={(e) => setPayment({ ...payment, bank_account_id: e.target.value })}><option value="">بدون حساب</option>{accounts.map((a) => <option key={a.id} value={a.id}>{a.account_name} - {a.bank_name}</option>)}</select></Field>
+      <Field label="روش"><select value={payment.method} onChange={(e) => setPayment({ ...payment, method: e.target.value, transfer_to_bank_account_id: '' })}><option value="bank_transfer">حواله بانکی</option><option value="account_transfer">انتقال بین حساب‌های شرکت</option><option value="cash">نقد</option><option value="pos">پوز</option><option value="check">چک</option><option value="offset">تهاتر</option></select></Field>
+      <Field label={payment.method === 'account_transfer' ? 'حساب مبدأ (کاهش)' : 'حساب'}><select value={payment.bank_account_id} onChange={(e) => setPayment({ ...payment, bank_account_id: e.target.value })}><option value="">انتخاب حساب</option>{accounts.map((a) => <option key={a.id} value={a.id}>{a.account_name} - {a.bank_name}</option>)}</select></Field>
+      {payment.method === 'account_transfer' && <Field label="حساب مقصد (افزایش)"><select value={payment.transfer_to_bank_account_id} onChange={(e) => setPayment({ ...payment, transfer_to_bank_account_id: e.target.value })}><option value="">انتخاب حساب مقصد</option>{accounts.filter((a) => a.id !== payment.bank_account_id).map((a) => <option key={a.id} value={a.id}>{a.account_name} - {a.bank_name}</option>)}</select></Field>}
       <Field label="شخص"><SearchableSelect options={partyOptions} value={payment.party_id} onChange={(value) => selectParty(value)} placeholder="نام یا تلفن شخص را بنویس..." emptyText="شخصی پیدا نشد." /></Field>
       {!categoryMode && <Field label="فاکتور مرتبط"><select value={payment.document_id} onChange={(e) => selectDocument(e.target.value)}><option value="">بدون فاکتور</option>{payableDocs.map((d) => <option key={d.id} value={d.id}>{d.doc_number} · {d.party_name} · مانده {Number(d.balance_amount).toLocaleString('fa-IR')}</option>)}</select></Field>}
       <Field label="تاریخ شمسی"><JalaliDateInput value={payment.payment_date} onChange={(value) => setPayment({ ...payment, payment_date: value })} /></Field>

@@ -26,3 +26,4 @@
   background:rgba(255,255,255,.12)!important;
   border-color:rgba(255,255,255,.30)!important;
 }
+.shipment-row-actions{display:flex;gap:6px;align-items:center;white-space:nowrap}.icon-action-btn{width:32px;height:32px;border:1px solid #dfe5e8;background:#fff;color:#36546b;border-radius:10px;display:inline-grid;place-items:center;cursor:pointer;transition:.18s}.icon-action-btn:hover{background:#eef5f8;transform:translateY(-1px)}.icon-action-btn.danger{color:#a5453f}.icon-action-btn.danger:hover{background:#fff1ef;border-color:#e3b8b3}

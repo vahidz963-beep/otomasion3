@@ -469,7 +469,7 @@ export async function postFinancePayment(paymentId) {
 
 
 export async function getFinancePaymentForEdit(paymentId) {
-  const baseColumns = 'id, payment_number, direction, method, status, party_id, payment_date, amount, currency, bank_account_id, cashbox_id, related_order_id, source_module, source_record_id, description, created_at';
+  const baseColumns = 'id, payment_number, direction, method, status, party_id, payment_date, amount, currency, bank_account_id, cashbox_id, related_order_id, source_module, source_record_id, description, created_at, transfer_to_bank_account_id';
   let paymentRes = await supabase
     .from('finance_payments')
     .select(`${baseColumns}, category_id, category_note`)
@@ -1136,11 +1136,12 @@ export async function archiveFinanceLoan(loanId, reason = '') {
 }
 
 
-export async function markFinanceLoanInstallmentPaid({ installmentId, paymentId, paidAmount, paidAt, notes }) {
-  const res = await supabase.rpc('fn_finance_mark_loan_installment_paid', {
-    p_installment_id: installmentId,
+export async function markFinanceLoanInstallmentPaid({ loanId, installmentId, paymentId, paidAmount, paidAt, notes }) {
+  const res = await supabase.rpc('fn_finance_apply_loan_payment', {
+    p_loan_id: loanId,
+    p_start_installment_id: installmentId,
     p_payment_id: paymentId || null,
-    p_paid_amount: paidAmount ? Number(paidAmount) : null,
+    p_paid_amount: Number(paidAmount || 0),
     p_paid_at: paidAt || new Date().toISOString().slice(0, 10),
     p_notes: notes || null,
   });
