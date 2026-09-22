@@ -116,7 +116,7 @@ export function useWarehouseData() {
       inactiveItems: inactiveRes.data || [],
       referrals: referralsRes.data || [],
       shipments: shipmentsRes.error ? [] : (shipmentsRes.data || []),
-      categories: (() => { const counts = (stockRes.data || []).reduce((acc, item) => { const name = item.item_group || item.category; if (name) acc[name] = (acc[name] || 0) + 1; return acc; }, {}); const meta = Object.fromEntries((categoriesRes.data || []).map((c) => [c.name_fa, c])); return Object.entries(counts).map(([name, count]) => ({ ...(meta[name] || {}), id: meta[name]?.id || `derived-${name}`, name_fa: name, item_count: count, is_active: true })).sort((a,b) => a.name_fa.localeCompare(b.name_fa, 'fa')); })(),
+      categories: (() => { const counts = (stockRes.data || []).reduce((acc, item) => { const name = item.item_group || item.category; if (name) acc[name] = (acc[name] || 0) + 1; return acc; }, {}); return (categoriesRes.data || []).map((c) => ({ ...c, item_count: counts[c.name_fa] || 0 })).sort((a,b) => a.name_fa.localeCompare(b.name_fa, 'fa')); })(),
     });
   }, []);
 
