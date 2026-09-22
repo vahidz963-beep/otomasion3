@@ -148,16 +148,10 @@ export function useWarehouseKardex(itemId) {
   const [state, setState] = useState({ loading: false, error: null, rows: [] });
 
   const fetchKardex = useCallback(async () => {
-    if (!itemId) {
-      setState({ loading: false, error: null, rows: [] });
-      return;
-    }
     setState({ loading: true, error: null, rows: [] });
-    const { data, error } = await supabase
-      .from('v_warehouse_kardex')
-      .select('item_id, item_code, item_name_fa, tx_id, transaction_type, direction, quantity, document_id, doc_number, document_status, reference_type, reference_id, created_by, note, created_at, running_balance')
-      .eq('item_id', itemId)
-      .order('created_at', { ascending: true });
+    let query = supabase.from('v_warehouse_kardex').select('item_id, item_code, item_name_fa, tx_id, transaction_type, direction, quantity, document_id, doc_number, document_status, reference_type, reference_id, created_by, note, created_at, running_balance').order('created_at', { ascending: true }).limit(20000);
+    if (itemId) query = query.eq('item_id', itemId);
+    const { data, error } = await query;
     setState({ loading: false, error, rows: data || [] });
   }, [itemId]);
 
