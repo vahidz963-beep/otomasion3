@@ -112,6 +112,8 @@ export async function createOrderWithItems({ order, items, options = {} }) {
       quantity: Number(item.quantity || 1),
       unit: item.unit || 'عدد',
       unit_price: Number(item.unit_price || 0),
+      discount_percent: Math.min(100, Math.max(0, Number(item.discount_percent || 0))),
+      discount_amount: Math.max(0, Number(item.discount_amount || 0)),
       notes: item.notes || null,
     }));
 

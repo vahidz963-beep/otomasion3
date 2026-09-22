@@ -1,6 +1,8 @@
 export function formatRial(value) {
   if (value === null || value === undefined || Number.isNaN(Number(value))) return '—';
-  return `${new Intl.NumberFormat('fa-IR').format(Math.round(Number(value || 0)))} ریال`;
+  let unit = 'ریال'; let amount = Math.round(Number(value || 0));
+  try { if (localStorage.getItem('aryaman.currencyDisplay.active') === 'toman') { amount = Math.round(amount / 10); unit = 'تومان'; } } catch (_) { /* ignore */ }
+  return `${new Intl.NumberFormat('fa-IR').format(amount)} ${unit}`;
 }
 
 const ONES = ['', 'یک', 'دو', 'سه', 'چهار', 'پنج', 'شش', 'هفت', 'هشت', 'نه'];

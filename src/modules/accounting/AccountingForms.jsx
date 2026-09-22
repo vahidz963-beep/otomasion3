@@ -52,6 +52,8 @@ export function FinanceDocumentForm({ parties, orders = [], stock = [], initialD
     description: initialDocument?.description || '',
     print_note: initialDocument?.print_note || '',
   });
+  const [discountMode, setDiscountMode] = useState(initialDocument?.discount_amount ? 'amount' : 'percent');
+  const [discountValue, setDiscountValue] = useState(initialDocument?.discount_amount || 0);
   const [items, setItems] = useState(
     initialItems?.length
       ? initialItems.map((item) => ({
@@ -76,6 +78,9 @@ export function FinanceDocumentForm({ parties, orders = [], stock = [], initialD
     const tax = base * Number(item.tax_rate || 0) / 100;
     return { subtotal: acc.subtotal + base, tax: acc.tax + tax, total: acc.total + base + tax };
   }, { subtotal: 0, tax: 0, total: 0 }), [items]);
+
+  const discountBase = totals.subtotal;
+  const headerDiscount = Math.min(Math.max(Number(discountMode === 'percent' ? discountBase * Number(discountValue || 0) / 100 : discountValue || 0), 0), discountBase);
 
   const partyOptions = useMemo(() => parties.map((p) => ({
     value: p.party_id || p.id,
@@ -102,7 +107,7 @@ export function FinanceDocumentForm({ parties, orders = [], stock = [], initialD
 
   function submit(e) {
     e.preventDefault();
-    onSubmit({ documentId: initialDocument?.id || null, document: { ...document, party_id: document.party_id || null, related_order_id: document.related_order_id || null }, items });
+    onSubmit({ documentId: initialDocument?.id || null, document: { ...document, party_id: document.party_id || null, related_order_id: document.related_order_id || null, discount_amount: headerDiscount }, items });
   }
 
   return <form onSubmit={submit}>
@@ -113,6 +118,7 @@ export function FinanceDocumentForm({ parties, orders = [], stock = [], initialD
       <Field label="تاریخ صدور شمسی"><JalaliDateInput value={document.issue_date} onChange={(value) => setDocument({ ...document, issue_date: value })} /></Field>
       <Field label="سررسید شمسی"><JalaliDateInput value={document.due_date} onChange={(value) => setDocument({ ...document, due_date: value })} /></Field>
       <Field label="نوع رسمی/غیررسمی"><select value={document.is_official ? 'true' : 'false'} onChange={(e) => setDocument({ ...document, is_official: e.target.value === 'true' })}><option value="true">رسمی</option><option value="false">غیررسمی</option></select></Field>
+      <Field label="نوع تخفیف"><select value={discountMode} onChange={(e) => setDiscountMode(e.target.value)}><option value="percent">درصدی</option><option value="amount">مبلغی</option></select></Field><Field label={discountMode === "percent" ? "درصد تخفیف" : "مبلغ تخفیف ریال"}><input type="number" min="0" max={discountMode === "percent" ? 100 : undefined} value={discountValue} onChange={(e) => setDiscountValue(e.target.value)} /></Field>
       <Field label="شرح داخلی / عمومی" full><textarea value={document.description} onChange={(e) => setDocument({ ...document, description: e.target.value })} /></Field>
       <Field label="📝 جزئیات زیر فاکتور در چاپ" full><textarea value={document.print_note} onChange={(e) => setDocument({ ...document, print_note: e.target.value })} placeholder="متنی که باید پایین فاکتور/پیش‌فاکتور چاپ شود؛ مثل شرایط پرداخت، زمان تحویل، توضیحات فنی یا توضیحات رسمی..." /></Field>
     </div>
@@ -140,12 +146,14 @@ export function FinanceDocumentForm({ parties, orders = [], stock = [], initialD
   </form>;
 }
 
-export function FinancePaymentForm({ parties, documents, accounts, categories = [], initialDocumentId, initialDirection = 'receipt', initialPayment = null, categoryMode = false, onCancel, onSubmit, busy }) {
+export function FinancePaymentForm({ parties, documents, accounts, cashboxes = [], loans = [], categories = [], initialDocumentId, initialDirection = 'receipt', initialPayment = null, categoryMode = false, onCancel, onSubmit, busy }) {
   const initialDoc = documents.find((d) => d.id === initialDocumentId);
   const [payment, setPayment] = useState({
     id: initialPayment?.id || null,
-    direction: initialPayment?.direction || (initialDoc ? 'receipt' : initialDirection),
+    direction: initialPayment?.method === 'loan_payment' ? 'payment' : (initialPayment?.direction || (initialDoc ? 'receipt' : initialDirection)),
     method: initialPayment?.method || 'bank_transfer',
+    loan_id: initialPayment?.loan_id || initialPayment?.source_record_id || '',
+    account_kind: initialPayment?.cashbox_id ? 'cashbox' : 'bank',
     party_id: initialPayment?.party_id || initialDoc?.party_id || '',
     payment_date: initialPayment?.payment_date || today(),
     amount: initialPayment?.amount || initialDoc?.balance_amount || '',
@@ -158,6 +166,7 @@ export function FinancePaymentForm({ parties, documents, accounts, categories = 
     category_id: initialPayment?.category_id || '',
     category_note: initialPayment?.category_note || '',
   });
+  const [paymentRows, setPaymentRows] = useState([{ amount: initialPayment?.amount || initialDoc?.balance_amount || '', description: initialPayment?.description || '' }]);
 
   const partyOptions = useMemo(() => parties.map((p) => ({
     value: p.party_id || p.id,
@@ -192,6 +201,10 @@ export function FinancePaymentForm({ parties, documents, accounts, categories = 
 
   function submit(e) {
     e.preventDefault();
+    if (payment.method === 'loan_payment' && (!payment.loan_id || (payment.account_kind === 'bank' && !payment.bank_account_id) || (payment.account_kind === 'cashbox' && !payment.cashbox_id))) {
+      window.alert('برای پرداخت وام، وام و منبع پرداخت را انتخاب کنید.');
+      return;
+    }
     if (payment.method === 'account_transfer' && (!payment.bank_account_id || !payment.transfer_to_bank_account_id || payment.bank_account_id === payment.transfer_to_bank_account_id)) {
       window.alert('برای انتقال بین حساب‌ها، حساب مبدأ و مقصد متفاوت را انتخاب کنید.');
       return;
@@ -206,28 +219,34 @@ export function FinancePaymentForm({ parties, documents, accounts, categories = 
         payment_date: payment.payment_date,
         amount: Number(payment.amount || 0),
         bank_account_id: payment.bank_account_id || null,
-        cashbox_id: payment.method === 'account_transfer' || payment.bank_account_id ? null : (payment.cashbox_id || null),
+        cashbox_id: (payment.method === 'loan_payment' || payment.method === 'account_transfer' || payment.bank_account_id) ? (payment.method === 'loan_payment' && payment.account_kind === 'cashbox' ? (payment.cashbox_id || null) : null) : (payment.cashbox_id || null),
         transfer_to_bank_account_id: payment.method === 'account_transfer' ? (payment.transfer_to_bank_account_id || null) : null,
-        category_id: payment.category_id || null,
+        loan_id: payment.method === 'loan_payment' ? (payment.loan_id || null) : null,
+        source_record_id: payment.method === 'loan_payment' ? (payment.loan_id || null) : null,
+        category_id: payment.method === 'loan_payment' ? null : (payment.category_id || null),
         category_note: payment.category_note || null,
         source_module: payment.source_module || (categoryMode ? 'accounting' : 'manual'),
         description: payment.description,
       },
       allocations: allocation,
+      rows: paymentRows.map((row) => ({ amount: Number(row.amount || 0), description: row.description || payment.description })),
     });
   }
 
   return <form onSubmit={submit}>
     <div className="finance-form-grid">
-      <Field label="نوع"><select value={payment.direction} onChange={(e) => setPayment({ ...payment, direction: e.target.value, category_id: '' })}><option value="receipt">دریافت</option><option value="payment">پرداخت</option></select></Field>
-      <Field label={payment.direction === 'receipt' ? 'دسته درآمد' : 'دسته هزینه'}><SearchableSelect options={categoryOptions} value={payment.category_id} onChange={(value) => setPayment({ ...payment, category_id: value })} placeholder={payment.direction === 'receipt' ? 'دسته درآمد را انتخاب کن...' : 'دسته هزینه را انتخاب کن...'} emptyText="دسته‌ای پیدا نشد." /></Field>
-      <Field label="روش"><select value={payment.method} onChange={(e) => setPayment({ ...payment, method: e.target.value, transfer_to_bank_account_id: '' })}><option value="bank_transfer">حواله بانکی</option><option value="account_transfer">انتقال بین حساب‌های شرکت</option><option value="cash">نقد</option><option value="pos">پوز</option><option value="check">چک</option><option value="offset">تهاتر</option></select></Field>
-      <Field label={payment.method === 'account_transfer' ? 'حساب مبدأ (کاهش)' : 'حساب'}><select value={payment.bank_account_id} onChange={(e) => setPayment({ ...payment, bank_account_id: e.target.value })}><option value="">انتخاب حساب</option>{accounts.map((a) => <option key={a.id} value={a.id}>{a.account_name} - {a.bank_name}</option>)}</select></Field>
+      <Field label="نوع"><select value={payment.direction} disabled={payment.method === 'loan_payment'} onChange={(e) => setPayment({ ...payment, direction: e.target.value, category_id: '' })}><option value="receipt">دریافت</option><option value="payment">پرداخت</option></select></Field>
+      {payment.method !== 'loan_payment' && <Field label={payment.direction === 'receipt' ? 'دسته درآمد' : 'دسته هزینه'}><SearchableSelect options={categoryOptions} value={payment.category_id} onChange={(value) => setPayment({ ...payment, category_id: value })} placeholder={payment.direction === 'receipt' ? 'دسته درآمد را انتخاب کن...' : 'دسته هزینه را انتخاب کن...'} emptyText="دسته‌ای پیدا نشد." /></Field>}
+      <Field label="روش"><select value={payment.method} onChange={(e) => setPayment({ ...payment, method: e.target.value, direction: e.target.value === 'loan_payment' ? 'payment' : payment.direction, transfer_to_bank_account_id: '' })}><option value="bank_transfer">حواله بانکی</option><option value="account_transfer">انتقال بین حساب‌های شرکت</option><option value="loan_payment">پرداخت وام‌ها</option><option value="cash">نقد</option><option value="pos">پوز</option><option value="check">چک</option><option value="offset">تهاتر</option></select></Field>
+      {payment.method === 'loan_payment' && <Field label="منبع پرداخت"><select value={payment.account_kind} onChange={(e) => setPayment({ ...payment, account_kind: e.target.value, bank_account_id: '', cashbox_id: '' })}><option value="bank">بانک / کارت</option><option value="cashbox">صندوق</option></select></Field>}
+      {payment.method === 'loan_payment' && payment.account_kind === 'cashbox' ? <Field label="صندوق پرداخت"><select value={payment.cashbox_id} onChange={(e) => setPayment({ ...payment, cashbox_id: e.target.value })}><option value="">انتخاب صندوق</option>{cashboxes.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></Field> : <Field label={payment.method === 'account_transfer' ? 'حساب مبدأ (کاهش)' : 'حساب'}><select value={payment.bank_account_id} onChange={(e) => setPayment({ ...payment, bank_account_id: e.target.value })}><option value="">انتخاب حساب</option>{accounts.map((a) => <option key={a.id} value={a.id}>{a.account_name} - {a.bank_name}</option>)}</select></Field>}
+      {payment.method === 'loan_payment' && <Field label="وام موردنظر"><select value={payment.loan_id} onChange={(e) => { const loan = loans.find((l) => l.id === e.target.value); setPayment({ ...payment, loan_id: e.target.value, description: loan ? `پرداخت قسط وام ${loan.loan_number || loan.title_fa} از ${payment.account_kind === 'cashbox' ? 'صندوق' : 'بانک'}` : payment.description }); }}><option value="">انتخاب وام</option>{loans.filter((l) => !['closed','cancelled','archived'].includes(l.status)).map((l) => <option key={l.id} value={l.id}>{l.loan_number || '—'} · {l.title_fa} · مانده {Number(l.remaining_debt || 0).toLocaleString('fa-IR')}</option>)}</select></Field>}
       {payment.method === 'account_transfer' && <Field label="حساب مقصد (افزایش)"><select value={payment.transfer_to_bank_account_id} onChange={(e) => setPayment({ ...payment, transfer_to_bank_account_id: e.target.value })}><option value="">انتخاب حساب مقصد</option>{accounts.filter((a) => a.id !== payment.bank_account_id).map((a) => <option key={a.id} value={a.id}>{a.account_name} - {a.bank_name}</option>)}</select></Field>}
       <Field label="شخص"><SearchableSelect options={partyOptions} value={payment.party_id} onChange={(value) => selectParty(value)} placeholder="نام یا تلفن شخص را بنویس..." emptyText="شخصی پیدا نشد." /></Field>
       {!categoryMode && <Field label="فاکتور مرتبط"><select value={payment.document_id} onChange={(e) => selectDocument(e.target.value)}><option value="">بدون فاکتور</option>{payableDocs.map((d) => <option key={d.id} value={d.id}>{d.doc_number} · {d.party_name} · مانده {Number(d.balance_amount).toLocaleString('fa-IR')}</option>)}</select></Field>}
       <Field label="تاریخ شمسی"><JalaliDateInput value={payment.payment_date} onChange={(value) => setPayment({ ...payment, payment_date: value })} /></Field>
       <Field label="مبلغ ریال"><MoneyInput value={payment.amount} onChange={(value) => setPayment({ ...payment, amount: value })} required /></Field>
+      <div className="finance-field full payment-lines-editor"><span>ردیف‌های سند دریافت/پرداخت</span>{paymentRows.map((row, index) => <div className="payment-line-row" key={index}><b>{index + 1}</b><MoneyInput value={row.amount} onChange={(value) => setPaymentRows((rows) => rows.map((r, i) => i === index ? { ...r, amount: value } : r))} /><input value={row.description} placeholder="شرح این ردیف" onChange={(e) => setPaymentRows((rows) => rows.map((r, i) => i === index ? { ...r, description: e.target.value } : r))} />{paymentRows.length > 1 && <button type="button" onClick={() => setPaymentRows((rows) => rows.filter((_, i) => i !== index))}>×</button>}</div>)}<button type="button" className="mini-btn" onClick={() => setPaymentRows((rows) => [...rows, { amount: '', description: payment.description || '' }])}>＋ افزودن ردیف</button><small>همه ردیف‌ها با نوع، حساب و تاریخ همین سند ثبت می‌شوند.</small></div>
       <Field label="یادداشت دسته" full><textarea value={payment.category_note} onChange={(e) => setPayment({ ...payment, category_note: e.target.value })} placeholder="توضیح مرتبط با دسته هزینه/درآمد..." /></Field><Field label="شرح سند" full><textarea value={payment.description} onChange={(e) => setPayment({ ...payment, description: e.target.value })} /></Field>
     </div>
     <HiddenSubmit busy={busy} onCancel={onCancel} label={initialPayment ? 'ذخیره ویرایش' : 'ثبت'} />

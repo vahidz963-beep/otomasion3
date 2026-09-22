@@ -499,26 +499,25 @@ export async function getFinancePaymentForEdit(paymentId) {
   };
 }
 
-export async function createFinancePayment({ payment, allocations = [], post = true }) {
-  const paymentRes = await supabase
-    .from('finance_payments')
-    .insert({ payment_number: null, status: 'draft', ...payment })
-    .select('id, payment_number')
-    .single();
-  assertNoError(paymentRes, 'خطا در ثبت دریافت/پرداخت');
-
-  const paymentId = paymentRes.data.id;
-  const cleanAllocations = allocations
-    .filter((a) => a.document_id && Number(a.amount) > 0)
-    .map((a) => ({ payment_id: paymentId, document_id: a.document_id, amount: Number(a.amount) }));
-
-  if (cleanAllocations.length > 0) {
-    const allocationRes = await supabase.from('finance_payment_allocations').insert(cleanAllocations);
-    assertNoError(allocationRes, 'خطا در تخصیص پرداخت به فاکتور');
+export async function createFinancePayment({ payment, allocations = [], rows = [], post = true }) {
+  const normalizedRows = rows.length ? rows : [{ amount: payment.amount, description: payment.description }];
+  const batchId = normalizedRows.length > 1 ? crypto.randomUUID() : null;
+  let firstResult = null;
+  for (const row of normalizedRows) {
+    const rowPayment = { ...payment, amount: Number(row.amount || 0), description: row.description || payment.description, batch_id: batchId };
+    const paymentRes = await supabase.from('finance_payments').insert({ payment_number: null, status: 'draft', ...rowPayment }).select('id, payment_number').single();
+    assertNoError(paymentRes, 'خطا در ثبت دریافت/پرداخت');
+    if (!firstResult) firstResult = paymentRes.data;
+    const paymentId = paymentRes.data.id;
+    const cleanAllocations = allocations.filter((a) => a.document_id && Number(a.amount) > 0).map((a) => ({ payment_id: paymentId, document_id: a.document_id, amount: Number(a.amount) }));
+    if (cleanAllocations.length > 0) { const allocationRes = await supabase.from('finance_payment_allocations').insert(cleanAllocations); assertNoError(allocationRes, 'خطا در تخصیص پرداخت به فاکتور'); }
+    if (post) await postFinancePayment(paymentId);
+    if (rowPayment.method === 'loan_payment' && rowPayment.loan_id) {
+      const loanRes = await supabase.rpc('fn_finance_apply_loan_payment', { p_loan_id: rowPayment.loan_id, p_start_installment_id: null, p_paid_amount: Number(rowPayment.amount || 0), p_paid_at: rowPayment.payment_date || new Date().toISOString().slice(0, 10), p_payment_id: paymentId, p_notes: rowPayment.description || 'پرداخت از بخش دریافت/پرداخت حسابداری' });
+      assertNoError(loanRes, 'خطا در اتصال پرداخت به وام');
+    }
   }
-
-  if (post) await postFinancePayment(paymentId);
-  return paymentRes.data;
+  return firstResult;
 }
 
 async function getEditableFinancePayment(paymentId) {

@@ -23,10 +23,23 @@ export function formatJalaliDateTime(value) {
   }).format(date);
 }
 
+let currencyDisplayPreference = (() => { try { return localStorage.getItem('aryaman.currencyDisplay.active') === 'rial' ? 'rial' : 'toman'; } catch (_) { return 'toman'; } })();
+
+export function setCurrencyDisplayPreference(value, userKey = 'default') {
+  currencyDisplayPreference = value === 'rial' ? 'rial' : 'toman';
+  try { localStorage.setItem(`aryaman.currencyDisplay.${userKey}`, currencyDisplayPreference); localStorage.setItem('aryaman.currencyDisplay.active', currencyDisplayPreference); } catch (_) { /* browser storage may be unavailable */ }
+}
+
+export function loadCurrencyDisplayPreference(userKey = 'default') {
+  try { currencyDisplayPreference = localStorage.getItem(`aryaman.currencyDisplay.${userKey}`) === 'rial' ? 'rial' : 'toman'; } catch (_) { /* ignore */ }
+  return currencyDisplayPreference;
+}
+
 export function formatToman(value, lang = 'fa') {
   if (value === null || value === undefined || Number.isNaN(Number(value))) return '—';
-  const toman = Math.round(Number(value) / 10);
-  return `${new Intl.NumberFormat(lang === 'fa' ? 'fa-IR' : 'en-US').format(toman)} ${lang === 'fa' ? 'تومان' : 'Toman'}`;
+  const isRial = currencyDisplayPreference === 'rial';
+  const amount = isRial ? Number(value) : Math.round(Number(value) / 10);
+  return `${new Intl.NumberFormat(lang === 'fa' ? 'fa-IR' : 'en-US').format(amount)} ${isRial ? (lang === 'fa' ? 'ریال' : 'Rial') : (lang === 'fa' ? 'تومان' : 'Toman')}`;
 }
 
 export function formatNumber(value, lang = 'fa') {

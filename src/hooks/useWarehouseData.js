@@ -16,6 +16,7 @@ const initialState = {
   inactiveItems: [],
   referrals: [],
   shipments: [],
+  categories: [],
 };
 
 function firstError(results) {
@@ -28,7 +29,7 @@ export function useWarehouseData() {
   const fetchData = useCallback(async () => {
     setState((s) => ({ ...s, loading: true, error: null }));
 
-    const [stockRes, docsRes, snapshotsRes, matchedRes, unmatchedRes, inactiveRes, referralsRes, shipmentsRes] = await Promise.all([
+    const [stockRes, docsRes, snapshotsRes, matchedRes, unmatchedRes, inactiveRes, referralsRes, shipmentsRes, categoriesRes] = await Promise.all([
       supabase
         .from('v_warehouse_current_stock')
         .select('item_id, item_code, item_name_fa, item_name_en, item_group, category, unit, location, reorder_point, min_stock_threshold, unit_price_estimate, price_currency, current_qty, total_in, total_out, last_movement_at, last_synced_at, is_low_stock, stock_value_estimate')
@@ -70,6 +71,12 @@ export function useWarehouseData() {
         .select('*')
         .order('shipment_date', { ascending: false })
         .limit(500),
+      supabase
+        .from('warehouse_item_categories')
+        .select('id, name_fa, name_en, code, sort_order, is_active, created_at, updated_at')
+        .eq('is_active', true)
+        .order('sort_order', { ascending: true })
+        .order('name_fa', { ascending: true }),
     ]);
 
     const draftDocuments = (docsRes.data || []).filter((d) => d.status === 'draft');
@@ -109,6 +116,7 @@ export function useWarehouseData() {
       inactiveItems: inactiveRes.data || [],
       referrals: referralsRes.data || [],
       shipments: shipmentsRes.error ? [] : (shipmentsRes.data || []),
+      categories: categoriesRes.error ? [] : (categoriesRes.data || []),
     });
   }, []);
 
