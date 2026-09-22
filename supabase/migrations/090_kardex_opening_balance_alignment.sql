@@ -1,7 +1,8 @@
 -- 090 align kardex with current stock snapshots.
 -- A latest inventory snapshot is the opening balance; only movements after it
 -- change the current balance. Older movements remain visible before the reset row.
-create or replace view public.v_warehouse_kardex with (security_invoker=true) as
+drop view if exists public.v_warehouse_kardex;
+create view public.v_warehouse_kardex with (security_invoker=true) as
 with latest_snapshot as (
  select distinct on (wsi.item_id) wsi.item_id,wsi.quantity snapshot_qty,s.id snapshot_id,s.imported_at snapshot_imported_at
  from public.warehouse_snapshot_items wsi join public.warehouse_snapshots s on s.id=wsi.snapshot_id
@@ -17,7 +18,7 @@ with latest_snapshot as (
 ), after_snapshot as (
  select t.*,coalesce(ls.snapshot_qty,0)+sum(case when t.transaction_type='issue' then -t.quantity when t.transaction_type in ('receipt','reversal','adjustment') then t.quantity else 0 end) over(partition by t.item_id order by t.created_at,t.tx_id rows between unbounded preceding and current row) running_balance from tx t left join latest_snapshot ls on ls.item_id=t.item_id where t.snapshot_imported_at is null or t.created_at>t.snapshot_imported_at
 ), opening as (
- select ls.item_id,wi.item_code,wi.item_name_fa,ls.snapshot_id tx_id,'opening_balance' transaction_type,'in' direction,ls.snapshot_qty quantity,null::uuid document_id,'موجودی اول دوره'::text doc_number,null::text document_status,'snapshot'::text reference_type,ls.snapshot_id reference_id,null::uuid created_by,'موجودی اول دوره / Snapshot'::text note,ls.snapshot_imported_at created_at,ls.snapshot_imported_at snapshot_imported_at,null::text party_name,null::uuid related_order_id,null::text order_code,null::numeric unit_price,null::numeric line_total,ls.snapshot_qty running_balance from latest_snapshot ls join public.warehouse_items wi on wi.id=ls.item_id
+ select ls.item_id,wi.item_code,wi.item_name_fa,ls.snapshot_id tx_id,'adjustment'::public.warehouse_transaction_type transaction_type,'in' direction,ls.snapshot_qty quantity,null::uuid document_id,'موجودی اول دوره'::text doc_number,null::public.warehouse_document_status document_status,'snapshot'::text reference_type,ls.snapshot_id reference_id,null::uuid created_by,'موجودی اول دوره / Snapshot'::text note,ls.snapshot_imported_at created_at,ls.snapshot_imported_at snapshot_imported_at,null::text party_name,null::uuid related_order_id,null::text order_code,null::numeric unit_price,null::numeric line_total,ls.snapshot_qty running_balance from latest_snapshot ls join public.warehouse_items wi on wi.id=ls.item_id
 )
 select item_id,item_code,item_name_fa,tx_id,transaction_type,direction,quantity,document_id,doc_number,document_status,reference_type,reference_id,created_by,note,created_at,running_balance,party_name,related_order_id,order_code,unit_price,line_total from historical
 union all select item_id,item_code,item_name_fa,tx_id,transaction_type,direction,quantity,document_id,doc_number,document_status,reference_type,reference_id,created_by,note,created_at,running_balance,party_name,related_order_id,order_code,unit_price,line_total from opening
