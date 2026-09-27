@@ -548,12 +548,6 @@ function CashFlowSection({ accounts, bankAccounts = [], ledger, investments, lan
       }
       balances.set(source, sourceBalance);
       calculated.set(row.id, sourceBalance);
-      if (isTransfer && row.transfer_to_bank_account_id) {
-        const destination = String(row.transfer_to_bank_account_id);
-        const destinationBalance = (initialized.has(destination) ? (balances.get(destination) || 0) : (opening.get(destination) || 0)) + amount;
-        balances.set(destination, destinationBalance);
-        initialized.add(destination);
-      }
     });
     return filtered.map((row) => ({ ...row, running_balance: calculated.get(row.id) ?? (opening.get(String(row.account_id)) || 0) }));
   }, [accounts, ledger, filtered]);
