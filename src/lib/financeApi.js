@@ -523,7 +523,7 @@ export async function createFinancePayment({ payment, allocations = [], rows = [
 async function getEditableFinancePayment(paymentId) {
   const res = await supabase
     .from('finance_payments')
-    .select('id, payment_number, status, source_module, source_record_id, description')
+    .select('id, payment_number, status, method, loan_id, source_module, source_record_id, description')
     .eq('id', paymentId)
     .single();
   assertNoError(res, 'خطا در دریافت سند دریافت/پرداخت');
@@ -616,6 +616,10 @@ export async function voidFinancePayment(paymentId, reason = '') {
     .select('id, payment_number')
     .single();
   assertNoError(paymentRes, 'خطا در ابطال دریافت/پرداخت');
+  if (existing.method === 'loan_payment') {
+    const reverseRes = await supabase.rpc('fn_finance_reverse_loan_payment', { p_payment_id: paymentId });
+    assertNoError(reverseRes, 'خطا در بازگردانی مانده وام پس از ابطال پرداخت');
+  }
 
   await recalculateAffectedFinanceDocuments((oldAllocationsRes.data || []).map((a) => a.document_id));
   return paymentRes.data;
@@ -1134,6 +1138,12 @@ export async function archiveFinanceLoan(loanId, reason = '') {
   return loanRes.data;
 }
 
+
+export async function updateFinanceLoanInstallment(installmentId, payload = {}) {
+  const res = await supabase.from('finance_loan_installments').update({ due_date: payload.due_date, amount_due: Number(payload.amount_due || 0), notes: payload.notes || null, updated_at: new Date().toISOString() }).eq('id', installmentId).neq('status', 'paid').select('id').single();
+  assertNoError(res, 'خطا در ویرایش قسط وام');
+  return res.data;
+}
 
 export async function markFinanceLoanInstallmentPaid({ loanId, installmentId, paymentId, paidAmount, paidAt, notes }) {
   const res = await supabase.rpc('fn_finance_apply_loan_payment', {
