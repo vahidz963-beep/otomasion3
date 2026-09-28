@@ -1140,7 +1140,7 @@ export async function archiveFinanceLoan(loanId, reason = '') {
 
 
 export async function updateFinanceLoanInstallment(installmentId, payload = {}) {
-  const res = await supabase.from('finance_loan_installments').update({ due_date: payload.due_date, amount_due: Number(payload.amount_due || 0), notes: payload.notes || null, updated_at: new Date().toISOString() }).eq('id', installmentId).neq('status', 'paid').select('id').single();
+  const res = await supabase.rpc('fn_finance_update_loan_installment', { p_installment_id: installmentId, p_amount_due: Number(payload.amount_due || 0), p_due_date: payload.due_date, p_notes: payload.notes || null });
   assertNoError(res, 'خطا در ویرایش قسط وام');
   return res.data;
 }
