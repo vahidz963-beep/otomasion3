@@ -1145,6 +1145,14 @@ export async function updateFinanceLoanInstallment(installmentId, payload = {}) 
   return res.data;
 }
 
+// ابطال امن سند پرداخت از خودِ قسط؛ همان سند مشترک صندوق/وام باطل می‌شود.
+export async function voidFinanceLoanInstallmentPayment(installmentId, reason = '') {
+  const row = await supabase.from('v_finance_loan_installments').select('payment_id').eq('id', installmentId).single();
+  assertNoError(row, 'سند پرداخت مرتبط با قسط پیدا نشد');
+  if (!row.data?.payment_id) throw new Error('برای این قسط سند پرداخت مشترک ثبت نشده است');
+  return voidFinancePayment(row.data.payment_id, reason || 'ابطال سند پرداخت از جزئیات قسط');
+}
+
 export async function markFinanceLoanInstallmentPaid({ loanId, installmentId, paymentId, paidAmount, paidAt, notes }) {
   const res = await supabase.rpc('fn_finance_apply_loan_payment', {
     p_loan_id: loanId,
