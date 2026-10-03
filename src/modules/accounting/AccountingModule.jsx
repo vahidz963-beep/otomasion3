@@ -531,12 +531,18 @@ function CashFlowSection({ accounts, bankAccounts = [], ledger, investments, lan
   const [sort, setSort] = useState({ key: 'payment_date', dir: 'asc' });
   const detailsById = useMemo(() => Object.fromEntries((bankAccounts || []).map((a) => [a.id, a])), [bankAccounts]);
   const enrichedAccounts = useMemo(() => accounts.map((a) => ({ ...a, ...(detailsById[a.account_id] || {}) })).filter((a) => a.is_active !== false), [accounts, detailsById]);
-  const filtered = useMemo(() => sortRows(ledger.filter((r) => !['void', 'cancelled'].includes(r.status) && (filters.accountId === 'all' || r.account_id === filters.accountId) && (filters.direction === 'all' || r.direction === filters.direction) && (!filters.from || r.payment_date >= filters.from) && (!filters.to || r.payment_date <= filters.to) && (!filters.q || `${r.payment_number || ''} ${r.party_name || ''} ${r.description || ''}`.includes(filters.q))), sort), [ledger, filters, sort]);
+  const filtered = useMemo(() => sortRows(ledger.filter((r) => r.status === 'confirmed' && (filters.accountId === 'all' || r.account_id === filters.accountId) && (filters.direction === 'all' || r.direction === filters.direction) && (!filters.from || r.payment_date >= filters.from) && (!filters.to || r.payment_date <= filters.to) && (!filters.q || `${r.payment_number || ''} ${r.party_name || ''} ${r.description || ''}`.includes(filters.q))), sort), [ledger, filters, sort]);
   const ledgerWithBalances = useMemo(() => {
     const opening = new Map((accounts || []).map((a) => [String(a.account_id), Number(a.opening_balance || 0)]));
     const balances = new Map();
     const initialized = new Set();
-    const chronological = [...(ledger || [])].filter((row) => !['void', 'cancelled'].includes(row.status)).sort((a, b) => `${a.payment_date || ''} ${a.created_at || ''}`.localeCompare(`${b.payment_date || ''} ${b.created_at || ''}`));
+    const chronological = [...(ledger || [])].filter((row) => row.status === 'confirmed').sort((a, b) => {
+      const dateCmp = String(a.payment_date || '').localeCompare(String(b.payment_date || ''));
+      if (dateCmp) return dateCmp;
+      const timeCmp = String(a.created_at || '').localeCompare(String(b.created_at || ''));
+      if (timeCmp) return timeCmp;
+      return String(a.payment_number || a.id || '').localeCompare(String(b.payment_number || b.id || ''), 'fa');
+    });
     const calculated = new Map();
     chronological.forEach((row) => {
       const source = String(row.account_id || '');
@@ -1306,6 +1312,17 @@ function nextSort(current, key) { return { key, dir: current.key === key && curr
 function sortRows(rows, sort) {
   const dir = sort.dir === 'desc' ? -1 : 1;
   return [...rows].sort((a,b)=>{
+    // گردش حساب باید در هر روز به ترتیب واقعی ثبت نمایش داده شود؛ بنابراین
+    // تاریخ به‌تنهایی کافی نیست و زمان ثبت/شماره/شناسه نیز tie-breaker هستند.
+    if (sort.key === 'payment_date') {
+      const dateCmp = String(a?.payment_date || '').localeCompare(String(b?.payment_date || ''));
+      if (dateCmp) return dateCmp * dir;
+      const timeCmp = String(a?.created_at || '').localeCompare(String(b?.created_at || ''));
+      if (timeCmp) return timeCmp * dir;
+      const numberCmp = String(a?.payment_number || '').localeCompare(String(b?.payment_number || ''), 'fa');
+      if (numberCmp) return numberCmp * dir;
+      return String(a?.id || '').localeCompare(String(b?.id || '')) * dir;
+    }
     const av = a?.[sort.key] ?? '';
     const bv = b?.[sort.key] ?? '';
     const an = Number(av); const bn = Number(bv);
