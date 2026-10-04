@@ -14,7 +14,7 @@ with rows as (
   left join public.finance_cashboxes cb on cb.id=p.cashbox_id
   left join public.finance_bank_accounts dest on dest.id=p.transfer_to_bank_account_id
   left join public.orders o on o.id=p.related_order_id
-  where p.status='confirmed'
+  where p.status not in ('void','cancelled','draft','pending')
   union all
   select gen_random_uuid(),('TR-DEST-'||right(replace(p.id::text,'-',''),8)),'receipt'::public.finance_payment_direction,
     'bank_transfer'::public.finance_payment_method,'confirmed'::public.finance_payment_status,null::uuid,null::text,p.payment_date,p.amount,p.currency,
@@ -23,19 +23,19 @@ with rows as (
   from public.finance_payments p
   join public.finance_bank_accounts dest on dest.id=p.transfer_to_bank_account_id
   left join public.finance_bank_accounts src on src.id=p.bank_account_id
-  where p.method='account_transfer' and p.status='confirmed'
+  where p.method='account_transfer' and p.status not in ('void','cancelled','draft','pending')
   union all
   select gen_random_uuid(),('OB-BANK-'||right(replace(ba.id::text,'-',''),8)),'receipt'::public.finance_payment_direction,
     'opening_balance'::public.finance_payment_method,'confirmed'::public.finance_payment_status,null::uuid,null::text,date '2026-08-21',ba.opening_balance,ba.currency,
     'bank'::text,ba.id,ba.account_name,coalesce(ba.bank_name,'بانک'),null::uuid,null::text,'accounting'::text,null::uuid,
     'موجودی اول دوره حساب '||ba.account_name,now(),null::uuid,null::text
-  from public.finance_bank_accounts ba where ba.is_active is true and coalesce(ba.opening_balance,0)<>0
+  from public.finance_bank_accounts ba where ba.is_active is true
   union all
   select gen_random_uuid(),('OB-CASH-'||right(replace(cb.id::text,'-',''),8)),'receipt'::public.finance_payment_direction,
     'opening_balance'::public.finance_payment_method,'confirmed'::public.finance_payment_status,null::uuid,null::text,date '2026-08-21',cb.opening_balance,cb.currency,
     'cashbox'::text,cb.id,cb.name,'صندوق',null::uuid,null::text,'accounting'::text,null::uuid,
     'موجودی اول دوره صندوق '||cb.name,now(),null::uuid,null::text
-  from public.finance_cashboxes cb where cb.is_active is true and coalesce(cb.opening_balance,0)<>0
+  from public.finance_cashboxes cb where cb.is_active is true
 )
 select rows.*,
   sum(case when rows.direction='receipt' then rows.amount else -rows.amount end)

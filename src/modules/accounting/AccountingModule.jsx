@@ -538,12 +538,12 @@ function CashFlowSection({ accounts, bankAccounts = [], ledger, investments, lan
   const [sort, setSort] = useState({ key: 'payment_date', dir: 'asc' });
   const detailsById = useMemo(() => Object.fromEntries((bankAccounts || []).map((a) => [a.id, a])), [bankAccounts]);
   const enrichedAccounts = useMemo(() => accounts.map((a) => ({ ...a, ...(detailsById[a.account_id] || {}) })).filter((a) => a.is_active !== false), [accounts, detailsById]);
-  const filtered = useMemo(() => sortRows(ledger.filter((r) => r.status === 'confirmed' && (filters.accountId === 'all' || r.account_id === filters.accountId) && (filters.direction === 'all' || r.direction === filters.direction) && (!filters.from || r.payment_date >= filters.from) && (!filters.to || r.payment_date <= filters.to) && (!filters.q || `${r.payment_number || ''} ${r.party_name || ''} ${r.description || ''}`.includes(filters.q))), sort), [ledger, filters, sort]);
+  const filtered = useMemo(() => sortRows(ledger.filter((r) => !['void', 'cancelled', 'draft', 'pending'].includes(r.status) && (filters.accountId === 'all' || r.account_id === filters.accountId) && (filters.direction === 'all' || r.direction === filters.direction) && (!filters.from || r.payment_date >= filters.from) && (!filters.to || r.payment_date <= filters.to) && (!filters.q || `${r.payment_number || ''} ${r.party_name || ''} ${r.description || ''}`.includes(filters.q))), sort), [ledger, filters, sort]);
   const ledgerWithBalances = useMemo(() => {
     const opening = new Map((accounts || []).map((a) => [String(a.account_id), Number(a.opening_balance || 0)]));
     const balances = new Map();
     const initialized = new Set();
-    const chronological = [...(ledger || [])].filter((row) => row.status === 'confirmed').sort((a, b) => `${a.payment_date || ''} ${a.created_at || ''}`.localeCompare(`${b.payment_date || ''} ${b.created_at || ''}`));
+    const chronological = [...(ledger || [])].filter((row) => !['void', 'cancelled', 'draft', 'pending'].includes(row.status)).sort((a, b) => `${a.payment_date || ''} ${a.created_at || ''}`.localeCompare(`${b.payment_date || ''} ${b.created_at || ''}`));
     const calculated = new Map();
     chronological.forEach((row) => {
       const source = String(row.account_id || '');
