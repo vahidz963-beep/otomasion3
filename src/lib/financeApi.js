@@ -1139,6 +1139,12 @@ export async function archiveFinanceLoan(loanId, reason = '') {
 }
 
 
+export async function archiveFinanceLoanInstallment(installmentId, reason = '') {
+  const res = await supabase.rpc('fn_finance_archive_loan_installment', { p_installment_id: installmentId, p_reason: reason || 'لغو امن قسط' });
+  assertNoError(res, 'خطا در لغو امن قسط وام');
+  return res.data;
+}
+
 export async function updateFinanceLoanInstallment(installmentId, payload = {}) {
   const res = await supabase.rpc('fn_finance_update_loan_installment', { p_installment_id: installmentId, p_amount_due: Number(payload.amount_due || 0), p_due_date: payload.due_date, p_notes: payload.notes || null });
   assertNoError(res, 'خطا در ویرایش قسط وام');
