@@ -135,8 +135,9 @@ export function useAccountingData() {
       supabase
         .from('v_finance_payment_ledger')
         .select('*')
-        .order('payment_date', { ascending: false })
-        .limit(120),
+        .order('payment_date', { ascending: true })
+        .order('created_at', { ascending: true })
+        .limit(3000),
       supabase
         .from('finance_payments')
         .select('id, payment_number, direction, method, status, party_id, payment_date, amount, currency, bank_account_id, cashbox_id, related_order_id, description, created_at')
