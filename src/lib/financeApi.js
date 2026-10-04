@@ -520,14 +520,14 @@ export async function createFinancePayment({ payment, allocations = [], rows = [
   return firstResult;
 }
 
-async function getEditableFinancePayment(paymentId) {
+async function getEditableFinancePayment(paymentId, allowSourceVoid = false) {
   const res = await supabase
     .from('finance_payments')
     .select('id, payment_number, status, method, loan_id, source_module, source_record_id, description')
     .eq('id', paymentId)
     .single();
   assertNoError(res, 'خطا در دریافت سند دریافت/پرداخت');
-  if (res.data?.source_record_id) {
+  if (res.data?.source_record_id && !allowSourceVoid) {
     throw new Error('این سند از بخش دیگری ساخته شده است و برای حفظ سوابق باید از همان بخش اصلی اصلاح یا ابطال شود.');
   }
   if (['void', 'cancelled'].includes(res.data?.status)) {
@@ -591,7 +591,7 @@ export async function updateFinancePayment(paymentId, { payment, allocations = [
 }
 
 export async function voidFinancePayment(paymentId, reason = '') {
-  const existing = await getEditableFinancePayment(paymentId);
+  const existing = await getEditableFinancePayment(paymentId, true);
   const oldAllocationsRes = await supabase
     .from('finance_payment_allocations')
     .select('document_id')
