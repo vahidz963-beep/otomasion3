@@ -39,7 +39,7 @@ with rows as (
 )
 select rows.*,
   sum(case when rows.direction='receipt' then rows.amount else -rows.amount end)
-    over (partition by rows.account_id order by rows.payment_date,rows.created_at,rows.id rows between unbounded preceding and current row)
+    over (partition by rows.account_id order by rows.payment_date,rows.created_at,rows.payment_number,rows.id rows between unbounded preceding and current row)
   + coalesce(case when rows.method='opening_balance' then 0 else 0 end,0) as running_balance
 from rows;
 grant select on public.v_finance_payment_ledger to authenticated;

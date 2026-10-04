@@ -1307,6 +1307,17 @@ function nextSort(current, key) { return { key, dir: current.key === key && curr
 function sortRows(rows, sort) {
   const dir = sort.dir === 'desc' ? -1 : 1;
   return [...rows].sort((a,b)=>{
+    // در گردش حساب: تاریخ، سپس زمان ثبت، سپس شماره/شناسه؛
+    // به‌این‌ترتیب آخرین مانده هر روز آخرین ردیف همان روز است.
+    if (sort.key === 'payment_date') {
+      const dateCmp = String(a?.payment_date || '').localeCompare(String(b?.payment_date || ''));
+      if (dateCmp) return dateCmp * dir;
+      const timeCmp = String(a?.created_at || '').localeCompare(String(b?.created_at || ''));
+      if (timeCmp) return timeCmp * dir;
+      const numberCmp = String(a?.payment_number || '').localeCompare(String(b?.payment_number || ''), 'fa');
+      if (numberCmp) return numberCmp * dir;
+      return String(a?.id || '').localeCompare(String(b?.id || '')) * dir;
+    }
     const av = a?.[sort.key] ?? '';
     const bv = b?.[sort.key] ?? '';
     const an = Number(av); const bn = Number(bv);
