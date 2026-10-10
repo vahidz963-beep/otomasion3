@@ -38,7 +38,7 @@ export function useWarehouseData() {
         .from('v_warehouse_documents_summary')
         .select('*')
         .order('created_at', { ascending: false })
-        .limit(120),
+        .limit(3000),
       supabase
         .from('warehouse_snapshots')
         .select('id, file_name, imported_by, imported_at, row_count, notes')

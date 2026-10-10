@@ -45,7 +45,7 @@ export async function createWarehouseItem(payload) {
       itemId: res.data.id,
       direction: 'in',
       quantity: initialQty,
-      reason: 'count_correction',
+      reason: 'opening_balance',
       note: 'موجودی اولیه هنگام ثبت کالا',
     });
   }
@@ -138,6 +138,17 @@ export async function updateWarehouseDocumentMeta(documentId, { customerName, cu
     .single();
   assertNoError(res, 'خطا در ذخیره اطلاعات سند');
   return res.data;
+}
+
+export async function fetchWarehouseDocumentLines(documentId) {
+  const res = await supabase
+    .from('warehouse_document_lines')
+    .select('id, document_id, item_id, quantity, reason, note, tx_id, removed_at, created_at, warehouse_items:item_id(item_code,item_name_fa,unit)')
+    .eq('document_id', documentId)
+    .is('removed_at', null)
+    .order('created_at', { ascending: true });
+  assertNoError(res, 'خطا در دریافت ردیف‌های سند انبار');
+  return res.data || [];
 }
 
 export async function updateWarehouseDocumentLine(lineId, quantity) {
@@ -239,7 +250,13 @@ export async function createWarehouseSnapshot({ fileName, rows, notes }) {
     const res = await supabase.from('warehouse_snapshot_items').insert(items);
     assertNoError(res, 'خطا در ثبت ردیف‌های Snapshot');
   }
-  return snap.data;
+
+  const openingDocumentRes = await supabase.rpc('fn_materialize_warehouse_opening_document', {
+    p_snapshot_id: snap.data.id,
+  });
+  assertNoError(openingDocumentRes, 'خطا در ثبت سند اصلاحی موجودی اول دوره');
+
+  return { ...snap.data, opening_document_id: openingDocumentRes.data };
 }
 
 

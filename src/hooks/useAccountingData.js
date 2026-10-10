@@ -257,9 +257,9 @@ export function useAccountingData() {
           .limit(200),
         supabase
           .from('v_warehouse_kardex')
-          .select('item_id, item_code, item_name_fa, tx_id, transaction_type, direction, quantity, doc_number, document_status, note, created_at, running_balance')
+          .select('item_id, item_code, item_name_fa, tx_id, transaction_type, direction, quantity, document_id, doc_number, document_status, reference_type, reference_id, note, created_at, running_balance')
           .order('created_at', { ascending: false })
-          .limit(300),
+          .limit(3000),
         supabase
           .from('v_finance_item_last_sale')
           .select('*')

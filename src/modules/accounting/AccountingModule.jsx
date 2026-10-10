@@ -819,9 +819,20 @@ function ChecksSection({ checks, accounts, lang, busy, onNewCheck, onSettle, onC
   return <section className="finance-card checks-workspace checks-full-card"><div className="finance-card-header between"><CardHeader icon={WalletCards} title="چک‌ها" bare /><div className="actions-cell"><span className="finance-note">جمع چک‌های باز: {formatMoney(totalOpen, lang)}</span><button className="mini-btn primary-soft" onClick={onNewCheck}>＋ ثبت چک</button></div></div><div className="toolbar-line"><select value={filters.type} onChange={(e)=>setFilters({...filters,type:e.target.value})}><option value="all">همه نوع‌ها</option><option value="received">دریافتی</option><option value="issued">پرداختی</option></select><select value={filters.status} onChange={(e)=>setFilters({...filters,status:e.target.value})}><option value="all">همه وضعیت‌ها</option>{['in_hand','deposited','cleared','returned','issued','cancelled'].map(st=><option key={st} value={st}>{STATUS_LABELS[st]?.[lang]||st}</option>)}</select><input value={filters.q} onChange={(e)=>setFilters({...filters,q:e.target.value})} placeholder="شماره/بانک/صاحب/شعبه..." /></div>{filtered.length === 0 ? <Empty t={{noData:'چکی برای نمایش وجود ندارد.'}} /> : <div className="table-scroll limited-list tall"><table className="finance-table checks-table"><thead><tr>{th('internal_check_code','کد داخلی')}{th('check_type','نوع')}{th('check_number','شماره')}{th('bank_name','بانک')}{th('branch_name','شعبه')}{th('owner_name','صاحب')}{th('issue_date','تاریخ صدور')}{th('due_date','تاریخ وصول')}{th('cleared_date','تاریخ تسویه')}{th('amount','مبلغ')}{th('status','وضعیت')}<th>عملیات</th></tr></thead><tbody>{filtered.map(c=><tr key={c.id}><td dir="ltr">{c.internal_check_code||'—'}</td><td>{c.check_type==='received'?'دریافتی':'پرداختی'}</td><td dir="ltr">{c.check_number}</td><td>{c.bank_name||'—'}</td><td>{c.branch_name||'—'}</td><td>{c.owner_name||'—'}</td><td>{formatDate(c.issue_date, lang)}</td><td>{formatDate(c.due_date, lang)}</td><td>{c.cleared_date ? formatDate(c.cleared_date, lang) : '—'}</td><td>{formatMoney(c.amount, lang)}</td><td><StatusBadge status={c.status} lang={lang}/></td><td className="actions-cell"><button disabled={busy} onClick={()=>setSettle(c)}>وصول/تسویه</button><select disabled={busy} value={c.status} onChange={(e)=>onChangeStatus(c.id,e.target.value)}>{['in_hand','deposited','cleared','returned','issued','cancelled'].map(st=><option key={st} value={st}>{STATUS_LABELS[st]?.[lang]||st}</option>)}</select></td></tr>)}</tbody></table></div>}{settle&&<CheckSettleModal check={settle} accounts={accounts} busy={busy} onClose={()=>setSettle(null)} onSubmit={(payload)=>{setSettle(null);onSettle(payload)}} />}</section>;
 }
 
-export function ItemKardexSection({ stock = [], rows = [], lastSales = [], lang = 'fa' }) {
-  const [filters, setFilters] = useState({ itemId: 'all', direction: 'all', q: '' });
+export function ItemKardexSection({ stock = [], rows = [], lastSales = [], lang = 'fa', selectedItemId: controlledItemId, onSelectItem }) {
+  const [filters, setFilters] = useState({ itemId: controlledItemId || 'all', direction: 'all', q: '' });
   const [sort, setSort] = useState({ key: 'created_at', dir: 'desc' });
+
+  useEffect(() => {
+    if (controlledItemId !== undefined) {
+      setFilters((current) => ({ ...current, itemId: controlledItemId || 'all' }));
+    }
+  }, [controlledItemId]);
+
+  function selectItem(itemId) {
+    setFilters((current) => ({ ...current, itemId }));
+    onSelectItem?.(itemId === 'all' ? null : itemId);
+  }
 
   const lastSaleByItem = useMemo(() => Object.fromEntries((lastSales || []).map((sale) => [sale.warehouse_item_id, sale])), [lastSales]);
   const stockById = useMemo(() => Object.fromEntries((stock || []).map((item) => [item.item_id, item])), [stock]);
@@ -838,13 +849,21 @@ export function ItemKardexSection({ stock = [], rows = [], lastSales = [], lang 
   const filteredRows = useMemo(() => sortRows((rows || []).filter((row) => {
     const item = stockById[row.item_id] || {};
     const text = `${row.item_code || ''} ${row.item_name_fa || ''} ${item.item_name_en || ''} ${row.doc_number || ''} ${row.note || ''}`.toLowerCase();
+    const selectedItemOnly = filters.itemId !== 'all';
     return (filters.itemId === 'all' || row.item_id === filters.itemId)
+      && (selectedItemOnly || !isAdjustmentKardexRow(row))
       && (filters.direction === 'all' || row.direction === filters.direction)
       && (!query || text.includes(query));
   }), sort), [rows, stockById, filters, query, sort]);
 
   const selectedItem = filters.itemId === 'all' ? null : (stockById[filters.itemId] || rows.find((row) => row.item_id === filters.itemId));
   const selectedLastSale = selectedItem ? lastSaleByItem[selectedItem.item_id] : null;
+  const selectedOpeningRow = selectedItem
+    ? [...(rows || [])]
+      .filter((row) => row.item_id === selectedItem.item_id && isOpeningKardexRow(row))
+      .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')))[0]
+    : null;
+  const generalMovementCount = useMemo(() => (rows || []).filter((row) => !isAdjustmentKardexRow(row)).length, [rows]);
   const totals = filteredRows.reduce((acc, row) => {
     const qty = Number(row.quantity || 0);
     if (row.direction === 'out' || row.transaction_type === 'issue') acc.outQty += qty;
@@ -856,6 +875,7 @@ export function ItemKardexSection({ stock = [], rows = [], lastSales = [], lang 
   const th = (key, label) => <th><button className="sort-th" onClick={() => setSort(nextSort(sort, key))}>{label}<span>{sort.key === key ? (sort.dir === 'asc' ? '▲' : '▼') : '↕'}</span></button></th>;
   const selectedCurrentQty = Number(selectedItem?.current_qty ?? selectedItem?.running_balance ?? 0);
   const selectedAvailableQty = Number(selectedItem?.available_for_sale_qty ?? selectedCurrentQty ?? 0);
+  const selectedOpeningQty = selectedOpeningRow ? Number(selectedOpeningRow.quantity || 0) : null;
 
   return <div className="accounting-grid item-kardex-workspace">
     <section className="finance-card item-kardex-header-card">
@@ -868,8 +888,8 @@ export function ItemKardexSection({ stock = [], rows = [], lastSales = [], lang 
       </div>
       <div className="toolbar-line item-kardex-toolbar">
         <label><Search size={14} /><input value={filters.q} onChange={(e) => setFilters({ ...filters, q: e.target.value })} placeholder="جست‌وجوی کد، نام کالا، سند یا شرح..." /></label>
-        <select value={filters.itemId} onChange={(e) => setFilters({ ...filters, itemId: e.target.value })}>
-          <option value="all">همه کالاها</option>
+        <select value={filters.itemId} onChange={(e) => selectItem(e.target.value)}>
+          <option value="all">همه کالاها (بدون اصلاحات)</option>
           {stock.map((item) => <option key={item.item_id} value={item.item_id}>{item.item_code || 'بدون کد'} · {item.item_name_fa || item.item_name_en || 'کالا'}</option>)}
         </select>
         <select value={filters.direction} onChange={(e) => setFilters({ ...filters, direction: e.target.value })}>
@@ -877,7 +897,7 @@ export function ItemKardexSection({ stock = [], rows = [], lastSales = [], lang 
           <option value="in">ورود</option>
           <option value="out">خروج</option>
         </select>
-        <button className="mini-btn" onClick={() => setFilters({ itemId: 'all', direction: 'all', q: '' })}>پاک‌کردن فیلتر</button>
+        <button className="mini-btn" onClick={() => { setFilters({ itemId: 'all', direction: 'all', q: '' }); onSelectItem?.(null); }}>پاک‌کردن فیلتر</button>
       </div>
       <div className="detail-grid item-kardex-kpis">
         <Info label="تعداد گردش نمایش‌داده‌شده" value={formatNumber(totals.count, lang)} />
@@ -888,6 +908,7 @@ export function ItemKardexSection({ stock = [], rows = [], lastSales = [], lang 
       {selectedItem && <div className="selected-item-strip">
         <div><span>کالای انتخاب‌شده</span><b>{selectedItem.item_name_fa || selectedItem.item_name_en || '—'}</b><small dir="ltr">{selectedItem.item_code || '—'}</small></div>
         <div><span>گروه</span><b>{productionItemLabel(selectedItem)}</b></div>
+        <div><span>موجودی اول دوره</span><b>{selectedOpeningQty === null ? 'ثبت نشده' : `${formatNumber(selectedOpeningQty, lang)} ${selectedItem.unit || ''}`}</b></div>
         <div><span>موجودی فعلی</span><b>{formatNumber(selectedCurrentQty, lang)} {selectedItem.unit || ''}</b></div>
         <div><span>قابل فروش</span><b>{formatNumber(selectedAvailableQty, lang)} {selectedItem.unit || ''}</b></div>
       </div>}
@@ -897,10 +918,10 @@ export function ItemKardexSection({ stock = [], rows = [], lastSales = [], lang 
       <section className="finance-card item-catalog-card">
         <div className="finance-card-header between"><CardHeader icon={Search} title="انتخاب سریع کالا" bare /><span className="finance-note">{formatNumber(visibleStock.length, lang)} مورد</span></div>
         {visibleStock.length === 0 ? <Empty t={{ noData: 'کالایی برای نمایش پیدا نشد.' }} /> : <div className="item-kardex-list">
-          <button className={filters.itemId === 'all' ? 'item-kardex-row active' : 'item-kardex-row'} onClick={() => setFilters({ ...filters, itemId: 'all' })}><span><b>همه کالاها</b><small>نمایش تمام گردش‌ها</small></span><strong>{formatNumber(rows.length, lang)}</strong></button>
+          <button className={filters.itemId === 'all' ? 'item-kardex-row active' : 'item-kardex-row'} onClick={() => selectItem('all')}><span><b>همه کالاها</b><small>گردش‌های عادی؛ بدون موجودی اول دوره و اصلاحات</small></span><strong>{formatNumber(generalMovementCount, lang)}</strong></button>
           {visibleStock.map((item) => {
             const lastSale = lastSaleByItem[item.item_id];
-            return <button key={item.item_id} className={filters.itemId === item.item_id ? 'item-kardex-row active' : 'item-kardex-row'} onClick={() => setFilters({ ...filters, itemId: item.item_id })}>
+            return <button key={item.item_id} className={filters.itemId === item.item_id ? 'item-kardex-row active' : 'item-kardex-row'} onClick={() => selectItem(item.item_id)}>
               <span><b>{item.item_name_fa || item.item_name_en || '—'}</b><small dir="ltr">{item.item_code || '—'} · {productionItemLabel(item)}</small></span>
               <strong>{formatNumber(item.current_qty || 0, lang)} {item.unit || ''}</strong>
               <em>{lastSale ? formatMoney(lastSale.last_sale_unit_price, lang) : 'بدون فروش'}</em>
@@ -910,18 +931,52 @@ export function ItemKardexSection({ stock = [], rows = [], lastSales = [], lang 
       </section>
 
       <section className="finance-card item-kardex-table-card">
-        <div className="finance-card-header between"><CardHeader icon={ListChecks} title="ریز گردش کالا" bare /><span className="finance-note">ورود و خروج‌های نهایی انبار</span></div>
-        {filteredRows.length === 0 ? <Empty t={{ noData: 'گردشی برای این فیلتر وجود ندارد.' }} /> : <div className="table-scroll limited-list tall"><table className="finance-table item-kardex-table"><thead><tr>{th('created_at','تاریخ')}{th('item_code','کد')}{th('item_name_fa','کالا')}{th('direction','نوع')}{th('quantity','تعداد')}{th('running_balance','مانده')}{th('doc_number','سند')}{th('document_status','وضعیت سند')}<th>شرح</th></tr></thead><tbody>{filteredRows.map((row) => <tr key={row.tx_id}><td>{formatDate(row.created_at, lang)}</td><td dir="ltr">{row.item_code || '—'}</td><td>{row.item_name_fa || stockById[row.item_id]?.item_name_fa || '—'}</td><td><span className={`movement-pill ${row.direction === 'out' ? 'out' : 'in'}`}>{movementLabel(row)}</span></td><td className={row.direction === 'out' ? 'payment-text' : 'receipt-text'}>{row.direction === 'out' ? '−' : '+'}{formatNumber(row.quantity, lang)}</td><td>{formatNumber(row.running_balance, lang)}</td><td dir="ltr">{row.doc_number || '—'}</td><td><StatusBadge status={row.document_status || 'final'} lang={lang} /></td><td>{row.note || '—'}</td></tr>)}</tbody></table></div>}
+        <div className="finance-card-header between"><CardHeader icon={ListChecks} title={selectedItem ? `کاردکس کامل ${selectedItem.item_name_fa || selectedItem.item_code || 'کالا'}` : 'گردش عادی کالاها'} bare /><span className="finance-note">{selectedItem ? 'موجودی اول دوره، اصلاحات و تمام ورود و خروج‌های همین کالا' : 'موجودی اول دوره و اسناد اصلاحی فقط پس از انتخاب یک کالا نمایش داده می‌شوند'}</span></div>
+        {filteredRows.length === 0 ? <Empty t={{ noData: 'گردشی برای این فیلتر وجود ندارد.' }} /> : <div className="table-scroll limited-list tall"><table className="finance-table item-kardex-table"><thead><tr>{th('created_at','تاریخ')}{th('item_code','کد')}{th('item_name_fa','کالا')}{th('direction','نوع')}{th('quantity','تعداد')}{th('running_balance','مانده')}{th('doc_number','سند')}{th('document_status','وضعیت سند')}<th>شرح</th></tr></thead><tbody>{filteredRows.map((row) => <tr key={`${row.item_id}-${row.tx_id}`}><td>{formatDate(row.created_at, lang)}</td><td dir="ltr">{row.item_code || '—'}</td><td>{row.item_name_fa || stockById[row.item_id]?.item_name_fa || '—'}</td><td><span className={`movement-pill ${movementClass(row)}`}>{movementLabel(row)}</span></td><td className={row.direction === 'out' ? 'payment-text' : 'receipt-text'}>{row.direction === 'out' ? '−' : '+'}{formatNumber(row.quantity, lang)}</td><td>{formatNumber(row.running_balance, lang)}</td><td dir="ltr">{row.doc_number || '—'}</td><td><StatusBadge status={row.document_status || 'final'} lang={lang} /></td><td>{row.note || '—'}</td></tr>)}</tbody></table></div>}
       </section>
     </div>
   </div>;
 }
 
+function isOpeningKardexRow(row) {
+  const referenceType = String(row?.reference_type || '').toLowerCase();
+  const documentKind = String(row?.document_kind || '').toLowerCase();
+  const documentNumber = String(row?.doc_number || '').toUpperCase();
+  const note = String(row?.note || '');
+  return row?.is_opening_balance === true
+    || documentKind === 'opening_balance'
+    || ['snapshot', 'opening_balance'].includes(referenceType)
+    || documentNumber.startsWith('WH-OPEN-')
+    || note.includes('موجودی اول دوره')
+    || note.includes('موجودی اولیه');
+}
+
+function isAdjustmentKardexRow(row) {
+  const referenceType = String(row?.reference_type || '').toLowerCase();
+  const documentKind = String(row?.document_kind || '').toLowerCase();
+  const documentNumber = String(row?.doc_number || '').toUpperCase();
+  const note = String(row?.note || '').toLowerCase();
+  return isOpeningKardexRow(row)
+    || row?.is_adjustment === true
+    || documentKind === 'adjustment'
+    || referenceType === 'adjustment'
+    || row?.transaction_type === 'adjustment'
+    || documentNumber.startsWith('WH-ADJ-')
+    || note.startsWith('count_correction');
+}
+
+function movementClass(row) {
+  if (isOpeningKardexRow(row)) return 'opening';
+  if (isAdjustmentKardexRow(row)) return 'adjustment';
+  return row.direction === 'out' || row.transaction_type === 'issue' ? 'out' : 'in';
+}
+
 function movementLabel(row) {
+  if (isOpeningKardexRow(row)) return 'موجودی اول دوره';
+  if (isAdjustmentKardexRow(row)) return 'اصلاح موجودی';
   if (row.transaction_type === 'issue' || row.direction === 'out') return 'خروج';
   if (row.transaction_type === 'receipt') return 'ورود';
   if (row.transaction_type === 'reversal') return 'برگشت';
-  if (row.transaction_type === 'adjustment') return 'اصلاح';
   return row.direction === 'in' ? 'ورود' : 'گردش';
 }
 
