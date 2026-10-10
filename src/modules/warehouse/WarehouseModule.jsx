@@ -283,7 +283,7 @@ function DocumentsSection({ docs, draftDocuments, draftLinesByDocument, selected
       <CardTitle icon={FileText} title="لیست اسناد انبار" />
       {docs.length ? <div className="warehouse-table-wrap"><table><thead><tr>{th('doc_number', 'شماره سند')}{th('document_kind', 'نوع سند')}{th('status', 'وضعیت')}{th('customer_name', 'مشتری')}{th('customer_city', 'شهر')}{th('created_at', 'تاریخ')}{th('note', 'شرح')}<th>عملیات</th></tr></thead><tbody>{sortedDocs.map((document) => {
         const protectedOpening = isProtectedOpeningDocument(document);
-        const typeClass = document.document_kind || document.type;
+        const typeClass = ['adjustment', 'opening_balance'].includes(document.document_kind) ? document.document_kind : document.type;
         return <tr key={document.id} className={protectedOpening ? 'opening-document-row' : ''}>
           <td dir="ltr"><span className="doc-number-pill">{document.doc_number || 'موقت'}</span></td>
           <td><span className={`doc-type ${typeClass}`}>{warehouseDocumentLabel(document)}</span></td>
