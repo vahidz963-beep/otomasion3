@@ -312,7 +312,7 @@ export function useAccountingData() {
           .from('v_finance_income_expense_ledger')
           .select('*')
           .order('payment_date', { ascending: false })
-          .limit(500),
+          .limit(3000),
       ]);
 
       setState((previous) => ({

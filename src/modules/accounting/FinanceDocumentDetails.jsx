@@ -128,7 +128,6 @@ function printDocument(bundle, variant = 'company') {
           <div class="field"><b>شناسه ملی:</b> ${esc(party.national_id || '—')}</div>
           <div class="field"><b>کد پستی:</b> ${esc(party.postal_code || '—')}</div>
           <div class="field"><b>تلفن تماس:</b> ${esc(party.phone || order.contact_phone || '—')}</div>
-          <div class="field"><b>سفارش:</b> ${esc(order.order_code || d.related_order_id || '—')}</div>
           <div class="field full"><b>نشانی:</b> ${esc(party.address || order.customer_city || '—')}</div>
         </div>
       </section>
@@ -221,7 +220,7 @@ export default function FinanceDocumentDetails({
       <DetailBlock icon={FileText} title="اقلام سند">
         {bundle.items.length === 0 ? <p className="muted">ردیفی ثبت نشده است.</p> : (
           <div className="table-scroll">
-            <table className="finance-table compact">
+            <table className="finance-table compact has-row-numbers">
               <thead><tr><th>ردیف</th><th>شرح</th><th>تعداد</th><th>فی</th><th>مالیات</th><th>جمع</th></tr></thead>
               <tbody>{bundle.items.map((item) => <tr key={item.id}><td>{item.line_no}</td><td>{item.description_fa}</td><td>{item.quantity} {item.unit}</td><td>{money(item.unit_price)}</td><td>{item.tax_rate}٪</td><td>{money(item.line_total)}</td></tr>)}</tbody>
             </table>

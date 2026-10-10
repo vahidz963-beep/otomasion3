@@ -98,6 +98,7 @@ import {
 import FinanceDocumentDetails from './FinanceDocumentDetails';
 import './AccountingModule.css';
 import { getFriendlyErrorMessage, getTechnicalErrorMessage } from '../../lib/errorMessages';
+import { downloadRtlTableDocx } from '../../lib/officeExport';
 
 const COPY = {
   fa: {
@@ -584,6 +585,8 @@ function IncomeExpenseSection({ categories = [], ledger = [], lang, onNewCategor
   const [typeFilter, setTypeFilter] = useState('all');
   const [search, setSearch] = useState('');
   const [monthFilter, setMonthFilter] = useState(() => getJalaliMonthKey(new Date().toISOString().slice(0, 10)));
+  const [exportingWord, setExportingWord] = useState(false);
+  const [exportError, setExportError] = useState('');
   const expenseCategories = categories.filter((c) => c.category_type === 'expense');
   const incomeCategories = categories.filter((c) => c.category_type === 'income');
   const monthOptions = useMemo(() => {
@@ -605,22 +608,105 @@ function IncomeExpenseSection({ categories = [], ledger = [], lang, onNewCategor
     return (typeFilter === 'all' || flow === typeFilter)
       && (!search || text.includes(search.toLowerCase()));
   }), { key: 'payment_date', dir: 'desc' }), [monthRows, typeFilter, search]);
-  const totals = filteredLedger.reduce((acc, row) => {
+  const totals = useMemo(() => filteredLedger.reduce((acc, row) => {
     const isIncome = row.direction === 'receipt' || row.flow_type === 'income';
     if (isIncome) acc.income += Number(row.amount || 0);
     else acc.expense += Number(row.amount || 0);
     return acc;
-  }, { income: 0, expense: 0 });
+  }, { income: 0, expense: 0 }), [filteredLedger]);
+
+  const periodLabel = monthFilter === 'all' ? 'همه ماه‌ها' : `ماه ${monthFilter}`;
+  const listTitle = typeFilter === 'expense'
+    ? `لیست هزینه‌های ${periodLabel}`
+    : typeFilter === 'income'
+      ? `لیست درآمدهای ${periodLabel}`
+      : `لیست هزینه‌ها و درآمدهای ${periodLabel}`;
+  const exportHeaders = ['ردیف', 'تاریخ', 'شماره سند', 'نوع', 'عنوان', 'شخص/شرکت', 'مبلغ', 'حساب', 'منبع', 'شرح'];
+  const exportRows = useMemo(() => filteredLedger.map((row, index) => {
+    const isIncome = row.direction === 'receipt' || row.flow_type === 'income';
+    const category = row.parent_category_name_fa
+      ? `${row.parent_category_name_fa} / ${row.category_name_fa || 'بدون عنوان'}`
+      : row.category_name_fa || 'بدون عنوان';
+    return [
+      formatNumber(index + 1, lang),
+      formatDate(row.payment_date, lang),
+      row.payment_number || '—',
+      isIncome ? 'درآمد / دریافت' : 'هزینه / پرداخت',
+      category,
+      row.party_name || '—',
+      formatMoney(row.amount, lang),
+      row.bank_account_name || row.cashbox_name || '—',
+      row.source_record_id ? moduleLabel(row.source_module, lang) : 'دستی',
+      row.category_note || row.description || '—',
+    ];
+  }), [filteredLedger, lang]);
+  const exportSummary = [
+    `دوره گزارش: ${periodLabel}`,
+    `تعداد ردیف: ${formatNumber(filteredLedger.length, lang)}`,
+    `جمع درآمد: ${formatMoney(totals.income, lang)}`,
+    `جمع هزینه: ${formatMoney(totals.expense, lang)}`,
+    `خالص: ${formatMoney(totals.income - totals.expense, lang)}`,
+  ];
+
+  function exportPdf() {
+    const bodyRows = exportRows.map((row, index) => `<tr class="${index % 2 ? 'alt' : ''}">${row.map((cell, cellIndex) => `<td${cellIndex === 6 ? ' class="money"' : ''}>${htmlSafe(cell)}</td>`).join('')}</tr>`).join('');
+    const headerCells = exportHeaders.map((header) => `<th>${htmlSafe(header)}</th>`).join('');
+    openPrintableDocument(listTitle, `
+      <div class="meta">
+        <div><b>دوره گزارش:</b> ${htmlSafe(periodLabel)}</div>
+        <div><b>تعداد ردیف:</b> ${htmlSafe(formatNumber(filteredLedger.length, lang))}</div>
+        <div><b>جمع درآمد:</b> ${htmlSafe(formatMoney(totals.income, lang))}</div>
+        <div><b>جمع هزینه:</b> ${htmlSafe(formatMoney(totals.expense, lang))}</div>
+      </div>
+      <table><thead><tr>${headerCells}</tr></thead><tbody>${bodyRows}</tbody></table>
+      <div class="meta"><div><b>خالص گزارش:</b> ${htmlSafe(formatMoney(totals.income - totals.expense, lang))}</div></div>
+    `);
+  }
+
+  async function exportWord() {
+    setExportingWord(true);
+    setExportError('');
+    try {
+      const typeSlug = typeFilter === 'all' ? 'income-expense' : typeFilter;
+      const monthSlug = String(monthFilter === 'all' ? 'all-months' : monthFilter).replace('/', '-');
+      await downloadRtlTableDocx({
+        filename: `${typeSlug}-${monthSlug}.docx`,
+        title: listTitle,
+        subtitle: 'گزارش هزینه‌ها و درآمدهای اتوماسیون مالی',
+        headers: exportHeaders,
+        rows: exportRows,
+        summary: exportSummary,
+      });
+    } catch (error) {
+      setExportError(getFriendlyErrorMessage(error, 'ساخت فایل Word با خطا روبه‌رو شد.'));
+    } finally {
+      setExportingWord(false);
+    }
+  }
+
   return <div className="accounting-grid income-expense-workspace">
     <section className="finance-card income-expense-header">
       <div className="finance-card-header between"><CardHeader icon={WalletCards} title="هزینه‌ها و درآمدها" bare /><div className="actions-cell"><button className="mini-btn" onClick={() => onNewPayment('payment')}>＋ ثبت هزینه</button><button className="mini-btn primary-soft" onClick={() => onNewPayment('receipt')}>＋ ثبت درآمد</button></div></div>
-      <p className="finance-note">پیشنهاد اجرایی: تعریف عنوان‌ها و زیرعنوان‌های هزینه/درآمد همین‌جا انجام می‌شود تا حسابدار هنگام ثبت سند مجبور نباشد بین «تنظیمات» و این بخش جابه‌جا شود.</p>
+      <div className="toolbar-line income-expense-toolbar"><input value={search} onChange={(e)=>setSearch(e.target.value)} placeholder="جست‌وجوی شماره، شخص، موضوع، دسته، سفارش..." /><select value={monthFilter} onChange={(e)=>setMonthFilter(e.target.value)}><option value="all">همه ماه‌ها</option>{monthOptions.map((key)=><option key={key} value={key}>{key}</option>)}</select><select value={typeFilter} onChange={(e)=>setTypeFilter(e.target.value)}><option value="all">همه هزینه‌ها و درآمدها</option><option value="expense">فقط هزینه‌ها</option><option value="income">فقط درآمدها</option></select></div>
+    </section>
+
+    <section className="finance-card income-expense-ledger-card">
+      <div className="finance-card-header between">
+        <CardHeader icon={ListChecks} title={listTitle} bare />
+        <div className="actions-cell income-expense-export-actions">
+          <button type="button" className="mini-btn" disabled={filteredLedger.length === 0} onClick={exportPdf}><Printer size={14} /> خروجی PDF</button>
+          <button type="button" className="mini-btn primary-soft" disabled={filteredLedger.length === 0 || exportingWord} onClick={exportWord}><FileText size={14} /> {exportingWord ? 'در حال ساخت Word...' : 'خروجی Word'}</button>
+        </div>
+      </div>
+      <p className="finance-note">این فهرست دقیقاً مطابق جست‌وجو، ماه و نوع انتخاب‌شده نمایش داده و خروجی گرفته می‌شود. ویرایش/حذف اسناد خودکار باید از منبع اصلی انجام شود.</p>
+      {exportError && <div className="accounting-message error">{exportError}</div>}
       <div className="loan-kpis income-expense-month-kpis"><Info label={monthFilter === 'all' ? 'کل درآمدها' : `درآمد ماه ${monthFilter}`} value={formatMoney(monthlyTotals.income, lang)} highlight /><Info label={monthFilter === 'all' ? 'کل هزینه‌ها' : `هزینه ماه ${monthFilter}`} value={formatMoney(monthlyTotals.expense, lang)} highlight={monthlyTotals.expense > 0} /><Info label={monthFilter === 'all' ? 'خالص کل' : `خالص ماه ${monthFilter}`} value={formatMoney(monthlyTotals.income - monthlyTotals.expense, lang)} highlight /><Info label="تعداد سند ماه" value={formatNumber(monthRows.length, lang)} /></div>
       <div className="loan-kpis income-expense-filter-kpis"><Info label="جمع درآمد فیلتر" value={formatMoney(totals.income, lang)} /><Info label="جمع هزینه فیلتر" value={formatMoney(totals.expense, lang)} /><Info label="خالص فیلتر" value={formatMoney(totals.income - totals.expense, lang)} /><Info label="تعداد فیلتر" value={formatNumber(filteredLedger.length, lang)} /></div>
-      <div className="toolbar-line income-expense-toolbar"><input value={search} onChange={(e)=>setSearch(e.target.value)} placeholder="جست‌وجوی شماره، شخص، موضوع، دسته، سفارش..." /><select value={monthFilter} onChange={(e)=>setMonthFilter(e.target.value)}><option value="all">همه ماه‌ها</option>{monthOptions.map((key)=><option key={key} value={key}>{key}</option>)}</select><select value={typeFilter} onChange={(e)=>setTypeFilter(e.target.value)}><option value="all">همه</option><option value="expense">هزینه‌ها</option><option value="income">درآمدها</option></select></div>
+      {filteredLedger.length === 0 ? <Empty t={{noData:'سند هزینه/درآمدی برای این فیلتر ثبت نشده است.'}} /> : <div className="table-scroll limited-list tall"><table className="finance-table income-expense-table has-row-numbers"><thead><tr><th className="row-number-column">ردیف</th><th>تاریخ</th><th>شماره</th><th>نوع</th><th>عنوان</th><th>شخص/شرکت</th><th>مبلغ</th><th>حساب</th><th>منبع</th><th>شرح</th><th>عملیات</th></tr></thead><tbody>{filteredLedger.map((row, index) => { const isIncome = row.direction === 'receipt' || row.flow_type === 'income'; const editable = !row.source_record_id; return <tr key={row.id}><td className="row-number-column">{formatNumber(index + 1, lang)}</td><td>{formatDate(row.payment_date, lang)}</td><td dir="ltr">{row.payment_number || '—'}</td><td className={isIncome ? 'receipt-text' : 'payment-text'}>{isIncome ? 'درآمد / دریافت' : 'هزینه / پرداخت'}</td><td>{row.parent_category_name_fa ? `${row.parent_category_name_fa} / ${row.category_name_fa}` : row.category_name_fa || 'بدون عنوان'}</td><td>{row.party_name || '—'}</td><td className={isIncome ? 'receipt-text' : 'payment-text'}>{formatMoney(row.amount, lang)}</td><td>{row.bank_account_name || row.cashbox_name || '—'}</td><td>{editable ? 'دستی' : moduleLabel(row.source_module, lang)}</td><td>{row.category_note || row.description || '—'}</td><td className="actions-cell income-expense-actions">{editable ? <><button className="mini-btn" onClick={() => onEditPayment?.(row)}>ویرایش</button><button className="mini-btn danger-btn" onClick={() => onVoidPayment?.(row)}>حذف</button></> : <span className="auto-source-badge">از بخش اصلی</span>}</td></tr>; })}</tbody><tfoot><tr><td colSpan={6}><b>{monthFilter === 'all' ? 'جمع کل اسناد نمایش‌داده‌شده' : `جمع ماه ${monthFilter}`}</b></td><td colSpan={5}><b>درآمد: {formatMoney(totals.income, lang)} · هزینه: {formatMoney(totals.expense, lang)} · خالص: {formatMoney(totals.income - totals.expense, lang)}</b></td></tr></tfoot></table></div>}
     </section>
+
+    <div className="income-expense-category-intro"><h3>عناوین هزینه و درآمد</h3><p className="finance-note">تعریف و ویرایش عنوان‌ها و زیرعنوان‌ها پس از لیست ماهانه قرار گرفته است.</p></div>
     <div className="accounting-grid two income-expense-category-grid"><CategoryCard title="عنوان‌های هزینه" type="expense" rows={expenseCategories} onNew={() => onNewCategory('expense')} onEdit={onEditCategory} /><CategoryCard title="عنوان‌های درآمد" type="income" rows={incomeCategories} onNew={() => onNewCategory('income')} onEdit={onEditCategory} /></div>
-    <section className="finance-card income-expense-ledger-card"><div className="finance-card-header between"><CardHeader icon={ListChecks} title="لیست تمام اسناد هزینه و درآمد" bare /><span className="finance-note">ویرایش/حذف فقط برای اسناد دستی همین بخش فعال است؛ اسناد ساخته‌شده از حقوق، چک، وام یا بخش‌های دیگر باید از منبع اصلی اصلاح شوند.</span></div>{filteredLedger.length === 0 ? <Empty t={{noData:'سند هزینه/درآمدی برای این فیلتر ثبت نشده است.'}} /> : <div className="table-scroll limited-list tall"><table className="finance-table income-expense-table"><thead><tr><th>تاریخ</th><th>شماره</th><th>نوع</th><th>عنوان</th><th>شخص/شرکت</th><th>مبلغ</th><th>حساب</th><th>منبع</th><th>شرح</th><th>عملیات</th></tr></thead><tbody>{filteredLedger.map((row) => { const isIncome = row.direction === 'receipt' || row.flow_type === 'income'; const editable = !row.source_record_id; return <tr key={row.id}><td>{formatDate(row.payment_date, lang)}</td><td dir="ltr">{row.payment_number || '—'}</td><td className={isIncome ? 'receipt-text' : 'payment-text'}>{isIncome ? 'درآمد / دریافت' : 'هزینه / پرداخت'}</td><td>{row.parent_category_name_fa ? `${row.parent_category_name_fa} / ${row.category_name_fa}` : row.category_name_fa || 'بدون عنوان'}</td><td>{row.party_name || '—'}</td><td className={isIncome ? 'receipt-text' : 'payment-text'}>{formatMoney(row.amount, lang)}</td><td>{row.bank_account_name || row.cashbox_name || '—'}</td><td>{editable ? 'دستی' : moduleLabel(row.source_module, lang)}</td><td>{row.category_note || row.description || '—'}</td><td className="actions-cell income-expense-actions">{editable ? <><button className="mini-btn" onClick={() => onEditPayment?.(row)}>ویرایش</button><button className="mini-btn danger-btn" onClick={() => onVoidPayment?.(row)}>حذف</button></> : <span className="auto-source-badge">از بخش اصلی</span>}</td></tr>; })}</tbody><tfoot><tr><td colSpan={5}><b>{monthFilter === 'all' ? 'جمع کل اسناد نمایش‌داده‌شده' : `جمع ماه ${monthFilter}`}</b></td><td colSpan={5}><b>درآمد: {formatMoney(totals.income, lang)} · هزینه: {formatMoney(totals.expense, lang)} · خالص: {formatMoney(totals.income - totals.expense, lang)}</b></td></tr></tfoot></table></div>}</section>
   </div>;
 }
 

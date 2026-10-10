@@ -97,3 +97,58 @@ button:disabled { cursor: not-allowed; opacity: 0.65; }
 
 /* Money input with automatic thousands separators and Toman helper */
 .money-input{display:grid;gap:4px;width:100%;min-width:0}.money-input input{direction:ltr;text-align:left;font-variant-numeric:tabular-nums}.money-input-hint{display:block;color:#25694a!important;font-size:10.5px!important;line-height:1.5!important;font-weight:900;text-align:right;margin:0!important}.line-editor .money-input,.item-editor .money-input,.output-lines-editor .money-input{min-width:130px}.line-editor .money-input input,.item-editor .money-input input,.output-lines-editor .money-input input{min-width:120px}
+
+/* Universal 1..N row-number column for every data table in the automation.
+   Tables that already render their own row number opt out with .has-row-numbers. */
+table:not(.has-row-numbers):not(.no-row-numbers) > tbody {
+  counter-reset: automation-table-row;
+}
+table:not(.has-row-numbers):not(.no-row-numbers) > tbody > tr {
+  counter-increment: automation-table-row;
+}
+table:not(.has-row-numbers):not(.no-row-numbers) > thead > tr:first-child::before,
+table:not(.has-row-numbers):not(.no-row-numbers) > tbody > tr::before,
+table:not(.has-row-numbers):not(.no-row-numbers) > tfoot > tr:first-child::before {
+  display: table-cell;
+  width: 48px;
+  min-width: 48px;
+  max-width: 48px;
+  box-sizing: border-box;
+  padding: 10px 8px;
+  border-bottom: 1px solid #edf0f2;
+  text-align: center;
+  vertical-align: middle;
+  direction: ltr;
+  font-size: 12px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+table:not(.has-row-numbers):not(.no-row-numbers) > thead > tr:first-child::before {
+  content: "ردیف";
+  color: #5b6670;
+  background: #f8fafb;
+}
+table:not(.has-row-numbers):not(.no-row-numbers) > tbody > tr::before {
+  content: counter(automation-table-row);
+  color: #5b6670;
+  background: rgba(248, 250, 251, .72);
+}
+table:not(.has-row-numbers):not(.no-row-numbers) > tfoot > tr:first-child::before {
+  content: "";
+  background: #fffaf5;
+  border-top: 2px solid #f0dbc3;
+}
+.row-number-column {
+  width: 48px;
+  min-width: 48px;
+  max-width: 48px;
+  box-sizing: border-box;
+  text-align: center !important;
+  direction: ltr;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+[lang="en"] table:not(.has-row-numbers):not(.no-row-numbers) > thead > tr:first-child::before {
+  content: "No.";
+}
