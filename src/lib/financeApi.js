@@ -592,6 +592,20 @@ export async function updateFinancePayment(paymentId, { payment, allocations = [
 
 export async function voidFinancePayment(paymentId, reason = '') {
   const existing = await getEditableFinancePayment(paymentId, true);
+
+  // Payroll deletion must stay atomic: the payroll payment, cash/bank payment,
+  // journal entry and slip balance are voided/recalculated in one database RPC.
+  const payrollRes = await supabase
+    .from('v_finance_payroll_payments')
+    .select('id')
+    .eq('payment_id', paymentId)
+    .maybeSingle();
+  assertNoError(payrollRes, 'خطا در بررسی سند پرداخت حقوق');
+  if (payrollRes.data?.id) {
+    await voidFinancePayrollPayment(payrollRes.data.id, reason || 'ابطال از صندوق و گردش حساب');
+    return { id: paymentId, payment_number: existing.payment_number };
+  }
+
   const oldAllocationsRes = await supabase
     .from('finance_payment_allocations')
     .select('document_id')
@@ -1316,6 +1330,28 @@ export async function registerFinancePayrollPayment({ slipId, paidAmount, paidAt
     p_notes: notes || null,
   });
   assertNoError(res, 'خطا در ثبت سند پرداخت حقوق');
+  return res.data;
+}
+
+export async function updateFinancePayrollPayment({ id, paidAmount, paidAt, bankAccountId, cashboxId, notes }) {
+  const res = await supabase.rpc('fn_finance_update_payroll_payment', {
+    p_payroll_payment_id: id,
+    p_paid_amount: Number(paidAmount || 0),
+    p_paid_at: paidAt || new Date().toISOString().slice(0, 10),
+    p_bank_account_id: bankAccountId || null,
+    p_cashbox_id: cashboxId || null,
+    p_notes: notes || null,
+  });
+  assertNoError(res, 'خطا در ویرایش سند پرداخت حقوق');
+  return res.data;
+}
+
+export async function voidFinancePayrollPayment(id, reason) {
+  const res = await supabase.rpc('fn_finance_void_payroll_payment', {
+    p_payroll_payment_id: id,
+    p_reason: reason || null,
+  });
+  assertNoError(res, 'خطا در حذف/ابطال سند پرداخت حقوق');
   return res.data;
 }
 
