@@ -11,12 +11,39 @@ export async function getWarehouseExchangeRates() {
   return res.data;
 }
 
-export async function setWarehouseExchangeRates({ usdToman, cnyToman }) {
-  const res = await supabase.rpc('fn_set_warehouse_exchange_rates', {
-    p_usd_toman: Number(usdToman),
-    p_cny_toman: Number(cnyToman),
+export async function refreshWarehouseExchangeRates() {
+  const { data: sessionData } = await supabase.auth.getSession();
+  const token = sessionData?.session?.access_token;
+  if (!token) throw new Error('برای به‌روزرسانی نرخ ارز دوباره وارد سامانه شوید.');
+
+  const response = await fetch('/.netlify/functions/refresh-exchange-rates', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
   });
-  assertNoError(res, 'خطا در ثبت نرخ ارز');
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(body?.error || 'دریافت نرخ دلار و یوان با خطا روبه‌رو شد.');
+  return body;
+}
+
+export async function setWarehouseItemCurrencyPrice({ itemId, currency, baseCostPrice, baseSalePrice }) {
+  const res = await supabase.rpc('fn_set_warehouse_item_currency_price', {
+    p_item_id: itemId,
+    p_currency: currency,
+    p_base_cost: Number(baseCostPrice),
+    p_base_sale: Number(baseSalePrice),
+  });
+  assertNoError(res, 'خطا در ثبت قیمت ارزی کالا');
+  return res.data;
+}
+
+export async function convertAllWarehouseItemCurrency(targetCurrency) {
+  const res = await supabase.rpc('fn_convert_all_warehouse_item_currency', {
+    p_target_currency: targetCurrency,
+  });
+  assertNoError(res, 'خطا در تبدیل گروهی ارز مبنای کالاها');
   return res.data;
 }
 
@@ -31,8 +58,8 @@ export async function createWarehouseItem(payload) {
       unit: payload.unit || 'عدد',
       location: payload.location || null,
       min_stock_threshold: Number(payload.reorder_point ?? payload.min_stock_threshold ?? 0),
-      unit_price_estimate: Number(payload.unit_price_estimate || 0),
-      price_currency: payload.price_currency || 'IRR',
+      unit_price_estimate: 0,
+      price_currency: 'IRR',
       is_active: true,
     })
     .select('id')
@@ -53,18 +80,20 @@ export async function createWarehouseItem(payload) {
 }
 
 export async function updateWarehouseItem(itemId, payload) {
+  const patch = {
+    item_name_fa: payload.item_name_fa,
+    item_name_en: payload.item_name_en || null,
+    category: payload.item_group || payload.category || null,
+    unit: payload.unit || 'عدد',
+    location: payload.location || null,
+    min_stock_threshold: Number(payload.reorder_point ?? payload.min_stock_threshold ?? 0),
+  };
+  // Price columns are deliberately absent: only the audited pricing RPC may
+  // change canonical USD/CNY values or their current Rial caches.
+
   const res = await supabase
     .from('warehouse_items')
-    .update({
-      item_name_fa: payload.item_name_fa,
-      item_name_en: payload.item_name_en || null,
-      category: payload.item_group || payload.category || null,
-      unit: payload.unit || 'عدد',
-      location: payload.location || null,
-      min_stock_threshold: Number(payload.reorder_point ?? payload.min_stock_threshold ?? 0),
-      unit_price_estimate: Number(payload.unit_price_estimate || 0),
-      price_currency: payload.price_currency || 'IRR',
-    })
+    .update(patch)
     .eq('id', itemId)
     .select('id')
     .single();
@@ -210,7 +239,6 @@ export async function createWarehouseSnapshot({ fileName, rows, notes }) {
       location: String(r.location || '').trim() || null,
       quantity: Number(r.quantity || r.qty || 0),
       min_stock_threshold: Number(r.reorder_point || r.min_stock_threshold || 0),
-      unit_price_estimate: Number(r.unit_price_estimate || r.price || 0),
     }))
     .filter((r) => r.item_code && Number.isFinite(r.quantity));
 
@@ -223,8 +251,7 @@ export async function createWarehouseSnapshot({ fileName, rows, notes }) {
       unit: r.unit,
       location: r.location,
       min_stock_threshold: r.min_stock_threshold,
-      unit_price_estimate: r.unit_price_estimate,
-      price_currency: 'IRR',
+      // Currency prices are intentionally not overwritten by stock snapshots.
       is_active: true,
     }));
 

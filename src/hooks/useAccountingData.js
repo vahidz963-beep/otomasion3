@@ -169,7 +169,7 @@ export function useAccountingData() {
         .limit(120),
       supabase
         .from('v_app_inventory_catalog')
-        .select('item_id, item_code, item_name_fa, item_name_en, category, item_group, item_group_label, is_produced_item, unit, current_qty, available_for_sale_qty, unit_price_estimate, effective_sale_price, last_sale_unit_price')
+        .select('item_id, item_code, item_name_fa, item_name_en, category, item_group, item_group_label, is_produced_item, unit, current_qty, available_for_sale_qty, unit_price_estimate, effective_sale_price, last_sale_unit_price, price_currency, base_cost_price, base_sale_price, unit_sale_price_estimate, usd_toman, cny_toman')
         .order('item_name_fa', { ascending: true })
         .limit(1000),
     ]);
@@ -446,7 +446,7 @@ export function useFinanceDocumentBundle(documentId) {
         .maybeSingle(),
       supabase
         .from('finance_document_items')
-        .select('id, document_id, line_no, item_type, description_fa, description_en, quantity, unit, unit_price, discount_amount, tax_rate, tax_amount, line_total, warehouse_item_id, order_item_id, expense_category_id, cost_center_id')
+        .select('id, document_id, line_no, item_type, description_fa, description_en, quantity, unit, unit_price, discount_amount, tax_rate, tax_amount, line_total, warehouse_item_id, order_item_id, expense_category_id, cost_center_id, price_currency_snapshot, base_cost_price_snapshot, base_sale_price_snapshot, exchange_rate_rial_snapshot, catalog_cost_rial_snapshot, catalog_sale_rial_snapshot, price_snapshot_at')
         .eq('document_id', documentId)
         .order('line_no', { ascending: true }),
       supabase

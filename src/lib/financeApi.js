@@ -384,6 +384,13 @@ function normalizeDocumentItems(documentId, items = []) {
       order_item_id: item.order_item_id || null,
       expense_category_id: item.expense_category_id || null,
       cost_center_id: item.cost_center_id || null,
+      price_currency_snapshot: item.price_currency_snapshot || null,
+      base_cost_price_snapshot: item.base_cost_price_snapshot ?? null,
+      base_sale_price_snapshot: item.base_sale_price_snapshot ?? null,
+      exchange_rate_rial_snapshot: item.exchange_rate_rial_snapshot ?? null,
+      catalog_cost_rial_snapshot: item.catalog_cost_rial_snapshot ?? null,
+      catalog_sale_rial_snapshot: item.catalog_sale_rial_snapshot ?? null,
+      price_snapshot_at: item.price_snapshot_at || null,
     }));
 }
 

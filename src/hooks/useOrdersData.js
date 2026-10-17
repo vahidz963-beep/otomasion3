@@ -151,7 +151,7 @@ export function useOrdersData() {
           .limit(100),
         supabase
           .from('v_app_inventory_catalog')
-          .select('item_id, item_code, item_name_fa, item_name_en, unit, category, item_group, item_group_label, is_produced_item, current_qty, min_stock_threshold, reserved_qty, available_for_sale_qty, is_low_stock, last_synced_at, unit_price_estimate, effective_sale_price')
+          .select('item_id, item_code, item_name_fa, item_name_en, unit, category, item_group, item_group_label, is_produced_item, current_qty, min_stock_threshold, reserved_qty, available_for_sale_qty, is_low_stock, last_synced_at, unit_price_estimate, effective_sale_price, price_currency, base_cost_price, base_sale_price, unit_sale_price_estimate, usd_toman, cny_toman')
           .order('item_name_fa', { ascending: true })
           .limit(1000),
         supabase

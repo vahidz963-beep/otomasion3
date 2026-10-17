@@ -29,10 +29,15 @@ export function useWarehouseData() {
   const fetchData = useCallback(async () => {
     setState((s) => ({ ...s, loading: true, error: null }));
 
-    const [stockRes, docsRes, snapshotsRes, matchedRes, unmatchedRes, inactiveRes, referralsRes, shipmentsRes, categoriesRes] = await Promise.all([
+    const [stockRes, pricingRes, docsRes, snapshotsRes, matchedRes, unmatchedRes, inactiveRes, referralsRes, shipmentsRes, categoriesRes] = await Promise.all([
       supabase
         .from('v_warehouse_current_stock')
         .select('item_id, item_code, item_name_fa, item_name_en, item_group, category, unit, location, reorder_point, min_stock_threshold, unit_price_estimate, price_currency, current_qty, total_in, total_out, last_movement_at, last_synced_at, is_low_stock, stock_value_estimate')
+        .order('item_code', { ascending: true }),
+      supabase
+        .from('v_warehouse_currency_prices')
+        .select('item_id, price_currency, base_cost_price, base_sale_price, current_cost_rial, current_sale_rial, cost_usd, cost_cny, sale_usd, sale_cny, margin_pct, pricing_margin_pct, is_produced_item, bom_cost_rial, pricing_mode, pricing_updated_at, usd_rial, cny_rial, usd_toman, cny_toman, has_currency_price')
+        .eq('is_active', true)
         .order('item_code', { ascending: true }),
       supabase
         .from('v_warehouse_documents_summary')
@@ -100,11 +105,13 @@ export function useWarehouseData() {
     }, {});
 
     const firstDraftWithLines = draftDocuments.find((d) => (draftLinesByDocument[d.id] || []).length > 0) || draftDocuments[0] || null;
+    const pricingByItem = new Map((pricingRes.data || []).map((row) => [row.item_id, row]));
+    const mergedStock = (stockRes.data || []).map((item) => ({ ...item, ...(pricingByItem.get(item.item_id) || {}) }));
 
     setState({
       loading: false,
-      error: firstError([stockRes, docsRes, snapshotsRes, matchedRes, unmatchedRes, inactiveRes, referralsRes, { error: draftLinesError }]),
-      stock: stockRes.data || [],
+      error: firstError([stockRes, pricingRes, docsRes, snapshotsRes, matchedRes, unmatchedRes, inactiveRes, referralsRes, { error: draftLinesError }]),
+      stock: mergedStock,
       documents: docsRes.data || [],
       draftDocument: firstDraftWithLines,
       draftDocuments,
@@ -131,6 +138,7 @@ export function useWarehouseData() {
     const channel = supabase
       .channel('warehouse-live-sync')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'warehouse_items' }, scheduleRefetch)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'warehouse_exchange_rates' }, scheduleRefetch)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'warehouse_transactions' }, scheduleRefetch)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'warehouse_documents' }, scheduleRefetch)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'warehouse_document_lines' }, scheduleRefetch)

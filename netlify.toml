@@ -10,3 +10,7 @@
 
 [build.environment]
   SECRETS_SCAN_OMIT_KEYS = "SUPABASE_URL,VITE_SUPABASE_URL,VITE_SUPABASE_ANON_KEY"
+
+# Every day at 04:30 UTC (08:00 Asia/Tehran), fetch USD and CNY market rates.
+[functions."scheduled-exchange-rates"]
+  schedule = "30 4 * * *"

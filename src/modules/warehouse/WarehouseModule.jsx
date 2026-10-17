@@ -28,7 +28,9 @@ import {
   updateWarehouseShipment,
   archiveWarehouseShipment,
   getWarehouseExchangeRates,
-  setWarehouseExchangeRates,
+  refreshWarehouseExchangeRates,
+  setWarehouseItemCurrencyPrice,
+  convertAllWarehouseItemCurrency,
   deactivateWarehouseItem,
   downloadCsv,
   downloadExcelHtml,
@@ -48,6 +50,7 @@ import { createWarehouseCategory, updateWarehouseCategory, archiveWarehouseCateg
 import { ItemKardexSection as AccountingItemKardexSection } from '../accounting/AccountingModule';
 import './WarehouseModule.css';
 import { getFriendlyErrorMessage, getTechnicalErrorMessage } from '../../lib/errorMessages';
+import { supabase } from '../../lib/supabaseClient';
 
 const REASONS = {
   manual_in: 'ورود دستی', manual_out: 'خروج دستی', production_start: 'شروع تولید', production_output: 'خروجی تولید', order_delivery: 'تحویل سفارش', count_correction: 'اصلاح شمارش', opening_balance: 'موجودی اول دوره', other: 'سایر'
@@ -76,11 +79,33 @@ export default function WarehouseModule() {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
   const [report, setReport] = useState('low');
-  const [exchangeRates, setExchangeRates] = useState({ usd_toman: 180000, cny_toman: 26000 });
+  const [exchangeRates, setExchangeRates] = useState({ usd_toman: 0, cny_toman: 0, usd_rial: 0, cny_rial: 0 });
 
   const data = useWarehouseData();
+  async function loadExchangeRates() {
+    const row = await getWarehouseExchangeRates();
+    if (row) setExchangeRates(row);
+    return row;
+  }
   useEffect(() => {
-    getWarehouseExchangeRates().then((row) => row && setExchangeRates(row)).catch(() => {});
+    let mounted = true;
+    const refreshRates = async () => {
+      try {
+        const row = await getWarehouseExchangeRates();
+        if (mounted && row) setExchangeRates(row);
+      } catch {
+        // The main warehouse error surface remains responsible for data errors.
+      }
+    };
+    refreshRates();
+    const channel = supabase
+      .channel('warehouse-rate-cards-live')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'warehouse_exchange_rates' }, refreshRates)
+      .subscribe();
+    return () => {
+      mounted = false;
+      supabase.removeChannel(channel);
+    };
   }, []);
   const kardex = useWarehouseKardex(selectedItemId);
   const documentLines = useWarehouseDocumentLines(selectedDocumentId);
@@ -115,8 +140,10 @@ export default function WarehouseModule() {
       await data.refetch();
       await kardex.refetch?.();
       await documentLines.refetch?.();
+      return true;
     } catch (e) {
       setNotice(getFriendlyErrorMessage(e, 'خطا در عملیات انبار'));
+      return false;
     } finally {
       setBusy(false);
     }
@@ -129,8 +156,8 @@ export default function WarehouseModule() {
   }
 
   function exportStock(kind = 'csv') {
-    const headers = ['کد', 'نام', 'گروه', 'واحد', 'مکان', 'قیمت مرجع', 'جمع ورود', 'جمع خروج', 'موجودی', 'نقطه سفارش', 'ارزش', 'وضعیت'];
-    const rows = filteredStock.map((i) => [i.item_code, i.item_name_fa, i.item_group || i.category, i.unit, i.location, i.unit_price_estimate, i.total_in, i.total_out, i.current_qty, i.reorder_point || i.min_stock_threshold, i.stock_value_estimate, i.is_low_stock ? 'کم موجود' : 'موجود']);
+    const headers = ['کد', 'نام', 'گروه', 'واحد', 'مکان', 'ارز مبنا', 'بهای پایه', 'فروش پایه', 'بهای روز ریال', 'فروش روز ریال', 'جمع ورود', 'جمع خروج', 'موجودی', 'نقطه سفارش', 'ارزش موجودی', 'وضعیت'];
+    const rows = filteredStock.map((i) => [i.item_code, i.item_name_fa, i.item_group || i.category, i.unit, i.location, i.has_currency_price ? i.price_currency : 'ثبت‌نشده', i.base_cost_price ?? '', i.base_sale_price ?? '', i.current_cost_rial ?? i.unit_price_estimate, i.current_sale_rial ?? i.unit_sale_price_estimate, i.total_in, i.total_out, i.current_qty, i.reorder_point || i.min_stock_threshold, i.stock_value_estimate, i.is_low_stock ? 'کم موجود' : 'موجود']);
     if (kind === 'excel') downloadExcelHtml('warehouse-stock.xls', headers, rows, 'گزارش موجودی انبار');
     else downloadCsv('warehouse-stock.csv', [headers, ...rows]);
   }
@@ -164,8 +191,8 @@ export default function WarehouseModule() {
       rows = data.documents.map((d) => [d.doc_number || 'موقت', warehouseDocumentLabel(d), STATUS_LABEL[d.status] || d.status, d.customer_name || '—', d.note || '—', formatDate(d.created_at), d.line_count, d.total_quantity]);
     } else {
       title = 'گزارش ارزش موجودی';
-      headers = ['کد', 'کالا', 'موجودی', 'قیمت مرجع', 'ارزش'];
-      rows = data.stock.map((i) => [i.item_code, i.item_name_fa, i.current_qty, i.unit_price_estimate, i.stock_value_estimate]);
+      headers = ['کد', 'کالا', 'موجودی', 'ارز مبنا', 'بهای پایه', 'فروش پایه', 'بهای روز ریال', 'فروش روز ریال', 'ارزش موجودی'];
+      rows = data.stock.map((i) => [i.item_code, i.item_name_fa, i.current_qty, i.has_currency_price ? i.price_currency : 'ثبت‌نشده', i.base_cost_price ?? '', i.base_sale_price ?? '', i.current_cost_rial ?? i.unit_price_estimate, i.current_sale_rial ?? i.unit_sale_price_estimate, i.stock_value_estimate]);
     }
     const tableRows = rows.map((r) => `<tr>${r.map((c) => `<td>${safe(c)}</td>`).join('')}</tr>`).join('');
     const html = `<h1>${title}</h1><table><thead><tr>${headers.map((h) => `<th>${safe(h)}</th>`).join('')}</tr></thead><tbody>${tableRows}</tbody></table>`;
@@ -223,10 +250,10 @@ export default function WarehouseModule() {
     {!data.loading && tab === 'stock' && <StockSection groups={(data.categories || []).map((c) => c.name_fa)} stock={filteredStock} query={query} setQuery={setQuery} groupFilter={groupFilter} setGroupFilter={setGroupFilter} statusFilter={statusFilter} setStatusFilter={setStatusFilter} selectedItemId={selectedItemId} kardexRows={kardex.rows} busy={busy} onIn={(item)=>setModal({type:'movement',item,direction:'in'})} onOut={(item)=>setModal({type:'movement',item,direction:'out'})} onOpenKardex={(item)=>{setSelectedItemId(item.item_id);setTab('kardex')}} onEdit={(item)=>setModal({type:'item',item})} onStocktake={openStocktake} onDeactivate={(item)=>runAction(()=>deactivateWarehouseItem(item.item_id),'کالا غیرفعال شد.')} exportStock={exportStock} printStock={printStock}/>} 
     {!data.loading && tab === 'docs' && <DocumentsSection docs={data.documents} draftDocuments={draftDocuments} draftLinesByDocument={data.draftLinesByDocument || {}} selectedDocument={selectedDocument} lines={selectedDocument && data.draftLinesByDocument?.[selectedDocument.id] ? data.draftLinesByDocument[selectedDocument.id] : documentLines.rows} busy={busy} onSelect={setSelectedDocumentId} onFinalize={(id)=>runAction(()=>finalizeWarehouseDocument(id),'سند ثبت نهایی شد.')} onRequestCancel={(doc)=>setModal({ type: 'confirmDocumentDelete', doc })} onUpdateMeta={(id, meta)=>runAction(()=>updateWarehouseDocumentMeta(id, meta),'اطلاعات سند ذخیره شد.')} onEditLine={(line)=>setModal({ type: 'lineEdit', line })} onRemoveLine={(id)=>runAction(()=>removeWarehouseDocumentLine(id),'ردیف سند حذف/اصلاح شد.')} onPrint={printDocument} setTab={setTab} />}
     {!data.loading && tab === 'kardex' && <KardexSection stock={data.stock} selectedItemId={selectedItemId} setSelectedItemId={setSelectedItemId} rows={kardex.rows} />}
-    {!data.loading && tab === 'sync' && <SyncSection snapshots={data.snapshots} matched={data.matched} unmatched={data.unmatched} inactiveItems={data.inactiveItems} onImport={()=>setModal({type:'import'})} onRestore={(item)=>runAction(()=>reactivateWarehouseItem(item.id),'کالا دوباره فعال شد.')} />}
+    {!data.loading && tab === 'sync' && <SyncSection snapshots={data.snapshots} matched={data.matched} unmatched={data.unmatched} inactiveItems={data.inactiveItems} stock={data.stock || []} exchangeRates={exchangeRates} busy={busy} onImport={()=>setModal({type:'import'})} onRestore={(item)=>runAction(()=>reactivateWarehouseItem(item.id),'کالا دوباره فعال شد.')} onRefreshRates={() => runAction(async () => { await refreshWarehouseExchangeRates(); await loadExchangeRates(); }, 'نرخ روز دلار و یوان دریافت شد و قیمت‌های جاری اتوماسیون به‌روزرسانی شدند.')} onSaveCurrencyPrice={(payload) => runAction(() => setWarehouseItemCurrencyPrice(payload), 'قیمت ارزی کالا ذخیره و معادل تومانی آن به‌روزرسانی شد.')} onConvertAllCurrency={(currency) => runAction(() => convertAllWarehouseItemCurrency(currency), `ارز مبنای کالاهای قیمت‌گذاری‌شده با حفظ ارزش تومانی به ${currency === 'USD' ? 'دلار' : 'یوان'} تبدیل شد.`)} />}
     {!data.loading && tab === 'shipments' && <ShipmentsSection shipments={data.shipments || []} onNew={() => setModal({ type: 'shipment' })} onEdit={(shipment) => setModal({ type: 'shipment', shipment })} onArchive={(shipment) => { if (window.confirm('این ارسال از لیست حذف شود؟ سند و کاردکس حذف نمی‌شوند.')) runAction(() => archiveWarehouseShipment(shipment.id), 'ارسال بایگانی شد.'); }} />}
     {!data.loading && tab === 'refs' && <div className="warehouse-grid"><ReferralPanel sourceModule="warehouse" title="ارجاع و اسناد انبار" defaultTarget="accounting" /></div>}
-    {!data.loading && tab === 'reports' && <ReportsSection report={report} setReport={setReport} stock={data.stock} categories={data.categories || []} docs={data.documents} onExport={exportWarehouseReport} exchangeRates={exchangeRates} onSaveRates={(next) => runAction(async () => { const saved = await setWarehouseExchangeRates(next); setExchangeRates(saved || next); }, 'نرخ ارز ذخیره شد و ارزش انبار به‌روزرسانی شد.')} />}
+    {!data.loading && tab === 'reports' && <ReportsSection report={report} setReport={setReport} stock={data.stock} categories={data.categories || []} docs={data.documents} onExport={exportWarehouseReport} />}
     {!data.loading && tab === 'settings' && <SettingsSection categories={data.categories || []} stock={data.stock || []} busy={busy} onCreate={(p) => runAction(() => createWarehouseCategory(p), 'دسته‌بندی ثبت شد.')} onUpdate={(id, p) => runAction(() => updateWarehouseCategory(id, p), 'دسته‌بندی ویرایش شد.')} onArchive={(id) => runAction(() => archiveWarehouseCategory(id), 'دسته‌بندی بایگانی شد.')} />}
   </div>;
 }
@@ -331,34 +358,189 @@ function DocumentLines({ title, rows, busy, onEditLine, onRemove, readOnly = fal
   return <div className="doc-lines">{title && <h3>{title}</h3>}<div className="warehouse-table-wrap"><table className="has-row-numbers"><thead><tr><th>ردیف</th><th>کد</th><th>کالا</th><th>تعداد</th><th>دلیل</th><th>یادداشت</th>{!readOnly && <th>عملیات</th>}</tr></thead><tbody>{rows.map((line, index) => <tr key={line.id}><td>{index + 1}</td><td dir="ltr">{line.warehouse_items?.item_code || '—'}</td><td>{line.warehouse_items?.item_name_fa || '—'}</td><td>{formatNumber(line.quantity)} {line.warehouse_items?.unit || ''}</td><td>{REASONS[line.reason] || line.reason}</td><td>{line.note || '—'}</td>{!readOnly && <td><button disabled={busy} onClick={() => onEditLine(line)}>ویرایش</button><button disabled={busy} onClick={() => onRemove(line.id)}>حذف</button></td>}</tr>)}</tbody></table></div></div>;
 }
 
-function SyncSection({snapshots,matched,unmatched,inactiveItems,onImport,onRestore}){
-  const [open,setOpen]=useState('matched');
-  return <div className="warehouse-grid sync-grid"><section className="warehouse-card"><CardTitle icon={Upload} title="همگام‌سازی با انبارا" action={<button onClick={onImport}>ورود از اکسل</button>}/>{snapshots.length?<div className="warehouse-table-wrap"><table><thead><tr><th>فایل</th><th>تاریخ</th><th>ردیف</th><th>یادداشت</th></tr></thead><tbody>{snapshots.map(s=><tr key={s.id}><td>{s.file_name}</td><td>{formatDate(s.imported_at)}</td><td>{s.row_count}</td><td>{s.notes||'—'}</td></tr>)}</tbody></table></div>:<Empty/>}</section><section className="warehouse-card sync-status-card"><CardTitle icon={AlertTriangle} title="بررسی وضعیت همگام‌سازی"/><div className="sync-status-buttons"><button className={open==='matched'?'active':''} onClick={()=>setOpen(open==='matched'?'': 'matched')}>کالاهای هماهنگ‌شده <b>{matched.length}</b></button><button className={open==='unmatched'?'active':''} onClick={()=>setOpen(open==='unmatched'?'': 'unmatched')}>کالاهای مچ‌نشده <b>{unmatched.length}</b></button><button className={open==='inactive'?'active':''} onClick={()=>setOpen(open==='inactive'?'': 'inactive')}>غیرفعال/حذف‌شده <b>{inactiveItems.length}</b></button></div>{open==='matched'&&<SimpleSyncTable rows={matched} empty="کالای هماهنگ‌شده‌ای در آخرین فایل‌ها نیست."/>}{open==='unmatched'&&<SimpleSyncTable rows={unmatched} empty="کالای مچ‌نشده نداریم."/>}{open==='inactive'&&<InactiveItems rows={inactiveItems} onRestore={onRestore}/>}</section></div>
+function SyncSection({ snapshots, matched, unmatched, inactiveItems, stock = [], exchangeRates = {}, busy, onImport, onRestore, onRefreshRates, onSaveCurrencyPrice, onConvertAllCurrency }) {
+  const [open, setOpen] = useState('matched');
+  return <>
+    <div className="warehouse-grid sync-grid">
+      <section className="warehouse-card"><CardTitle icon={Upload} title="همگام‌سازی با انبارا" action={<button onClick={onImport}>ورود از اکسل</button>}/>{snapshots.length?<div className="warehouse-table-wrap"><table><thead><tr><th>فایل</th><th>تاریخ</th><th>ردیف</th><th>یادداشت</th></tr></thead><tbody>{snapshots.map(s=><tr key={s.id}><td>{s.file_name}</td><td>{formatDate(s.imported_at)}</td><td>{s.row_count}</td><td>{s.notes||'—'}</td></tr>)}</tbody></table></div>:<Empty/>}</section>
+      <section className="warehouse-card sync-status-card"><CardTitle icon={AlertTriangle} title="بررسی وضعیت همگام‌سازی"/><div className="sync-status-buttons"><button className={open==='matched'?'active':''} onClick={()=>setOpen(open==='matched'?'': 'matched')}>کالاهای هماهنگ‌شده <b>{matched.length}</b></button><button className={open==='unmatched'?'active':''} onClick={()=>setOpen(open==='unmatched'?'': 'unmatched')}>کالاهای مچ‌نشده <b>{unmatched.length}</b></button><button className={open==='inactive'?'active':''} onClick={()=>setOpen(open==='inactive'?'': 'inactive')}>غیرفعال/حذف‌شده <b>{inactiveItems.length}</b></button></div>{open==='matched'&&<SimpleSyncTable rows={matched} empty="کالای هماهنگ‌شده‌ای در آخرین فایل‌ها نیست."/>}{open==='unmatched'&&<SimpleSyncTable rows={unmatched} empty="کالای مچ‌نشده نداریم."/>}{open==='inactive'&&<InactiveItems rows={inactiveItems} onRestore={onRestore}/>}</section>
+    </div>
+    <CurrencyPricingSection stock={stock} rates={exchangeRates} busy={busy} onRefreshRates={onRefreshRates} onSave={onSaveCurrencyPrice} onConvertAll={onConvertAllCurrency} />
+  </>;
 }
+
 function SimpleSyncTable({rows,empty}){return rows.length?<div className="warehouse-table-wrap sync-detail-table"><table><thead><tr><th>کد</th><th>تعداد</th><th>واحد</th></tr></thead><tbody>{rows.map(u=><tr key={u.id}><td dir="ltr">{u.item_code}</td><td>{u.quantity}</td><td>{u.unit}</td></tr>)}</tbody></table></div>:<Empty text={empty}/>}
 function InactiveItems({rows,onRestore}){return rows.length?<div className="warehouse-table-wrap sync-detail-table"><table><thead><tr><th>کد</th><th>کالا</th><th>گروه</th><th>واحد</th><th>مکان</th><th>عملیات</th></tr></thead><tbody>{rows.map(i=><tr key={i.id}><td dir="ltr">{i.item_code}</td><td>{i.item_name_fa}</td><td>{i.category||'—'}</td><td>{i.unit}</td><td>{i.location||'—'}</td><td><button onClick={()=>onRestore(i)}>بازگردانی</button></td></tr>)}</tbody></table></div>:<Empty text="کالای غیرفعال/حذف‌شده‌ای ثبت نشده است."/>}
 
-function ReportsSection({report,setReport,stock,categories=[],docs,onExport,exchangeRates,onSaveRates}){
+function rateFreshnessLabel(value) {
+  if (!value) return 'هنوز دریافت نشده';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return formatDate(value);
+  return new Intl.DateTimeFormat('fa-IR', {
+    timeZone: 'Asia/Tehran', year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  }).format(date);
+}
+function rateStateLabel(status, sourceCount) {
+  if (status === 'updated_single_source') return `به‌روز با یک منبع`;
+  if (status === 'updated') return `به‌روز با ${formatNumber(sourceCount || 0)} منبع`;
+  if (status === 'no_data') return 'منابع پاسخ ندادند؛ نرخ قبلی حفظ شد';
+  if (status === 'manual') return 'نرخ اولیه / دستی';
+  return status || 'نامشخص';
+}
+function fxNumber(value, max = 4) {
+  if (value === null || value === undefined || value === '') return '—';
+  return new Intl.NumberFormat('fa-IR', { maximumFractionDigits: max }).format(Number(value || 0));
+}
+function currencyTitle(currency) { return currency === 'CNY' ? 'یوان' : 'دلار'; }
+function currencySymbol(currency) { return currency === 'CNY' ? '¥' : '$'; }
+
+function ExchangeRateCard({ currency, rate, status, sourceCount, fetchedAt, sources = [] }) {
+  const sourceRows = Array.isArray(sources) ? sources : [];
+  const sourceNames = { tgju: 'TGJU', alanchand: 'الان‌چند', 'priceto.day': 'PriceToDay' };
+  return <article className={`exchange-rate-card ${currency.toLowerCase()} ${status === 'no_data' ? 'stale' : status === 'manual' ? 'manual' : ''}`}>
+    <div className="exchange-rate-symbol">{currencySymbol(currency)}</div>
+    <span>نرخ روز {currencyTitle(currency)}</span>
+    <strong>{Number(rate || 0) > 0 ? fxNumber(rate, 0) : '—'} <small>تومان</small></strong>
+    <div className="exchange-rate-meta"><b>{rateStateLabel(status, sourceCount)}</b><small>آخرین نرخ معتبر: {rateFreshnessLabel(fetchedAt)}</small></div>
+    <div className="rate-source-status" aria-label="وضعیت منابع نرخ">
+      {sourceRows.length ? sourceRows.map((source) => <span key={source.source} className={source.ok ? 'ok' : 'error'} title={source.ok ? `${fxNumber(Number(source.rial || 0) / 10, 0)} تومان` : (source.error || 'خطای منبع')}><i />{sourceNames[source.source] || source.source}</span>) : <small>وضعیت سه منبع پس از اولین دریافت نمایش داده می‌شود.</small>}
+    </div>
+  </article>;
+}
+
+function displayedPrice(item, kind, displayMode) {
+  const baseKey = kind === 'cost' ? 'base_cost_price' : 'base_sale_price';
+  const rialKey = kind === 'cost' ? 'current_cost_rial' : 'current_sale_rial';
+  const usdKey = kind === 'cost' ? 'cost_usd' : 'sale_usd';
+  const cnyKey = kind === 'cost' ? 'cost_cny' : 'sale_cny';
+  if (displayMode === 'USD') return item[usdKey] == null ? '—' : `${currencySymbol('USD')}${fxNumber(item[usdKey])}`;
+  if (displayMode === 'CNY') return item[cnyKey] == null ? '—' : `${currencySymbol('CNY')}${fxNumber(item[cnyKey])}`;
+  if (displayMode === 'BASE') return ['USD','CNY'].includes(item.price_currency) && item[baseKey] != null ? `${currencySymbol(item.price_currency)}${fxNumber(item[baseKey])}` : 'ثبت نشده';
+  return formatMoney(Number(item[rialKey] ?? item.unit_price_estimate ?? 0));
+}
+
+function CurrencyPricingSection({ stock = [], rates = {}, busy, onRefreshRates, onSave, onConvertAll }) {
+  const [query, setQuery] = useState('');
+  const [pricingFilter, setPricingFilter] = useState('all');
+  const [displayMode, setDisplayMode] = useState('TOMAN');
+  const [editing, setEditing] = useState(null);
+  const [conversion, setConversion] = useState(null);
+  const filtered = useMemo(() => stock.filter((item) => {
+    const text = `${item.item_code || ''} ${item.item_name_fa || ''} ${item.item_group || item.category || ''}`.toLowerCase();
+    const matchesText = !query || text.includes(query.toLowerCase());
+    const hasPrice = Boolean(item.has_currency_price);
+    const matchesFilter = pricingFilter === 'all' || (pricingFilter === 'priced' && hasPrice) || (pricingFilter === 'missing' && !hasPrice) || item.price_currency === pricingFilter;
+    return matchesText && matchesFilter;
+  }), [stock, query, pricingFilter]);
+  const pricedCount = stock.filter((item) => item.has_currency_price).length;
+  const missingCount = stock.length - pricedCount;
+
+  function convertAll(currency) {
+    const eligible = stock.filter((item) => item.has_currency_price && item.price_currency !== currency).length;
+    if (!eligible) return;
+    setConversion({ currency, eligible });
+  }
+
+  return <section className="warehouse-card currency-pricing-card">
+    {editing && <CurrencyPriceModal item={editing} rates={rates} busy={busy} onClose={() => setEditing(null)} onSubmit={async (payload) => { const saved = await onSave?.(payload); if (saved !== false) setEditing(null); }} />}
+    {conversion && <ConfirmModal title="تبدیل گروهی ارز مبنا" message={`ارز مبنای ${formatNumber(conversion.eligible)} کالا به ${currencyTitle(conversion.currency)} تبدیل شود؟ ارزش تومانی فعلی دقیقاً حفظ و فقط ارز و مبلغ پایه با نرخ امروز تبدیل می‌شود.`} confirmText={`تبدیل به ${currencyTitle(conversion.currency)}`} busy={busy} onClose={() => setConversion(null)} onConfirm={async () => { const saved = await onConvertAll?.(conversion.currency); if (saved !== false) setConversion(null); }} />}
+    <div className="currency-pricing-head">
+      <div><div className="eyebrow">Daily FX Pricing</div><h2>قیمت‌گذاری دلاری و یوانی کالاها</h2><p>قیمت پایه را یک‌بار ثبت کنید؛ معادل تومانی انبار، فروش، حسابداری، تولید و R&amp;D با نرخ روز محاسبه می‌شود. قیمت اسناد ثبت‌شده ثابت می‌ماند.</p></div>
+      <button className="refresh-rates-btn" disabled={busy} onClick={onRefreshRates}><RefreshCw size={17}/>{busy ? 'در حال دریافت...' : 'به‌روزرسانی نرخ‌ها الآن'}</button>
+    </div>
+    <div className="exchange-rate-cards">
+      <ExchangeRateCard currency="USD" rate={rates.usd_toman} status={rates.usd_status} sourceCount={rates.usd_source_count} fetchedAt={rates.usd_fetched_at} sources={rates.usd_sources} />
+      <ExchangeRateCard currency="CNY" rate={rates.cny_toman} status={rates.cny_status} sourceCount={rates.cny_source_count} fetchedAt={rates.cny_fetched_at} sources={rates.cny_sources} />
+    </div>
+    <div className="currency-pricing-summary"><span><b>{formatNumber(pricedCount)}</b> کالای قیمت‌گذاری‌شده</span><span className={missingCount ? 'warning' : ''}><b>{formatNumber(missingCount)}</b> کالای بدون قیمت ارزی</span><small>آخرین بررسی: {rateFreshnessLabel(rates.last_checked_at)} · بررسی خودکار روزانه؛ حتی یک منبع معتبر کافی است.</small></div>
+    <div className="currency-pricing-toolbar">
+      <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="جست‌وجوی کد، نام یا گروه کالا..." />
+      <select value={pricingFilter} onChange={(event) => setPricingFilter(event.target.value)}><option value="all">همه کالاها</option><option value="priced">قیمت‌گذاری‌شده</option><option value="missing">فاقد قیمت ارزی</option><option value="USD">مبنای دلار</option><option value="CNY">مبنای یوان</option></select>
+      <div className="currency-display-switch"><span>نمایش:</span>{[['TOMAN','تومان'],['USD','دلار'],['CNY','یوان'],['BASE','ارز مبنا']].map(([value,label])=><button key={value} className={displayMode===value?'active':''} onClick={()=>setDisplayMode(value)}>{label}</button>)}</div>
+      <div className="currency-bulk-actions"><button disabled={busy} onClick={()=>convertAll('USD')}>همه به دلار</button><button disabled={busy} onClick={()=>convertAll('CNY')}>همه به یوان</button></div>
+    </div>
+    <div className="warehouse-table-wrap currency-price-table-wrap"><table className="currency-price-table"><thead><tr><th>ردیف</th><th>کد و کالا</th><th>گروه</th><th>ارز مبنا</th><th>بهای خرید</th><th>قیمت فروش</th><th>سود</th><th>قیمت نمایشی خرید</th><th>قیمت نمایشی فروش</th><th>آخرین تغییر</th><th>عملیات</th></tr></thead><tbody>{filtered.map((item,index)=><tr key={item.item_id} className={!item.has_currency_price?'missing-price-row':''}><td>{formatNumber(index+1)}</td><td><b dir="ltr">{item.item_code}</b><small>{item.item_name_fa}</small></td><td>{item.item_group||item.category||'—'}{item.is_produced_item&&<small className="pricing-mode-badge">BOM + سود</small>}</td><td>{item.has_currency_price?<span className={`currency-badge ${String(item.price_currency).toLowerCase()}`}>{currencySymbol(item.price_currency)} {currencyTitle(item.price_currency)}</span>:<span className="currency-badge missing">ثبت نشده</span>}</td><td>{item.has_currency_price?`${currencySymbol(item.price_currency)}${fxNumber(item.base_cost_price)}`:'—'}</td><td>{item.has_currency_price?`${currencySymbol(item.price_currency)}${fxNumber(item.base_sale_price)}`:'—'}</td><td className={Number(item.margin_pct||0)<0?'negative':'positive'}>{item.has_currency_price?`${fxNumber(item.margin_pct,2)}٪`:'—'}</td><td>{displayedPrice(item,'cost',displayMode)}</td><td><b>{displayedPrice(item,'sale',displayMode)}</b></td><td>{item.pricing_updated_at?formatDate(item.pricing_updated_at):'—'}</td><td><button className="currency-edit-btn" disabled={busy} onClick={()=>setEditing(item)}>{item.has_currency_price?'ویرایش قیمت':'ثبت قیمت'}</button></td></tr>)}</tbody></table></div>
+    {filtered.length===0&&<Empty text="کالایی مطابق فیلتر قیمت‌گذاری پیدا نشد."/>}
+  </section>;
+}
+
+function roundPricingRial(value) {
+  return Math.round(Number(value || 0) / 10000) * 10000;
+}
+
+function CurrencyPriceModal({ item, rates = {}, busy, onClose, onSubmit }) {
+  const isProduced = Boolean(item?.is_produced_item || item?.pricing_mode === 'bom_plus_profit' || item?.item_group === 'Finished' || item?.category === 'Finished');
+  const initialCurrency = ['USD','CNY'].includes(item?.price_currency) ? item.price_currency : 'USD';
+  const inferredMargin = Number(item?.base_cost_price || 0) > 0
+    ? (Number(item?.base_sale_price || 0) / Number(item.base_cost_price) - 1) * 100
+    : 25;
+  const [currency, setCurrency] = useState(initialCurrency);
+  const [baseCost, setBaseCost] = useState(item?.has_currency_price ? item.base_cost_price : '');
+  const [baseSale, setBaseSale] = useState(item?.has_currency_price ? item.base_sale_price : '');
+  const [profitMargin, setProfitMargin] = useState(item?.pricing_margin_pct != null ? item.pricing_margin_pct : inferredMargin);
+  const rateRial = currency === 'USD'
+    ? Number(rates.usd_rial || Number(rates.usd_toman || 0) * 10)
+    : Number(rates.cny_rial || Number(rates.cny_toman || 0) * 10);
+  const bomCostRial = Number(item?.bom_cost_rial || 0);
+  const roundedBomCostRial = roundPricingRial(bomCostRial);
+  const producedBaseCost = rateRial > 0 ? roundedBomCostRial / rateRial : 0;
+  const producedBaseSale = producedBaseCost * (1 + Number(profitMargin || 0) / 100);
+  const producedSaleRial = roundPricingRial(roundedBomCostRial * (1 + Number(profitMargin || 0) / 100));
+  const effectiveBaseCost = isProduced ? producedBaseCost : Number(baseCost || 0);
+  const effectiveBaseSale = isProduced ? producedBaseSale : Number(baseSale || 0);
+  const regularMargin = Number(baseCost || 0) > 0 ? (Number(baseSale || 0) / Number(baseCost) - 1) * 100 : 0;
+  const costRial = isProduced ? roundedBomCostRial : roundPricingRial(effectiveBaseCost * rateRial);
+  const saleRial = isProduced ? producedSaleRial : roundPricingRial(effectiveBaseSale * rateRial);
+  const canSaveProduced = bomCostRial > 0 && Number.isFinite(Number(profitMargin)) && Number(profitMargin) >= 0;
+  const canSaveRegular = baseCost !== '' && baseSale !== '' && Number(baseCost) >= 0 && Number(baseSale) >= 0;
+
+  function changeCurrency(next) {
+    if (next === currency) return;
+    if (!isProduced) {
+      const oldRate = currency === 'USD' ? Number(rates.usd_rial || Number(rates.usd_toman || 0) * 10) : Number(rates.cny_rial || Number(rates.cny_toman || 0) * 10);
+      const nextRate = next === 'USD' ? Number(rates.usd_rial || Number(rates.usd_toman || 0) * 10) : Number(rates.cny_rial || Number(rates.cny_toman || 0) * 10);
+      if (oldRate > 0 && nextRate > 0) {
+        if (baseCost !== '') setBaseCost(Number(baseCost || 0) * oldRate / nextRate);
+        if (baseSale !== '') setBaseSale(Number(baseSale || 0) * oldRate / nextRate);
+      }
+    }
+    setCurrency(next);
+  }
+
+  function useLegacyPrice() {
+    if (!rateRial) return;
+    setBaseCost(Number(item?.unit_price_estimate || 0) / rateRial);
+    setBaseSale(Number(item?.current_sale_rial || item?.unit_price_estimate || 0) / rateRial);
+  }
+
+  return <Modal title={`قیمت ارزی ${item?.item_name_fa || ''}`} onClose={onClose}><div className="currency-price-modal">
+    <div className="currency-item-identity"><b dir="ltr">{item?.item_code}</b><span>{item?.item_name_fa}</span><small>{item?.item_group||item?.category||'بدون گروه'}{isProduced ? ' · محصول تولیدی (BOM + سود)' : ''}</small></div>
+    <div className="currency-choice"><button type="button" className={currency==='USD'?'active usd':''} onClick={()=>changeCurrency('USD')}>$ دلار</button><button type="button" className={currency==='CNY'?'active cny':''} onClick={()=>changeCurrency('CNY')}>¥ یوان</button></div>
+    {isProduced ? <>
+      <div className="produced-price-rule"><b>بهای ساخت از BOM</b><strong>{bomCostRial > 0 ? formatMoney(bomCostRial) : 'BOM معتبر یافت نشد'}</strong><small>بهای خرید این محصول قابل ورود دستی نیست و با انتشار BOM به‌روز می‌شود.</small></div>
+      <div className="form-grid produced-pricing-fields"><label><span>بهای ساخت پایه ({currency})</span><input readOnly value={bomCostRial > 0 ? fxNumber(producedBaseCost, 6) : ''}/></label><label><span>درصد سود روی BOM</span><input type="number" min="0" step="0.01" value={profitMargin} onChange={event=>setProfitMargin(event.target.value)} autoFocus/></label><label><span>قیمت فروش پایه ({currency})</span><input readOnly value={bomCostRial > 0 ? fxNumber(producedBaseSale, 6) : ''}/></label><label><span>نرخ جاری</span><input readOnly value={`${fxNumber(rateRial/10,0)} تومان`} /></label></div>
+      {bomCostRial <= 0 && <div className="custom-warning-box"><b>قیمت‌گذاری متوقف است</b><p>ابتدا در بخش تولید، BOM دارای هزینه را به انبار منتشر کنید.</p></div>}
+    </> : <div className="form-grid"><label><span>بهای خرید پایه ({currency})</span><input type="number" min="0" step="0.0001" value={baseCost} onChange={event=>setBaseCost(event.target.value)} autoFocus/></label><label><span>قیمت فروش پایه ({currency})</span><input type="number" min="0" step="0.0001" value={baseSale} onChange={event=>setBaseSale(event.target.value)}/></label><label><span>درصد سود</span><input type="number" step="0.01" value={Number.isFinite(regularMargin)?Number(regularMargin.toFixed(2)):0} onChange={event=>{const pct=Number(event.target.value||0);setBaseSale(Number(baseCost||0)*(1+pct/100));}}/></label><label><span>نرخ جاری</span><input readOnly value={`${fxNumber(rateRial/10,0)} تومان`} /></label></div>}
+    {!isProduced&&!item?.has_currency_price&&Number(item?.unit_price_estimate||0)>0&&<button type="button" className="legacy-price-suggest" onClick={useLegacyPrice}>تبدیل قیمت ریالی فعلی به {currencyTitle(currency)}</button>}
+    <div className="currency-live-preview"><div><span>{isProduced ? 'بهای ساخت امروز' : 'بهای خرید امروز'}</span><b>{formatMoney(costRial)}</b></div><div><span>قیمت فروش امروز</span><b>{formatMoney(saleRial)}</b></div></div>
+    <div className="note">{isProduced ? 'محصول تولیدی همیشه از هزینه BOM به‌علاوه درصد سود بالا قیمت‌گذاری می‌شود.' : 'قیمت پایه خرید و فروش این کالا با نرخ روز به تومان تبدیل می‌شود.'} قیمت سفارش‌ها، پیش‌فاکتورها و فاکتورهای ثبت‌شده تغییر نمی‌کند.</div>
+    <div className="modal-actions"><button type="button" onClick={onClose}>انصراف</button><button type="button" disabled={busy||!rateRial||(isProduced?!canSaveProduced:!canSaveRegular)} onClick={()=>onSubmit({itemId:item.item_id,currency,baseCostPrice:effectiveBaseCost,baseSalePrice:effectiveBaseSale})}>ذخیره و به‌روزرسانی قیمت‌ها</button></div>
+  </div></Modal>;
+}
+
+function ReportsSection({report,setReport,stock,categories=[],docs,onExport}){
   const [format,setFormat]=useState('excel');
-  const [rateForm,setRateForm]=useState({usdToman: exchangeRates?.usd_toman || 180000, cnyToman: exchangeRates?.cny_toman || 26000});
   const [filters,setFilters]=useState({ group:'all', location:'', lowOnly:false, docType:'all', docStatus:'all', customer:'', dateFrom:'', dateTo:'' });
   const locations=useMemo(()=>[...new Set(stock.map(i=>i.location).filter(Boolean))], [stock]);
   const groups=useMemo(()=>categories.map((c) => c.name_fa), [categories]);
   const filteredStock=useMemo(()=>stock.filter(i=>(filters.group==='all'||(i.item_group||i.category)===filters.group)&&(!filters.location||String(i.location||'').includes(filters.location))&&(!filters.lowOnly||i.is_low_stock)),[stock,filters]);
   const filteredDocs=useMemo(()=>docs.filter(d=>{const kind=d.document_kind||'movement';const typeMatches=filters.docType==='all'||(filters.docType==='adjustment'?kind==='adjustment':filters.docType==='opening_balance'?kind==='opening_balance':kind==='movement'&&d.type===filters.docType);return typeMatches&&(filters.docStatus==='all'||d.status===filters.docStatus)&&(!filters.customer||`${d.customer_name||''} ${d.customer_city||''}`.includes(filters.customer))&&(!filters.dateFrom||String(d.created_at||'').slice(0,10)>=filters.dateFrom)&&(!filters.dateTo||String(d.created_at||'').slice(0,10)<=filters.dateTo)}),[docs,filters]);
   const low=filteredStock.filter(i=>i.is_low_stock), value=filteredStock.reduce((sum,i)=>sum+Number(i.stock_value_estimate||0),0);
-  const usdRate=Number(exchangeRates?.usd_toman || 180000), cnyRate=Number(exchangeRates?.cny_toman || 26000);
-  // Database values are stored/displayed as rial-backed amounts; the UI formatter
-  // presents them in toman. Base currencies are frozen at the reference rates.
-  const baseToman=value / 10;
-  const baseUsd=baseToman / 180000;
-  const baseCny=baseToman / 26000;
-  const recalculatedTomanFromUsd=baseUsd * usdRate;
-  const recalculatedTomanFromCny=baseCny * cnyRate;
   const preview = report==='docs'
     ? { title:'گزارش اسناد انبار', headers:['شماره','نوع','وضعیت','مشتری','شهر','تاریخ','ردیف','جمع مقدار'], rows: filteredDocs.map(d=>[d.doc_number||'موقت',warehouseDocumentLabel(d),STATUS_LABEL[d.status]||d.status,d.customer_name||'—',d.customer_city||'—',formatDate(d.created_at),d.line_count,d.total_quantity]) }
     : report==='value'
-      ? { title:'گزارش ارزش موجودی', headers:['کد','کالا','گروه','مکان','موجودی','قیمت مرجع','ارزش'], rows: filteredStock.map(i=>[i.item_code,i.item_name_fa,i.item_group||i.category||'—',i.location||'—',i.current_qty,i.unit_price_estimate,i.stock_value_estimate]) }
+      ? { title:'گزارش ارزش موجودی', headers:['کد','کالا','گروه','مکان','موجودی','ارز','بهای پایه','فروش پایه','بهای روز','فروش روز','ارزش'], rows: filteredStock.map(i=>[i.item_code,i.item_name_fa,i.item_group||i.category||'—',i.location||'—',i.current_qty,i.has_currency_price?i.price_currency:'ثبت‌نشده',i.base_cost_price??'',i.base_sale_price??'',i.current_cost_rial||i.unit_price_estimate,i.current_sale_rial||i.unit_sale_price_estimate,i.stock_value_estimate]) }
       : { title:'گزارش کم‌موجودی', headers:['کد','کالا','گروه','مکان','موجودی','نقطه سفارش'], rows: low.map(i=>[i.item_code,i.item_name_fa,i.item_group||i.category||'—',i.location||'—',i.current_qty,i.reorder_point||i.min_stock_threshold]) };
   function output() {
     const tableRows=preview.rows.map(r=>`<tr>${r.map(c=>`<td>${safe(c)}</td>`).join('')}</tr>`).join('');
@@ -367,7 +549,7 @@ function ReportsSection({report,setReport,stock,categories=[],docs,onExport,exch
     else if(format==='word') downloadWordHtml(`${report}-warehouse-report.doc`, preview.title, html);
     else downloadExcelHtml(`${report}-warehouse-report.xls`, preview.headers, preview.rows, preview.title);
   }
-  return <section className="warehouse-card reports-full"><div className="reports-head"><CardTitle icon={BarChart3} title="گزارش‌های انبار"/><div className="report-format"><span>نوع خروجی</span><select value={format} onChange={e=>setFormat(e.target.value)}><option value="excel">Excel</option><option value="pdf">PDF</option><option value="word">Word</option></select></div></div><div className="report-cards"><button className={report==='low'?'active':''} onClick={()=>setReport('low')}><b>کم‌موجودی</b><span>{low.length} کالا زیر نقطه سفارش</span></button><button className={report==='value'?'active':''} onClick={()=>setReport('value')}><b>ارزش موجودی</b><span>{formatMoney(value)}</span></button><button className={report==='docs'?'active':''} onClick={()=>setReport('docs')}><b>اسناد</b><span>{filteredDocs.length} سند انبار</span></button></div><div className="report-filter-panel">{report==='docs'?<><select value={filters.docType} onChange={e=>setFilters({...filters,docType:e.target.value})}><option value="all">همه نوع سند</option><option value="in">ورود</option><option value="out">خروج</option><option value="adjustment">اصلاح موجودی</option><option value="opening_balance">موجودی اول دوره</option></select><select value={filters.docStatus} onChange={e=>setFilters({...filters,docStatus:e.target.value})}><option value="all">همه وضعیت‌ها</option><option value="draft">موقت</option><option value="final">نهایی</option><option value="cancelled">لغوشده</option></select><input value={filters.customer} onChange={e=>setFilters({...filters,customer:e.target.value})} placeholder="مشتری/شهر"/><JalaliDateInput value={filters.dateFrom} onChange={v=>setFilters({...filters,dateFrom:v})}/><JalaliDateInput value={filters.dateTo} onChange={v=>setFilters({...filters,dateTo:v})}/></>:<><select value={filters.group} onChange={e=>setFilters({...filters,group:e.target.value})}><option value="all">همه گروه‌ها</option>{groups.map(g=><option key={g}>{g}</option>)}</select><select value={filters.location} onChange={e=>setFilters({...filters,location:e.target.value})}><option value="">همه مکان‌ها</option>{locations.map(l=><option key={l} value={l}>{l}</option>)}</select><label className="check-filter"><input type="checkbox" checked={filters.lowOnly} onChange={e=>setFilters({...filters,lowOnly:e.target.checked})}/><span>فقط کم‌موجود</span></label></>}</div><section className="warehouse-value-panel"><div className="warehouse-value-head"><div><h3>ارزش کل انبار</h3><small>مبنای تبدیل: ارزش ریالی کالاها</small></div><div className="warehouse-rate-form"><label>دلار (تومان)<input type="number" value={rateForm.usdToman} onChange={e=>setRateForm({...rateForm,usdToman:e.target.value})}/></label><label>یوان (تومان)<input type="number" value={rateForm.cnyToman} onChange={e=>setRateForm({...rateForm,cnyToman:e.target.value})}/></label><button onClick={()=>onSaveRates?.(rateForm)}>ثبت نرخ</button></div></div><div className="warehouse-value-cards"><div><span>ارزش تومانی جدید بر مبنای دلار</span><b>{formatMoney(recalculatedTomanFromUsd * 10)}</b><small>پایه ثابت: {new Intl.NumberFormat('fa-IR',{maximumFractionDigits:2}).format(baseUsd)} دلار · نرخ: {formatMoney(usdRate)}</small></div><div><span>ارزش پایه دلاری</span><b>{new Intl.NumberFormat('fa-IR',{maximumFractionDigits:2}).format(baseUsd)} دلار</b><small>محاسبه پایه با نرخ ۱۸۰٬۰۰۰ تومان</small></div><div><span>ارزش پایه یوانی</span><b>{new Intl.NumberFormat('fa-IR',{maximumFractionDigits:2}).format(baseCny)} یوان</b><small>ارزش تومانی مقایسه‌ای با نرخ جدید یوان: {formatMoney(recalculatedTomanFromCny * 10)}</small></div></div></section><div className="report-output clean"><h3>{preview.title}</h3><p>تعداد ردیف گزارش: {formatNumber(preview.rows.length)}</p><div className="warehouse-table-wrap report-preview"><table><thead><tr>{preview.headers.map(h=><th key={h}>{h}</th>)}</tr></thead><tbody>{preview.rows.slice(0,30).map((r,i)=><tr key={i}>{r.map((c,j)=><td key={j}>{c}</td>)}</tr>)}</tbody></table></div><button onClick={output}>دریافت خروجی {format==='excel'?'Excel':format==='pdf'?'PDF':'Word'}</button></div></section>
+  return <section className="warehouse-card reports-full"><div className="reports-head"><CardTitle icon={BarChart3} title="گزارش‌های انبار"/><div className="report-format"><span>نوع خروجی</span><select value={format} onChange={e=>setFormat(e.target.value)}><option value="excel">Excel</option><option value="pdf">PDF</option><option value="word">Word</option></select></div></div><div className="report-cards"><button className={report==='low'?'active':''} onClick={()=>setReport('low')}><b>کم‌موجودی</b><span>{low.length} کالا زیر نقطه سفارش</span></button><button className={report==='value'?'active':''} onClick={()=>setReport('value')}><b>ارزش موجودی</b><span>{formatMoney(value)}</span></button><button className={report==='docs'?'active':''} onClick={()=>setReport('docs')}><b>اسناد</b><span>{filteredDocs.length} سند انبار</span></button></div><div className="report-filter-panel">{report==='docs'?<><select value={filters.docType} onChange={e=>setFilters({...filters,docType:e.target.value})}><option value="all">همه نوع سند</option><option value="in">ورود</option><option value="out">خروج</option><option value="adjustment">اصلاح موجودی</option><option value="opening_balance">موجودی اول دوره</option></select><select value={filters.docStatus} onChange={e=>setFilters({...filters,docStatus:e.target.value})}><option value="all">همه وضعیت‌ها</option><option value="draft">موقت</option><option value="final">نهایی</option><option value="cancelled">لغوشده</option></select><input value={filters.customer} onChange={e=>setFilters({...filters,customer:e.target.value})} placeholder="مشتری/شهر"/><JalaliDateInput value={filters.dateFrom} onChange={v=>setFilters({...filters,dateFrom:v})}/><JalaliDateInput value={filters.dateTo} onChange={v=>setFilters({...filters,dateTo:v})}/></>:<><select value={filters.group} onChange={e=>setFilters({...filters,group:e.target.value})}><option value="all">همه گروه‌ها</option>{groups.map(g=><option key={g}>{g}</option>)}</select><select value={filters.location} onChange={e=>setFilters({...filters,location:e.target.value})}><option value="">همه مکان‌ها</option>{locations.map(l=><option key={l} value={l}>{l}</option>)}</select><label className="check-filter"><input type="checkbox" checked={filters.lowOnly} onChange={e=>setFilters({...filters,lowOnly:e.target.checked})}/><span>فقط کم‌موجود</span></label></>}</div><div className="report-output clean"><h3>{preview.title}</h3><p>تعداد ردیف گزارش: {formatNumber(preview.rows.length)}</p><div className="warehouse-table-wrap report-preview"><table><thead><tr>{preview.headers.map(h=><th key={h}>{h}</th>)}</tr></thead><tbody>{preview.rows.slice(0,30).map((r,i)=><tr key={i}>{r.map((c,j)=><td key={j}>{c}</td>)}</tr>)}</tbody></table></div><button onClick={output}>دریافت خروجی {format==='excel'?'Excel':format==='pdf'?'PDF':'Word'}</button></div></section>
 }
 
 function ShipmentsSection({ shipments = [], onNew, onEdit, onArchive }) {
@@ -404,7 +586,7 @@ function normalizeShipmentStatus(status){return ({pending_warehouse:'ready',deli
 function shipmentStatus(status){const st=normalizeShipmentStatus(status);return ({ready:'آماده به ارسال',sent:'ارسال‌شده',cancelled:'لغو'}[st]||st)}
 
 function SettingsSection({ categories = [], stock = [], busy, onCreate, onUpdate, onArchive }) { const categoryCounts = useMemo(() => stock.reduce((acc, item) => { const key = item.item_group || item.category || ''; if (key) acc[key] = (acc[key] || 0) + 1; return acc; }, {}), [stock]); const [editing, setEditing] = useState(null); const [form, setForm] = useState({ name_fa: '', name_en: '', code: '', sort_order: 0 }); function save(e) { e.preventDefault(); if (!form.name_fa.trim()) return; const action = editing ? onUpdate(editing.id, { ...form, old_name: editing.name_fa }) : onCreate(form); Promise.resolve(action).then(() => { setEditing(null); setForm({ name_fa: '', name_en: '', code: '', sort_order: 0 }); }); } return <section className="warehouse-card"><CardTitle icon={Settings} title="تنظیمات انبار"/><div className="settings-grid"><Info title="سند موقت ورود/خروج" text="ورود و خروج ابتدا در سند موقت ثبت و بعد نهایی می‌شوند."/><Info title="شماره‌گذاری" text="شماره سندهای ورود و خروج به‌صورت خودکار ساخته می‌شود."/><Info title="حذف نرم کالا" text="کالا غیرفعال می‌شود و تاریخچه آن حفظ خواهد شد."/><Info title="اتصال ماژول‌ها" text="سفارش، فاکتور و تولید با گردش انبار هماهنگ هستند."/></div><div className="warehouse-category-settings"><div className="section-head"><CardTitle icon={Package} title="مدیریت دسته‌بندی کالاها"/><span className="note">دسته‌بندی‌های بایگانی‌شده در فهرست کالاهای جدید نمایش داده نمی‌شوند.</span></div><form className="category-form" onSubmit={save}><input value={form.name_fa} onChange={(e)=>setForm({...form,name_fa:e.target.value})} placeholder="نام دسته‌بندی فارسی" required/><input value={form.name_en} onChange={(e)=>setForm({...form,name_en:e.target.value})} placeholder="نام انگلیسی"/><input value={form.code} onChange={(e)=>setForm({...form,code:e.target.value})} placeholder="کد اختیاری"/><input type="number" value={form.sort_order} onChange={(e)=>setForm({...form,sort_order:e.target.value})} placeholder="ترتیب"/><button disabled={busy} type="submit">{editing ? 'ذخیره ویرایش' : '＋ افزودن دسته'}</button>{editing && <button type="button" onClick={()=>{setEditing(null);setForm({name_fa:'',name_en:'',code:'',sort_order:0})}}>انصراف</button>}</form><div className="category-list">{categories.map((c)=><div className="category-row" key={c.id}><b>{c.name_fa}</b><small>{c.code || c.name_en || 'بدون کد'}</small><em>{formatNumber(categoryCounts[c.name_fa] || 0)} کالا</em><span><button type="button" onClick={()=>{setEditing(c);setForm({name_fa:c.name_fa||'',name_en:c.name_en||'',code:c.code||'',sort_order:c.sort_order||0})}}>ویرایش</button><button type="button" className="danger" onClick={()=>onArchive(c.id)}>بایگانی</button></span></div>)}</div></div></section>}
-function ItemModal({initial,categories=[],busy,onClose,onSubmit}){const [form,setForm]=useState({item_code:initial?.item_code||'',item_name_fa:initial?.item_name_fa||'',item_group:initial?.item_group||initial?.category||'بدون دسته‌بندی',unit:initial?.unit||'عدد',location:initial?.location||'',reorder_point:initial?.reorder_point||initial?.min_stock_threshold||0,unit_price_estimate:initial?.unit_price_estimate||0,stock_quantity:initial?.current_qty ?? 0,current_qty_snapshot:initial?.current_qty ?? 0});return <Modal title={initial?'ویرایش کالا':'کالای جدید'} onClose={onClose}><form onSubmit={e=>{e.preventDefault();onSubmit(form)}}><div className="form-grid"><label><span>کد کالا</span><input disabled={!!initial} value={form.item_code} onChange={e=>setForm({...form,item_code:e.target.value})} required/></label><label><span>نام کالا</span><input value={form.item_name_fa} onChange={e=>setForm({...form,item_name_fa:e.target.value})} required/></label><label><span>گروه</span><select value={form.item_group} onChange={e=>setForm({...form,item_group:e.target.value})}>{(categories.length ? categories.map((c) => c.name_fa) : ['بدون دسته‌بندی']).map(g=><option key={g}>{g}</option>)}</select></label><label><span>واحد</span><input value={form.unit} onChange={e=>setForm({...form,unit:e.target.value})}/></label><label><span>مکان</span><input value={form.location} onChange={e=>setForm({...form,location:e.target.value})}/></label><label><span>تعداد موجودی</span><input type="number" value={form.stock_quantity} onChange={e=>setForm({...form,stock_quantity:e.target.value})}/></label><label><span>نقطه سفارش</span><input type="number" value={form.reorder_point} onChange={e=>setForm({...form,reorder_point:e.target.value})}/></label><label><span>قیمت مرجع ریال</span><input type="number" value={form.unit_price_estimate} onChange={e=>setForm({...form,unit_price_estimate:e.target.value})}/></label></div><div className="note">موجودی اولیه به‌عنوان «سند اصلاحی موجودی اول دوره» و تغییرات بعدی تعداد به‌عنوان «سند اصلاح موجودی» به‌صورت نهایی و قابل پیگیری ثبت می‌شوند.</div><div className="modal-actions"><button type="button" onClick={onClose}>انصراف</button><button disabled={busy} type="submit">ثبت</button></div></form></Modal>}
+function ItemModal({initial,categories=[],busy,onClose,onSubmit}){const [form,setForm]=useState({item_code:initial?.item_code||'',item_name_fa:initial?.item_name_fa||'',item_group:initial?.item_group||initial?.category||'بدون دسته‌بندی',unit:initial?.unit||'عدد',location:initial?.location||'',reorder_point:initial?.reorder_point||initial?.min_stock_threshold||0,stock_quantity:initial?.current_qty ?? 0,current_qty_snapshot:initial?.current_qty ?? 0});return <Modal title={initial?'ویرایش کالا':'کالای جدید'} onClose={onClose}><form onSubmit={e=>{e.preventDefault();onSubmit(form)}}><div className="form-grid"><label><span>کد کالا</span><input disabled={!!initial} value={form.item_code} onChange={e=>setForm({...form,item_code:e.target.value})} required/></label><label><span>نام کالا</span><input value={form.item_name_fa} onChange={e=>setForm({...form,item_name_fa:e.target.value})} required/></label><label><span>گروه</span><select value={form.item_group} onChange={e=>setForm({...form,item_group:e.target.value})}>{(categories.length ? categories.map((c) => c.name_fa) : ['بدون دسته‌بندی']).map(g=><option key={g}>{g}</option>)}</select></label><label><span>واحد</span><input value={form.unit} onChange={e=>setForm({...form,unit:e.target.value})}/></label><label><span>مکان</span><input value={form.location} onChange={e=>setForm({...form,location:e.target.value})}/></label><label><span>تعداد موجودی</span><input type="number" value={form.stock_quantity} onChange={e=>setForm({...form,stock_quantity:e.target.value})}/></label><label><span>نقطه سفارش</span><input type="number" value={form.reorder_point} onChange={e=>setForm({...form,reorder_point:e.target.value})}/></label></div><div className="note">موجودی اولیه به‌عنوان «سند اصلاحی موجودی اول دوره» و تغییرات بعدی تعداد به‌عنوان «سند اصلاح موجودی» ثبت می‌شوند. قیمت خرید و فروش در تب «همگام‌سازی انبارا ← قیمت‌گذاری ارزی» مدیریت می‌شود.</div><div className="modal-actions"><button type="button" onClick={onClose}>انصراف</button><button disabled={busy} type="submit">ثبت</button></div></form></Modal>}
 
 function MovementModal({item,direction,busy,onClose,onSubmit}){
   const [quantity,setQuantity]=useState(1),[reason,setReason]=useState(direction==='in'?'manual_in':'manual_out'),[note,setNote]=useState(''),[confirmNegative,setConfirmNegative]=useState(false);
@@ -414,11 +596,11 @@ function MovementModal({item,direction,busy,onClose,onSubmit}){
 function ImportModal({busy,onClose,onSubmit}){
   const [fileName,setFileName]=useState('');
   const [rows,setRows]=useState([]);
-  const [text,setText]=useState('item_code,item_name_fa,item_group,unit,location,quantity,reorder_point,unit_price_estimate\nTR-220-12,ترانس سفارشی,Finished,عدد,A1,5,2,740000000\nPCB-CTRL,برد کنترلر,PCB,عدد,B2,10,3,110000000');
+  const [text,setText]=useState('item_code,item_name_fa,item_group,unit,location,quantity,reorder_point\nTR-220-12,ترانس سفارشی,Finished,عدد,A1,5,2\nPCB-CTRL,برد کنترلر,PCB,عدد,B2,10,3');
   function loadRowsFromText(value){setText(value);setRows(parseCsvText(value));setFileName('manual-import.csv')}
   function handleFile(e){const file=e.target.files?.[0];if(!file)return;setFileName(file.name);const reader=new FileReader();reader.onload=(ev)=>{const data=ev.target.result;let parsed=[];if(file.name.toLowerCase().endsWith('.csv')){const txt=new TextDecoder('utf-8').decode(new Uint8Array(data));setText(txt);parsed=parseCsvText(txt)}else{const wb=XLSX.read(data,{type:'array'});const ws=wb.Sheets[wb.SheetNames[0]];parsed=XLSX.utils.sheet_to_json(ws,{defval:''});setText('')};setRows(parsed)};reader.readAsArrayBuffer(file)}
   const preview=rows.slice(0,8);
-  return <Modal title="ورود از اکسل/CSV انبارا" onClose={onClose}><div className="note">قالب استاندارد: item_code, item_name_fa, item_group, unit, location, quantity, reorder_point, unit_price_estimate. فایل Excel/CSV با همین ستون‌ها وارد شود؛ کالاها بر اساس کد کالا به‌روزرسانی و Snapshot موجودی ثبت می‌شود.</div><div className="import-tools"><a className="template-link" href="/templates/warehouse_import_template.xlsx" download>دانلود قالب Excel نمونه</a><button type="button" onClick={()=>downloadCsv('warehouse_import_template.csv',[['item_code','item_name_fa','item_group','unit','location','quantity','reorder_point','unit_price_estimate'],['TR-220-12','ترانس سفارشی','Finished','عدد','A1','5','2','740000000']])}>دانلود CSV نمونه</button><input type="file" accept=".xlsx,.xls,.csv" onChange={handleFile}/></div><textarea className="import-text" value={text} onChange={e=>loadRowsFromText(e.target.value)} placeholder="یا محتوای CSV را اینجا paste کنید"/>{preview.length>0&&<div className="warehouse-table-wrap import-preview"><table><thead><tr><th>کد</th><th>نام</th><th>گروه</th><th>واحد</th><th>مکان</th><th>تعداد</th><th>نقطه سفارش</th><th>قیمت</th></tr></thead><tbody>{preview.map((r,i)=><tr key={i}><td dir="ltr">{r.item_code}</td><td>{r.item_name_fa}</td><td>{r.item_group}</td><td>{r.unit}</td><td>{r.location}</td><td>{r.quantity}</td><td>{r.reorder_point}</td><td>{r.unit_price_estimate}</td></tr>)}</tbody></table></div>}<div className="modal-actions"><button type="button" onClick={onClose}>انصراف</button><button disabled={busy||rows.length===0} onClick={()=>onSubmit({fileName:fileName||'manual-import.csv',rows,notes:'Warehouse Excel/CSV import'})}>ثبت Snapshot ({rows.length})</button></div></Modal>}
+  return <Modal title="ورود از اکسل/CSV انبارا" onClose={onClose}><div className="note">قالب استاندارد: item_code, item_name_fa, item_group, unit, location, quantity, reorder_point. فایل Excel/CSV فقط مشخصات و موجودی را همگام می‌کند و قیمت‌های دلاری/یوانی را تغییر نمی‌دهد.</div><div className="import-tools"><a className="template-link" href="/templates/warehouse_import_template.xlsx" download>دانلود قالب Excel نمونه</a><button type="button" onClick={()=>downloadCsv('warehouse_import_template.csv',[['item_code','item_name_fa','item_group','unit','location','quantity','reorder_point'],['TR-220-12','ترانس سفارشی','Finished','عدد','A1','5','2']])}>دانلود CSV نمونه</button><input type="file" accept=".xlsx,.xls,.csv" onChange={handleFile}/></div><textarea className="import-text" value={text} onChange={e=>loadRowsFromText(e.target.value)} placeholder="یا محتوای CSV را اینجا paste کنید"/>{preview.length>0&&<div className="warehouse-table-wrap import-preview"><table><thead><tr><th>کد</th><th>نام</th><th>گروه</th><th>واحد</th><th>مکان</th><th>تعداد</th><th>نقطه سفارش</th></tr></thead><tbody>{preview.map((r,i)=><tr key={i}><td dir="ltr">{r.item_code}</td><td>{r.item_name_fa}</td><td>{r.item_group}</td><td>{r.unit}</td><td>{r.location}</td><td>{r.quantity}</td><td>{r.reorder_point}</td></tr>)}</tbody></table></div>}<div className="modal-actions"><button type="button" onClick={onClose}>انصراف</button><button disabled={busy||rows.length===0} onClick={()=>onSubmit({fileName:fileName||'manual-import.csv',rows,notes:'Warehouse Excel/CSV import'})}>ثبت Snapshot ({rows.length})</button></div></Modal>}
 function ReferralModal({busy,onClose,onSubmit}){const [title,setTitle]=useState('درخواست بررسی/خرید انبار'),[target,setTarget]=useState('accounting'),[role,setRole]=useState('accountant');return <Modal title="ارجاع انبار" onClose={onClose}><form onSubmit={e=>{e.preventDefault();onSubmit({title,targetModule:target,targetRole:role})}}><div className="form-grid"><label><span>مقصد</span><select value={target} onChange={e=>{setTarget(e.target.value);setRole(e.target.value==='accounting'?'accountant':e.target.value==='orders'?'sales':e.target.value==='production'?'production':'admin')}}><option value="accounting">مالی</option><option value="orders">سفارش‌ها</option><option value="production">تولید</option><option value="admin">مدیر کل</option></select></label><label className="full"><span>عنوان</span><input value={title} onChange={e=>setTitle(e.target.value)} /></label></div><div className="modal-actions"><button type="button" onClick={onClose}>انصراف</button><button disabled={busy} type="submit">ثبت ارجاع</button></div></form></Modal>}
 function ConfirmModal({ title, message, confirmText = 'تأیید', danger, busy, onClose, onConfirm }) {
   return <Modal title={title} onClose={onClose}><div className={danger?'confirm-box danger':'confirm-box'}><p>{message}</p><div className="modal-actions"><button type="button" onClick={onClose}>خیر، انصراف</button><button disabled={busy} className={danger?'danger-btn':''} onClick={onConfirm}>{confirmText}</button></div></div></Modal>

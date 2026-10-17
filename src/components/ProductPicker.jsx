@@ -10,6 +10,12 @@ function itemLabel(item) {
   return `${item.item_code || ''} · ${item.item_name_fa || item.item_name_en || ''}`.trim();
 }
 
+function basePriceLabel(item) {
+  if (!['USD', 'CNY'].includes(item?.price_currency) || item?.base_sale_price == null) return '';
+  const symbol = item.price_currency === 'USD' ? '$' : '¥';
+  return ` · فروش پایه ${symbol}${new Intl.NumberFormat('fa-IR', { maximumFractionDigits: 4 }).format(Number(item.base_sale_price || 0))}`;
+}
+
 export default function ProductPicker({
   items = [],
   value = '',
@@ -94,7 +100,7 @@ export default function ProductPicker({
               <span>
                 <b dir="ltr">{item.item_code || 'بدون کد'}</b>
                 <strong>{item.item_name_fa || item.item_name_en || 'کالا'}</strong>
-                <small>{item.item_group_label || item.category || item.item_group || 'بدون گروه'} · موجودی {formatNumber(item.available_for_sale_qty ?? item.current_qty ?? 0)} {item.unit || ''}</small>
+                <small>{item.item_group_label || item.category || item.item_group || 'بدون گروه'} · موجودی {formatNumber(item.available_for_sale_qty ?? item.current_qty ?? 0)} {item.unit || ''}{basePriceLabel(item)}</small>
               </span>
               <em>{formatToman(item.effective_sale_price ?? item.unit_price_estimate ?? 0, 'fa')}</em>
             </button>
