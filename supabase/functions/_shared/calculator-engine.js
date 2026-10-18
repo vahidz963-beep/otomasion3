@@ -1,4 +1,4 @@
-export const CALCULATOR_ENGINE_VERSION = 'calculator-engine-1.0.0';
+export const CALCULATOR_ENGINE_VERSION = 'calculator-engine-1.1.0';
 
 const COLORS = ['#3976e8', '#0b9c91', '#9c5bd6', '#ef8b3c', '#d84e68', '#4c9e52', '#4c7c9e', '#a66b32', '#a44a9b', '#227da3', '#7d6d39', '#b24343'];
 
@@ -23,6 +23,23 @@ function roundTo(value, step = 1) {
 
 function asId(value) {
   return value === null || value === undefined ? '' : String(value);
+}
+
+function normalizedUnit(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function isGramUnit(value) {
+  return ['گرم', 'g', 'gr', 'gram', 'grams'].includes(normalizedUnit(value));
+}
+
+function isPieceUnit(value) {
+  return ['عدد', 'piece', 'pieces', 'pcs', 'pc'].includes(normalizedUnit(value));
+}
+
+function wireLabel(wire) {
+  const diameter = wire?.diameter_mm ?? '—';
+  return `${diameter} mm${wire?.awg ? ` (AWG ${wire.awg})` : ''}`;
 }
 
 function pushError(errors, code, message, line = null) {
@@ -141,7 +158,7 @@ export function calculateTransformerGeometry({ core, bobbin, wires = [], winding
     totalWeightKg += weightKg;
     totalTurns += Math.max(0, turns);
     const wireId = asId(wire.id);
-    usageByWire.set(wireId, (usageByWire.get(wireId) || 0) + weightKg * safeQuantity);
+    usageByWire.set(wireId, (usageByWire.get(wireId) || 0) + weightKg * 1000 * safeQuantity);
 
     results.push({
       line_no: line,
@@ -165,6 +182,7 @@ export function calculateTransformerGeometry({ core, bobbin, wires = [], winding
       build_mm: round(windingBuildMm),
       allocated_build_mm: round(allocatedBuildMm),
       length_m: round(lengthM),
+      weight_g: round(weightKg * 1000, 6),
       weight_kg: round(weightKg, 9),
       window_share_percent: heightMm > 0 ? round(allocatedBuildMm / heightMm * 100, 4) : 0,
       color: COLORS[index % COLORS.length],
@@ -178,17 +196,18 @@ export function calculateTransformerGeometry({ core, bobbin, wires = [], winding
   if (occupancyPercent > 100) pushError(errors, 'WINDOW_OVERFLOW', 'ظرفیت پنجره کافی نیست؛ بوبین بزرگ‌تر یا اصلاح سیم‌پیچ لازم است.');
   else if (occupancyPercent >= 90) warnings.push({ code: 'WINDOW_HIGH', message: 'اشغال پنجره بین ۹۰ تا ۱۰۰ درصد است و کنترل کارگاه لازم است.' });
 
-  const wireUsage = [...usageByWire.entries()].map(([wireId, requiredKg]) => {
+  const wireUsage = [...usageByWire.entries()].map(([wireId, requiredG]) => {
     const wire = wireMap.get(wireId);
-    const availableKg = positive(wire?.available_qty ?? wire?.current_qty);
-    if (wire?.warehouse_item_id && requiredKg > availableKg) warnings.push({ code: 'WIRE_STOCK_LOW', message: `موجودی سیم Ø${wire.diameter_mm} کافی نیست.`, wire_id: wireId });
+    const availableG = positive(wire?.available_qty ?? wire?.current_qty);
+    if (wire?.warehouse_item_id && requiredG > availableG) warnings.push({ code: 'WIRE_STOCK_LOW', message: `موجودی سیم ${wireLabel(wire)} کافی نیست.`, wire_id: wireId });
     return {
       wire_id: wireId,
       warehouse_item_id: wire?.warehouse_item_id || null,
       diameter_mm: positive(wire?.diameter_mm),
-      required_kg: round(requiredKg, 9),
-      available_kg: round(availableKg, 9),
-      sufficient: availableKg >= requiredKg,
+      awg: wire?.awg ?? null,
+      required_g: round(requiredG, 6),
+      available_g: round(availableG, 6),
+      sufficient: availableG >= requiredG,
     };
   });
 
@@ -201,6 +220,7 @@ export function calculateTransformerGeometry({ core, bobbin, wires = [], winding
     rows: results,
     total_turns: totalTurns,
     total_length_m: round(totalLengthM),
+    copper_weight_per_unit_g: round(totalWeightKg * 1000, 6),
     copper_weight_per_unit_kg: round(totalWeightKg, 9),
     total_build_mm: round(cumulativeBuildMm),
     usable_area_mm2: round(usableAreaMm2),
@@ -214,8 +234,10 @@ export function calculateTransformerGeometry({ core, bobbin, wires = [], winding
 }
 
 function requireMappedAndPriced(component, label, errors) {
-  if (!component?.warehouse_item_id) pushError(errors, `${label.toUpperCase()}_WAREHOUSE_UNMAPPED`, `${label === 'core' ? 'هسته' : 'بوبین'} به قلم انبار متصل نشده است.`);
-  if (positive(component?.current_cost_rial) <= 0) pushError(errors, `${label.toUpperCase()}_PRICE_MISSING`, `بهای روز ${label === 'core' ? 'هسته' : 'بوبین'} در انبار ثبت نشده است.`);
+  const faLabel = label === 'core' ? 'هسته' : 'بوبین';
+  if (!component?.warehouse_item_id) pushError(errors, `${label.toUpperCase()}_WAREHOUSE_UNMAPPED`, `${faLabel} به قلم انبار متصل نشده است.`);
+  else if (!isPieceUnit(component?.unit)) pushError(errors, `${label.toUpperCase()}_UNIT_INVALID`, `واحد قلم انبار ${faLabel} باید «عدد» باشد.`);
+  if (positive(component?.current_cost_rial) <= 0) pushError(errors, `${label.toUpperCase()}_PRICE_MISSING`, `بهای روز ${faLabel} در انبار ثبت نشده است.`);
 }
 
 export function calculateTransformerQuote(input = {}) {
@@ -228,13 +250,14 @@ export function calculateTransformerQuote(input = {}) {
 
   geometry.wire_usage.forEach((usage) => {
     const wire = wireMap.get(usage.wire_id);
-    if (!wire?.warehouse_item_id) pushError(errors, 'WIRE_WAREHOUSE_UNMAPPED', `سیم Ø${wire?.diameter_mm ?? '—'} به قلم انبار متصل نشده است.`);
-    if (positive(wire?.current_cost_rial) <= 0) pushError(errors, 'WIRE_PRICE_MISSING', `بهای روز سیم Ø${wire?.diameter_mm ?? '—'} در انبار ثبت نشده است.`);
+    if (!wire?.warehouse_item_id) pushError(errors, 'WIRE_WAREHOUSE_UNMAPPED', `سیم ${wireLabel(wire)} به قلم انبار متصل نشده است.`);
+    else if (!isGramUnit(wire?.unit)) pushError(errors, 'WIRE_UNIT_INVALID', `واحد قلم انبار سیم ${wireLabel(wire)} باید «گرم» باشد.`);
+    if (positive(wire?.current_cost_rial) <= 0) pushError(errors, 'WIRE_PRICE_MISSING', `بهای روز سیم ${wireLabel(wire)} در انبار ثبت نشده است.`);
   });
 
   const coreCostRial = positive(core?.current_cost_rial);
   const bobbinCostRial = positive(bobbin?.current_cost_rial);
-  const wireCostRial = geometry.wire_usage.reduce((sum, usage) => sum + usage.required_kg / geometry.quantity * positive(wireMap.get(usage.wire_id)?.current_cost_rial), 0);
+  const wireCostRial = geometry.wire_usage.reduce((sum, usage) => sum + usage.required_g / geometry.quantity * positive(wireMap.get(usage.wire_id)?.current_cost_rial), 0);
   const speed = Math.max(1, positive(settings.winding_speed_turns_per_minute, 120));
   const setupMinutes = positive(settings.setup_minutes_per_winding);
   const windingMinutes = geometry.total_turns / speed + geometry.rows.length * setupMinutes;
@@ -259,7 +282,7 @@ export function calculateTransformerQuote(input = {}) {
   if (core?.warehouse_item_id) requirements.push({ component_role: 'core', warehouse_item_id: core.warehouse_item_id, quantity_per_unit: 1, quantity_total: geometry.quantity, unit: core.unit || 'عدد' });
   if (bobbin?.warehouse_item_id) requirements.push({ component_role: 'bobbin', warehouse_item_id: bobbin.warehouse_item_id, quantity_per_unit: 1, quantity_total: geometry.quantity, unit: bobbin.unit || 'عدد' });
   geometry.wire_usage.forEach((usage) => {
-    if (usage.warehouse_item_id) requirements.push({ component_role: 'wire', warehouse_item_id: usage.warehouse_item_id, quantity_per_unit: round(usage.required_kg / geometry.quantity, 9), quantity_total: usage.required_kg, unit: 'کیلوگرم' });
+    if (usage.warehouse_item_id) requirements.push({ component_role: 'wire', warehouse_item_id: usage.warehouse_item_id, quantity_per_unit: round(usage.required_g / geometry.quantity, 6), quantity_total: usage.required_g, unit: 'گرم' });
   });
 
   const availability = requirements.map((requirement) => {

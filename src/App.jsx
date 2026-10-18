@@ -102,12 +102,12 @@ function AppShell() {
   const modules = useMemo(() => [
     { key: 'dashboard', labelFa: 'داشبورد', labelEn: 'Dashboard', roles: ['admin', 'sales', 'sales_manager', 'rnd', 'production', 'warehouse', 'accountant', 'office_admin'], Component: Dashboard, preload: moduleLoaders.dashboard },
     { key: 'orders', labelFa: 'سفارش‌ها', labelEn: 'Orders', roles: ['admin', 'sales', 'sales_manager'], Component: OrdersModule, preload: moduleLoaders.orders },
-    { key: 'calculator', labelFa: 'مرکز محاسبه', labelEn: 'Calculator Center', roles: ['admin', 'sales', 'sales_manager', 'production', 'warehouse'], Component: CalculatorModule, preload: moduleLoaders.calculator },
     { key: 'rnd', labelFa: 'R&D', labelEn: 'R&D', roles: ['admin', 'rnd'], Component: RnDModule, preload: moduleLoaders.rnd },
     { key: 'production', labelFa: 'تولید', labelEn: 'Production', roles: ['admin', 'production'], Component: ProductionModule, preload: moduleLoaders.production },
     { key: 'warehouse', labelFa: 'انبار', labelEn: 'Warehouse', roles: ['admin', 'warehouse'], Component: WarehouseModule, preload: moduleLoaders.warehouse },
     { key: 'accounting', labelFa: 'مالی/حسابداری', labelEn: 'Accounting', roles: ['admin', 'accountant'], Component: AccountingModule, preload: moduleLoaders.accounting },
     { key: 'office', labelFa: 'اداری', labelEn: 'Office', roles: ['admin', 'office_admin'], Component: OfficeAdminModule, preload: moduleLoaders.office },
+    { key: 'calculator', labelFa: 'مرکز محاسبه', labelEn: 'Calculator Center', roles: ['admin', 'sales', 'sales_manager', 'production', 'warehouse'], Component: CalculatorModule, preload: moduleLoaders.calculator },
     { key: 'admin_users', labelFa: 'کاربران', labelEn: 'Users', roles: ['admin'], Component: AdminUserPanel, preload: moduleLoaders.adminUsers },
     { key: 'audit', labelFa: 'تاریخچه', labelEn: 'Audit', roles: ['admin'], Component: AuditLogPanel, preload: moduleLoaders.audit },
   ], []);

@@ -9,8 +9,8 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const core = { id: 'core-1', model_code: 'EE25/10/5', warehouse_item_id: 'wh-core', current_cost_rial: 120000, current_sale_rial: 160000, current_qty: 1000, available_qty: 1000, unit: 'عدد', assembly_time_seconds: 45 };
 const bobbin = { id: 'bobbin-1', core_id: 'core-1', pins_left: 5, pins_right: 5, mount_orientation: 'افقی', window_width_mm: 11, window_height_mm: 5.2, mean_turn_length_mm: 32, warehouse_item_id: 'wh-bobbin', current_cost_rial: 50000, current_sale_rial: 70000, current_qty: 1000, available_qty: 1000, unit: 'عدد' };
 const wires = [
-  { id: 'wire-03', diameter_mm: 0.3, awg: 28, warehouse_item_id: 'wh-wire-03', current_cost_rial: 35000000, current_qty: 100, available_qty: 100, unit: 'کیلوگرم' },
-  { id: 'wire-05', diameter_mm: 0.5, awg: 24, warehouse_item_id: 'wh-wire-05', current_cost_rial: 35000000, current_qty: 100, available_qty: 100, unit: 'کیلوگرم' },
+  { id: 'wire-03', diameter_mm: 0.3, awg: 28, warehouse_item_id: 'wh-wire-03', current_cost_rial: 35000, current_qty: 100000, available_qty: 100000, unit: 'گرم' },
+  { id: 'wire-05', diameter_mm: 0.5, awg: 24, warehouse_item_id: 'wh-wire-05', current_cost_rial: 35000, current_qty: 100000, available_qty: 100000, unit: 'گرم' },
 ];
 const windings = [
   { name: 'اولیه', start_pin: 1, end_pin: 2, turns: 100, wire_id: 'wire-03', strands: 1, arrangement: 'side', layer_mode: 'auto', requested_layers: 1, direction: 'cw' },
@@ -37,11 +37,14 @@ const settings = {
   price_rounding_rial: 10000,
 };
 
-assert.equal(CALCULATOR_ENGINE_VERSION, 'calculator-engine-1.0.0');
+assert.equal(CALCULATOR_ENGINE_VERSION, 'calculator-engine-1.1.0');
 const geometry = calculateTransformerGeometry({ core, bobbin, wires, windings, settings, orderType: 'sample', quantity: 1 });
 assert.equal(geometry.rows.length, windings.length, 'one engineering row per winding');
 assert.ok(geometry.rows.every((row) => row.calculated_layers >= 1));
 assert.ok(geometry.rows.every((row) => row.window_share_percent > 0));
+assert.ok(geometry.rows.every((row) => row.weight_g > 0));
+assert.ok(geometry.copper_weight_per_unit_g > 0);
+assert.ok(geometry.wire_usage.every((row) => row.required_g > 0 && row.available_g >= row.required_g));
 assert.ok(geometry.area_percent > 0 && geometry.radial_percent > 0);
 assert.equal(geometry.rows[1].separator_before_mm, 0.05, 'fixed thin inter-winding insulation');
 
@@ -65,6 +68,8 @@ assert.equal(sample.pricing.unit_sale_rial, sample.pricing.regular_unit_sale_ria
 assert.equal(sample.pricing.setup_fee_rial, 5000000);
 assert.equal(sample.requirements.find((row) => row.component_role === 'core').quantity_per_unit, 1);
 assert.equal(sample.requirements.find((row) => row.component_role === 'bobbin').quantity_per_unit, 1);
+assert.ok(sample.requirements.filter((row) => row.component_role === 'wire').every((row) => row.unit === 'گرم'), 'all wire inventory requirements use grams');
+assert.ok(Math.abs(sample.requirements.filter((row) => row.component_role === 'wire').reduce((sum, row) => sum + row.quantity_per_unit, 0) - sample.engineering.copper_weight_per_unit_g) < 0.00001, 'wire requirement grams match engineering copper weight');
 assert.equal(sample.requirements.some((row) => /terminal|lug/i.test(row.component_role)), false, 'terminal/lug is not in BOM');
 
 const production = calculateTransformerQuote({ core, bobbin, wires, windings, settings, orderType: 'production', quantity: 100 });
@@ -77,6 +82,8 @@ const tooSmall = calculateTransformerGeometry({ core, bobbin, wires, windings, s
 assert.ok(tooSmall.errors.some((error) => error.code === 'MIN_PRODUCTION_QUANTITY'));
 const unmapped = calculateTransformerQuote({ core: { ...core, warehouse_item_id: null }, bobbin, wires, windings, settings, orderType: 'sample', quantity: 1 });
 assert.ok(unmapped.errors.some((error) => error.code === 'CORE_WAREHOUSE_UNMAPPED'));
+const wrongWireUnit = calculateTransformerQuote({ core, bobbin, wires: wires.map((wire) => ({ ...wire, unit: 'کیلوگرم' })), windings, settings, orderType: 'sample', quantity: 1 });
+assert.ok(wrongWireUnit.errors.some((error) => error.code === 'WIRE_UNIT_INVALID'), 'wire inventory unit must be grams');
 
 const migration = fs.readFileSync(path.join(root, 'supabase/migrations/123_calculator_center_integration.sql'), 'utf8');
 assert.match(migration, /'public_quote_enabled','false'::jsonb/);
@@ -90,6 +97,10 @@ assert.match(migration, /insert into public\.warehouse_documents\(doc_number,typ
 assert.match(migration, /insert into public\.warehouse_document_lines/);
 assert.match(migration, /'profit_percent',30/);
 assert.match(migration, /fn_calculator_publish_transformer_formula/);
+assert.match(migration, /calculator-engine-1\.1\.0/);
+assert.match(migration, /واحد قلم انبار سیم باید گرم باشد/);
+assert.match(migration, /'گرم','g','gr','gram','grams'/);
+assert.doesNotMatch(migration, /واحد قلم انبار سیم باید کیلوگرم باشد/);
 assert.match(migration, /fn_calculator_get_quote/);
 assert.match(migration, /case when p_include_costs and v_admin then q\.pricing_snapshot else '\{\}'::jsonb end/);
 assert.doesNotMatch(migration, /service_role[^\n]*['"][A-Za-z0-9._-]{40,}/i);
@@ -100,7 +111,19 @@ assert.match(moduleSource, /گزارش داخلی کارکنان/);
 assert.match(moduleSource, /SavedQuoteReportModal/);
 assert.match(moduleSource, /showReports/);
 assert.match(moduleSource, /\{bobbin\.pins_left\}\+\{bobbin\.pins_right\} پین · \{bobbin\.mount_orientation\}/);
+assert.match(moduleSource, /اتصال هسته به انبار/);
+assert.match(moduleSource, /واحد ثابت انبار/);
+assert.match(moduleSource, /kind === 'wire' \? 'گرم' : 'عدد'/);
+assert.doesNotMatch(moduleSource, /<th>آرایش<\/th>/, 'arrangement column must be removed from winding UI');
+assert.doesNotMatch(moduleSource, /Ø/, 'wire labels must use mm and parenthesized AWG without the diameter symbol');
+assert.match(moduleSource, /mm\$\{awg \? ` \(AWG/);
 assert.doesNotMatch(moduleSource, /sample_multiplier\s*:/, 'private formula config must not be bundled in the module');
+
+const appSource = fs.readFileSync(path.join(root, 'src/App.jsx'), 'utf8');
+assert.match(appSource, /key: 'office'[\s\S]*key: 'calculator'[\s\S]*key: 'admin_users'/, 'calculator navigation follows office');
+const calculatorCss = fs.readFileSync(path.join(root, 'src/modules/calculator/CalculatorModule.css'), 'utf8');
+assert.match(calculatorCss, /\.calc-hero\{[^}]*max-width:1440px[^}]*border-radius:22px/);
+
 const edgeSource = fs.readFileSync(path.join(root, 'supabase/functions/calculator-api/index.ts'), 'utf8');
 assert.match(edgeSource, /window_width_mm: context\.bobbin\.window_width_mm/);
 assert.match(edgeSource, /window_height_mm: context\.bobbin\.window_height_mm/);
@@ -111,5 +134,8 @@ assert.match(plugin, /WORDPRESS_SHARED_SECRET/);
 assert.doesNotMatch(plugin, /SUPABASE_SERVICE_ROLE_KEY|service_role\s*=/i);
 assert.match(plugin, /payment_confirmed/);
 assert.match(plugin, /order_cancelled/);
+const pluginJs = fs.readFileSync(path.join(root, 'wordpress/aryaman-calculator-connector/assets/calculator.js'), 'utf8');
+assert.doesNotMatch(pluginJs, /Ø|data-key="arrangement"/);
+assert.match(pluginJs, /mm\$\{wire\.awg \? ` \(AWG/);
 
 console.log('calculator-engine.test.mjs: PASS');

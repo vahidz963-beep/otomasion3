@@ -232,11 +232,11 @@ async function calculateAndSaveBoard(raw: Record<string, unknown>, actorId: stri
 }
 
 function safeCatalog(catalog: any) {
-  const mappedCoreIds = new Set((catalog.bobbins || []).filter((row: any) => row.mapped).map((row: any) => row.core_id));
+  const mappedCoreIds = new Set((catalog.bobbins || []).filter((row: any) => row.calculable).map((row: any) => row.core_id));
   return {
-    cores: (catalog.cores || []).map((row: any) => ({ id: row.id, model_code: row.model_code, family: row.family, available: row.mapped && mappedCoreIds.has(row.id) && Number(row.available_qty) > 0, calculable: row.mapped && row.technical_complete && mappedCoreIds.has(row.id) })),
-    bobbins: (catalog.bobbins || []).map((row: any) => ({ id: row.id, core_id: row.core_id, pins: `${row.pins_left}+${row.pins_right}`, mount_orientation: row.mount_orientation, available: row.mapped && Number(row.available_qty) > 0 })),
-    wires: (catalog.wires || []).filter((row: any) => row.mapped).map((row: any) => ({ id: row.id, diameter_mm: row.diameter_mm, awg: row.awg, available: Number(row.available_qty) > 0 })),
+    cores: (catalog.cores || []).map((row: any) => ({ id: row.id, model_code: row.model_code, family: row.family, available: row.calculable && mappedCoreIds.has(row.id) && Number(row.available_qty) > 0, calculable: row.calculable && mappedCoreIds.has(row.id) })),
+    bobbins: (catalog.bobbins || []).filter((row: any) => row.calculable).map((row: any) => ({ id: row.id, core_id: row.core_id, pins: `${row.pins_left}+${row.pins_right}`, mount_orientation: row.mount_orientation, available: Number(row.available_qty) > 0 })),
+    wires: (catalog.wires || []).filter((row: any) => row.calculable).map((row: any) => ({ id: row.id, diameter_mm: row.diameter_mm, awg: row.awg, available: Number(row.available_qty) > 0 })),
   };
 }
 
