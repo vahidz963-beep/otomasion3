@@ -9,6 +9,7 @@ const moduleLoaders = {
   rnd: () => import('./modules/rnd/RnDModule'),
   orders: () => import('./modules/orders/OrdersModule'),
   warehouse: () => import('./modules/warehouse/WarehouseModule'),
+  calculator: () => import('./modules/calculator/CalculatorModule'),
   production: () => import('./modules/production/ProductionModule'),
   accounting: () => import('./modules/accounting/AccountingModule'),
   office: () => import('./modules/office/OfficeAdminModule'),
@@ -20,6 +21,7 @@ const Dashboard = React.lazy(moduleLoaders.dashboard);
 const RnDModule = React.lazy(moduleLoaders.rnd);
 const OrdersModule = React.lazy(moduleLoaders.orders);
 const WarehouseModule = React.lazy(moduleLoaders.warehouse);
+const CalculatorModule = React.lazy(moduleLoaders.calculator);
 const ProductionModule = React.lazy(moduleLoaders.production);
 const AccountingModule = React.lazy(moduleLoaders.accounting);
 const OfficeAdminModule = React.lazy(moduleLoaders.office);
@@ -100,6 +102,7 @@ function AppShell() {
   const modules = useMemo(() => [
     { key: 'dashboard', labelFa: 'داشبورد', labelEn: 'Dashboard', roles: ['admin', 'sales', 'sales_manager', 'rnd', 'production', 'warehouse', 'accountant', 'office_admin'], Component: Dashboard, preload: moduleLoaders.dashboard },
     { key: 'orders', labelFa: 'سفارش‌ها', labelEn: 'Orders', roles: ['admin', 'sales', 'sales_manager'], Component: OrdersModule, preload: moduleLoaders.orders },
+    { key: 'calculator', labelFa: 'مرکز محاسبه', labelEn: 'Calculator Center', roles: ['admin', 'sales', 'sales_manager', 'production', 'warehouse'], Component: CalculatorModule, preload: moduleLoaders.calculator },
     { key: 'rnd', labelFa: 'R&D', labelEn: 'R&D', roles: ['admin', 'rnd'], Component: RnDModule, preload: moduleLoaders.rnd },
     { key: 'production', labelFa: 'تولید', labelEn: 'Production', roles: ['admin', 'production'], Component: ProductionModule, preload: moduleLoaders.production },
     { key: 'warehouse', labelFa: 'انبار', labelEn: 'Warehouse', roles: ['admin', 'warehouse'], Component: WarehouseModule, preload: moduleLoaders.warehouse },

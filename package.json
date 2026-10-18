@@ -1,13 +1,14 @@
 {
   "name": "otomasion2",
-  "version": "0.1.0",
+  "version": "131.0.0",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "check": "npm run build"
+    "test:calculator": "node tests/calculator-engine.test.mjs",
+    "check": "npm run test:calculator && npm run build"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",

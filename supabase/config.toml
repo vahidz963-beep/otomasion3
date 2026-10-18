@@ -1,0 +1,5 @@
+# The calculator endpoint accepts both authenticated automation calls and
+# HMAC-signed WordPress server-to-server calls. JWT/HMAC verification is done
+# inside the function; platform-level JWT verification must therefore be off.
+[functions.calculator-api]
+verify_jwt = false

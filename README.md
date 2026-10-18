@@ -142,9 +142,15 @@ set role = 'admin', is_active = true, email = excluded.email, full_name = exclud
 - R&D: UI فعلی build می‌شود ولی هنوز mock/local state است؛ دیتابیس R&D آماده شده
 - Accounting/Finance: اسکیمای حرفه‌ای پایه + UI مدیریتی اولیه اضافه شده؛ CRUD عملیاتی فرم‌ها در مرحله بعد تکمیل می‌شود
 
+## مرکز محاسبه — نسخه ۱۳۱
+
+مرکز محاسبه واقعی در `src/modules/calculator/` قرار دارد و برای نقش‌های مدیر، فروش، مدیر فروش، تولید و انبار فعال است. Migration آن `123_calculator_center_integration.sql` و API امن آن Supabase Edge Function با نام `calculator-api` است.
+
+مدل‌های هسته، بوبین و سیم از داخل ماژول قابل افزودن یا تکمیل‌اند. هر مدل با `warehouse_item_id` به قلم واقعی انبار متصل می‌شود؛ قیمت و موجودی در کاتالوگ فنی کپی نمی‌شود و برای هر محاسبه از انبار جاری خوانده می‌شود. راهنمای کامل استقرار و WordPress در `DEPLOY_VERSION_131_FA.md` آمده است.
+
 ## نکته امنیتی
 
-RLS در migrations جدید برای جدول‌های اصلی فعال شده است. Frontend guard فقط برای UX است؛ امنیت واقعی باید همیشه در Supabase RLS/Functions بماند.
+RLS در migrations جدید برای جدول‌های اصلی فعال شده است. Frontend guard فقط برای UX است؛ امنیت واقعی باید همیشه در Supabase RLS/Functions بماند. فرمول، بهای تمام‌شده و `service_role` نباید به مرورگر مشتری فرستاده شوند.
 
 
 ## داده نمونه برای تست
