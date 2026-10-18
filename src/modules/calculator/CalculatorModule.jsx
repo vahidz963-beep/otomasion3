@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
   Boxes,
@@ -27,6 +27,7 @@ import { formatJalaliDateTime, formatNumber, formatToman } from '../../lib/forma
 import {
   calculateBoard,
   calculateTransformer,
+  confirmTransformer,
   consumeCalculatorQuote,
   getCalculatorAdminSettings,
   getCalculatorCatalog,
@@ -34,12 +35,14 @@ import {
   listCalculatorQuotes,
   promoteCalculatorQuote,
   publishTransformerFormula,
+  previewTransformerFill,
   releaseCalculatorQuote,
   reserveCalculatorQuote,
   saveCalculatorComponent,
   setCalculatorPublicFlag,
 } from '../../lib/calculatorApi';
 import { buildPinDiagramSvg, buildWindowFillSvg } from './calculatorVisuals';
+import { openTransformerPdfReport } from './calculatorReports';
 import './CalculatorModule.css';
 
 const DEFAULT_WINDINGS = [
@@ -119,7 +122,36 @@ function Hero({ designer, setDesigner, section, setSection }) {
   </>;
 }
 
-function TransformerDesigner({ catalog, onQuoteSaved, isAdmin }) {
+function InventoryStatus({ row, compact = false }) {
+  if (!row) return <span className="calc-stock-state neutral">ثبت نشده</span>;
+  const sufficient = Boolean(row.sufficient);
+  return <span className={`calc-stock-state ${sufficient ? 'ok' : 'bad'}`}>{sufficient ? 'موجود و کافی' : 'ناموجود / ناکافی'}{!compact && <> · نیاز {formatNumber(row.quantity_total)} {row.unit} · قابل رزرو {formatNumber(row.available_qty)} {row.unit}</>}</span>;
+}
+
+function InternalPricingBreakdown({ pricing }) {
+  if (!pricing) return null;
+  const operations = pricing.operation_breakdown || [];
+  const wireLines = pricing.wire_cost_lines || [];
+  return <section className="calc-confidential-pricing">
+    <div className="calc-section-heading"><ShieldCheck/><span><b>ریز محرمانه محاسبات و قیمت‌گذاری</b><small>نمایش این بخش تحت کنترل تنظیمات مدیر است و برای مشتری ارسال نمی‌شود.</small></span></div>
+    <div className="calc-table-scroll"><table className="calc-pricing-table"><thead><tr><th>عنوان</th><th>مبنای محاسبه</th><th>مبلغ</th></tr></thead><tbody>
+      <tr><td>بهای هسته</td><td>۱ عدد برای هر ترانس</td><td>{formatToman(pricing.core_cost_rial)}</td></tr>
+      <tr><td>بهای بوبین</td><td>۱ عدد برای هر ترانس</td><td>{formatToman(pricing.bobbin_cost_rial)}</td></tr>
+      {wireLines.map((line) => <tr key={line.wire_id}><td>سیم {line.label}</td><td>{formatNumber(line.quantity_per_unit_g)} گرم × {formatToman(line.unit_cost_rial_per_g)}</td><td>{formatToman(line.amount_rial)}</td></tr>)}
+      <tr><td>دستمزد</td><td>{formatNumber(pricing.labor_minutes)} دقیقه · نرخ ساعتی {formatToman(pricing.labor_hour_rial)}</td><td>{formatToman(pricing.labor_cost_rial)}</td></tr>
+      {operations.map((line) => <tr key={line.key}><td>{line.label}</td><td>عملیات هر عدد</td><td>{formatToman(line.amount_rial)}</td></tr>)}
+      <tr className="subtotal"><td>بهای مستقیم</td><td>قطعات + کار + عملیات</td><td>{formatToman(pricing.direct_cost_rial)}</td></tr>
+      <tr><td>سربار</td><td>{formatNumber(pricing.overhead_percent)}٪</td><td>{formatToman(pricing.overhead_cost_rial)}</td></tr>
+      <tr className="subtotal"><td>بهای تمام‌شده</td><td>مبنای قیمت‌گذاری</td><td>{formatToman(pricing.total_cost_rial)}</td></tr>
+      <tr><td>سود افزایشی</td><td>{formatNumber(pricing.profit_percent)}٪</td><td>{formatToman(pricing.profit_amount_rial)}</td></tr>
+      <tr><td>افزایش سفارش نمونه</td><td>ضریب {formatNumber(pricing.sample_multiplier)}</td><td>{formatToman(pricing.sample_surcharge_rial)}</td></tr>
+      <tr><td>هزینه ستاپ</td><td>یک‌بار برای سفارش</td><td>{formatToman(pricing.setup_fee_rial)}</td></tr>
+      <tr className="grand"><td>مبلغ نهایی</td><td>{formatNumber(pricing.quantity)} عدد</td><td>{formatToman(pricing.total_sale_rial)}</td></tr>
+    </tbody></table></div>
+  </section>;
+}
+
+function TransformerDesigner({ catalog, onQuoteSaved }) {
   const cores = catalog?.cores || [];
   const wires = catalog?.wires || [];
   const [coreId, setCoreId] = useState('');
@@ -131,6 +163,10 @@ function TransformerDesigner({ catalog, onQuoteSaved, isAdmin }) {
   const [windings, setWindings] = useState(DEFAULT_WINDINGS);
   const [result, setResult] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [confirmBusy, setConfirmBusy] = useState(false);
+  const [liveFill, setLiveFill] = useState({ loading: false, percent: null, status: 'idle', error: '' });
+  const previewSequence = useRef(0);
+  const calculationSequence = useRef(0);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
@@ -140,13 +176,57 @@ function TransformerDesigner({ catalog, onQuoteSaved, isAdmin }) {
   const selectedBobbin = allBobbins.find((bobbin) => bobbin.id === bobbinId) || null;
   const readyCoreIds = useMemo(() => new Set(allBobbins.filter((bobbin) => bobbin.calculable).map((bobbin) => bobbin.core_id)), [allBobbins]);
   const mappedWires = wires.filter((wire) => wire.calculable);
+  const wireById = useMemo(() => new Map(wires.map((wire) => [wire.id, wire])), [wires]);
   const maxPin = selectedBobbin ? Number(selectedBobbin.pins_left) + Number(selectedBobbin.pins_right) : 10;
   const selectedCoreReady = selectedCore?.calculable;
   const selectedBobbinReady = selectedBobbin?.calculable;
   const selectionReady = Boolean(selectedCoreReady && selectedBobbinReady && windings.length && windings.every((row) => {
     const wire = wires.find((item) => item.id === row.wire_id);
-    return row.wire_id && (wire?.calculable);
+    return row.wire_id && wire?.calculable;
   }));
+  const technicalPayload = useMemo(() => ({
+    core_id: coreId,
+    bobbin_id: bobbinId,
+    order_type: orderType,
+    quantity: Number(quantity),
+    has_gap: hasGap,
+    windings: windings.map(({ id, ...row }) => row),
+  }), [coreId, bobbinId, orderType, quantity, hasGap, windings]);
+  const calculationPayload = useMemo(() => ({ ...technicalPayload, ...customer }), [technicalPayload, customer]);
+  const previewKey = useMemo(() => JSON.stringify(technicalPayload), [technicalPayload]);
+  const calculationKey = useMemo(() => JSON.stringify(calculationPayload), [calculationPayload]);
+
+  useEffect(() => {
+    const sequence = ++previewSequence.current;
+    if (!selectionReady) {
+      setLiveFill({ loading: false, percent: null, status: 'idle', error: '' });
+      return undefined;
+    }
+    setLiveFill((current) => ({ ...current, loading: true, error: '' }));
+    const timer = window.setTimeout(async () => {
+      try {
+        const data = await previewTransformerFill(technicalPayload);
+        if (sequence !== previewSequence.current) return;
+        const percent = Number(data.occupancy_percent);
+        setLiveFill({
+          loading: false,
+          percent: Number.isFinite(percent) ? percent : null,
+          status: percent > 100 ? 'danger' : percent >= 90 ? 'warning' : 'ok',
+          error: '',
+        });
+      } catch (previewError) {
+        if (sequence !== previewSequence.current) return;
+        setLiveFill((current) => ({ ...current, loading: false, error: previewError.message || 'پیش‌نمایش زنده در دسترس نیست' }));
+      }
+    }, 450);
+    return () => window.clearTimeout(timer);
+  }, [selectionReady, previewKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    calculationSequence.current += 1;
+    setResult(null);
+    setSuccess('');
+  }, [calculationKey]);
 
   useEffect(() => {
     if (!windings.some((row) => row.wire_id) && mappedWires[0]) {
@@ -179,28 +259,46 @@ function TransformerDesigner({ catalog, onQuoteSaved, isAdmin }) {
     const id = Math.max(0, ...windings.map((row) => row.id)) + 1;
     const index = windings.length;
     setWindings([...windings, { id, name: `سیم‌پیچ ${index + 1}`, start_pin: Math.min(maxPin, index * 2 + 1), end_pin: Math.min(maxPin, index * 2 + 2), turns: 10, wire_id: mappedWires[0]?.id || '', strands: 1, arrangement: 'side', layer_mode: 'auto', requested_layers: 1, direction: 'cw' }]);
+    setResult(null);
   }
 
   async function runCalculation() {
     setError(''); setSuccess('');
     if (!selectionReady) { setError('ابتدا هسته، بوبین و سیم‌های متصل به انبار را کامل انتخاب کنید.'); return; }
+    const sequence = ++calculationSequence.current;
     setBusy(true);
     try {
-      const data = await calculateTransformer({
-        core_id: coreId, bobbin_id: bobbinId, order_type: orderType, quantity: Number(quantity), has_gap: hasGap,
-        ...customer,
-        windings: windings.map(({ id, ...row }) => row),
-      });
+      const data = await calculateTransformer(calculationPayload);
+      if (sequence !== calculationSequence.current) return;
+      setResult(data);
+      if (!data.valid) setError((data.errors || []).map((item) => item.message).join(' '));
+    } catch (calculationError) {
+      if (sequence === calculationSequence.current) setError(calculationError.message);
+    } finally { setBusy(false); }
+  }
+
+  async function confirmCalculation() {
+    setError(''); setSuccess('');
+    if (!result?.valid) { setError('ابتدا محاسبه معتبر را انجام دهید.'); return; }
+    if (!customer.customer_name.trim() || !customer.customer_phone.trim() || !customer.project_title.trim()) {
+      setError('برای تأیید نهایی، نام مشتری، شماره تماس و عنوان پروژه را کامل کنید.');
+      return;
+    }
+    const sequence = ++calculationSequence.current;
+    setConfirmBusy(true);
+    try {
+      const data = await confirmTransformer(calculationPayload);
+      if (sequence !== calculationSequence.current) return;
       setResult(data);
       if (data.valid && data.quote) {
-        setSuccess(`محاسبه با کد ${data.quote.public_code} ثبت شد.`);
+        setSuccess(`تأیید نهایی انجام شد؛ سفارش با کد ${data.quote.public_code} در بخش «سفارش‌های سایت و تولید» ثبت شد.`);
         onQuoteSaved?.();
-      } else if (!data.valid) {
-        setError((data.errors || []).map((item) => item.message).join(' '));
+      } else {
+        setError((data.errors || []).map((item) => item.message).join(' ') || 'ثبت نهایی سفارش ناموفق بود.');
       }
-    } catch (calculationError) {
-      setError(calculationError.message);
-    } finally { setBusy(false); }
+    } catch (confirmationError) {
+      if (sequence === calculationSequence.current) setError(confirmationError.message);
+    } finally { setConfirmBusy(false); }
   }
 
   const fillSvg = useMemo(() => result?.engineering ? buildWindowFillSvg(selectedBobbin, result.engineering) : '', [result, selectedBobbin]);
@@ -208,41 +306,44 @@ function TransformerDesigner({ catalog, onQuoteSaved, isAdmin }) {
 
   function printReport(kind) {
     if (!result?.engineering || !fillSvg || !pinSvg) return;
-    const publicResult = result.public_result || {};
-    const rows = result.engineering.rows || [];
-    const windingCards = rows.map((row) => `<div class="wind-card"><i style="background:${htmlEscape(row.color)}"></i><b>N${row.line_no} · ${htmlEscape(row.name)}</b><span>پین ${row.start_pin} ← ${row.end_pin}</span><span>${formatNumber(row.turns)} دور</span><span>${formatWireLabel(row.wire_diameter_mm, row.awg)} · ${formatNumber(row.strands)} رشته</span><span>سهم پنجره ${formatNumber(row.window_share_percent)}٪</span></div>`).join('');
-    const instructionRows = rows.map((row) => `<tr><td>${row.line_no}</td><td>${htmlEscape(row.name)}</td><td>${row.start_pin} ← ${row.end_pin}</td><td>${formatNumber(row.turns)}</td><td>${formatWireLabel(row.wire_diameter_mm, row.awg)}</td><td>${formatNumber(row.calculated_layers)}</td><td>${formatNumber(row.length_m)} متر</td><td>${row.direction === 'ccw' ? 'پادساعتگرد' : 'ساعتگرد'}</td></tr>`).join('');
-    const pricing = result.pricing;
-    const costSection = kind === 'internal' && pricing ? `<section><h2>ریز مالی محرمانه مدیر</h2><table><tbody><tr><th>بهای هسته</th><td>${formatToman(pricing.core_cost_rial)}</td></tr><tr><th>بهای بوبین</th><td>${formatToman(pricing.bobbin_cost_rial)}</td></tr><tr><th>بهای سیم</th><td>${formatToman(pricing.wire_cost_rial)}</td></tr><tr><th>بهای تمام‌شده</th><td>${formatToman(pricing.total_cost_rial)}</td></tr><tr><th>سود نسخه محاسبه</th><td>${formatNumber(pricing.profit_percent)}٪</td></tr></tbody></table></section>` : '';
-    const html = `<!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8"><title>${kind === 'internal' ? 'برگه ساخت' : 'گزارش مشتری'} ${htmlEscape(result.quote?.public_code || '')}</title><style>*{box-sizing:border-box}body{font-family:Tahoma,Arial;color:#142b45;margin:0;background:#fff}.sheet{width:210mm;min-height:297mm;margin:auto;padding:13mm}.head{display:flex;justify-content:space-between;border-bottom:3px solid #d6a31b;padding-bottom:12px}.head h1{font-size:22px;margin:0 0 7px}.head span,.muted{color:#65717d;font-size:12px}.code{font-weight:800;color:#a8672e}section{margin:18px 0;break-inside:avoid}h2{font-size:15px;border-right:4px solid #d6a31b;padding-right:8px}.summary{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}.summary div{border:1px solid #dce2e7;border-radius:10px;padding:10px}.summary small{display:block;color:#68737d;margin-bottom:5px}.diagrams{display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:start}.diagram{border:1px solid #dce2e7;border-radius:12px;padding:8px;overflow:hidden}.diagram h3{font-size:13px;margin:2px 4px 8px}.diagram svg{width:100%;height:auto;display:block}.wind-grid{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-top:7px}.wind-card{display:grid;grid-template-columns:12px 1.4fr 1fr 1fr;gap:5px;align-items:center;border:1px solid #e6eaed;border-radius:7px;padding:6px;font-size:9px}.wind-card i{width:10px;height:10px;border-radius:3px}.wind-card span:last-child{grid-column:2/-1;color:#68737d}table{width:100%;border-collapse:collapse;font-size:11px}th,td{border:1px solid #dde2e6;padding:7px;text-align:right}th{background:#f4f6f7}@media print{.sheet{padding:8mm}.no-print{display:none}@page{size:A4;margin:0}.diagrams{grid-template-columns:1fr 1fr}}</style></head><body><main class="sheet"><div class="head"><div><h1>${kind === 'internal' ? 'برگه ساخت و محاسبات ترانس' : 'گزارش سفارش مشتری'}</h1><span>${htmlEscape(customer.customer_name || 'مشتری ثبت‌نشده')} · ${htmlEscape(customer.project_title || 'پروژه بدون عنوان')} · ${kind === 'internal' ? 'داخلی کارکنان' : 'نسخه مشتری'}</span></div><div class="code">${htmlEscape(result.quote?.public_code || '—')}</div></div><section class="summary"><div><small>هسته</small><b>${htmlEscape(selectedCore?.model_code || '—')}</b></div><div><small>بوبین</small><b>${selectedBobbin?.pins_left}+${selectedBobbin?.pins_right} پین · ${htmlEscape(selectedBobbin?.mount_orientation || '—')}</b></div><div><small>تعداد</small><b>${formatNumber(quantity)} عدد</b></div><div><small>اشغال پنجره</small><b>${formatNumber(result.engineering.occupancy_percent)}٪</b></div><div><small>قیمت هر عدد</small><b>${formatToman(publicResult.unit_sale_rial)}</b></div><div><small>هزینه ستاپ</small><b>${formatToman(publicResult.setup_fee_rial)}</b></div><div><small>مبلغ کل</small><b>${formatToman(publicResult.total_sale_rial)}</b></div><div><small>وضعیت ساخت</small><b>${result.valid ? 'مجاز' : 'نیازمند اصلاح'}</b></div></section><section><h2>نقشه‌های مهندسی</h2><div class="diagrams"><div class="diagram"><h3>تصویر ۱ — پرشدگی سیم‌پیچ‌ها</h3>${fillSvg}<div class="wind-grid">${windingCards}</div></div><div class="diagram"><h3>تصویر ۲ — نمای بالای پایه و سیم‌پیچی</h3>${pinSvg}</div></div></section>${kind === 'internal' ? `<section><h2>دستور سیم‌پیچی</h2><table><thead><tr><th>ردیف</th><th>نام</th><th>پین</th><th>دور</th><th>سیم</th><th>لایه</th><th>طول</th><th>جهت</th></tr></thead><tbody>${instructionRows}</tbody></table></section>` : ''}${costSection}<p class="muted">این سند Snapshot محاسبه ثبت‌شده است و تغییر بعدی قیمت یا موجودی انبار، مقادیر این سند را تغییر نمی‌دهد.</p></main><script>window.onload=()=>window.print()</script></body></html>`;
-    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const reportWindow = window.open(url, '_blank');
-    if (!reportWindow) {
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `${kind === 'internal' ? 'production-report' : 'customer-report'}-${result.quote?.public_code || 'calculator'}.html`;
-      link.click();
-      setError('پنجره چاپ مسدود بود؛ فایل گزارش دانلود شد.');
-    }
-    window.setTimeout(() => URL.revokeObjectURL(url), 60000);
+    openTransformerPdfReport({
+      kind,
+      code: result.quote?.public_code || 'PREVIEW',
+      quote: result.quote,
+      confirmed: Boolean(result.quote),
+      customerName: customer.customer_name,
+      customerPhone: customer.customer_phone,
+      projectTitle: customer.project_title,
+      orderType,
+      quantity: Number(quantity),
+      hasGap,
+      core: selectedCore || result.components?.core || {},
+      bobbin: selectedBobbin || result.components?.bobbin || {},
+      engineering: result.engineering,
+      publicResult: result.public_result || {},
+      inventory: result.inventory || [],
+      pricing: result.pricing || null,
+      formulaVersion: result.formula_version || '',
+      fillSvg,
+      pinSvg,
+    });
   }
 
-  return <div className="calc-design-layout">
+  return <div className={`calc-design-layout ${confirmBusy ? 'is-confirming' : ''}`}>
     <section className="calc-card calc-input-panel">
       <div className="calc-card-title"><div><Zap/><h2>مشخصات ترانس</h2></div><span className={`calc-sync-badge ${selectionReady ? 'ok' : ''}`}><Link2/>اتصال زنده انبار</span></div>
       <div className="calc-order-type">
-        <button type="button" className={orderType === 'sample' ? 'active' : ''} onClick={() => { setOrderType('sample'); setQuantity(Math.min(99, Math.max(1, Number(quantity)))); setResult(null); }}>نمونه ۱ تا ۹۹ عدد</button>
-        <button type="button" className={orderType === 'production' ? 'active' : ''} onClick={() => { setOrderType('production'); setQuantity(Math.max(100, Number(quantity))); setResult(null); }}>تولید حداقل ۱۰۰ عدد</button>
+        <button type="button" className={orderType === 'sample' ? 'active' : ''} onClick={() => { setOrderType('sample'); setQuantity(Math.min(99, Math.max(1, Number(quantity)))); setResult(null); }}><strong>سفارش نمونه ترانس</strong><small>۱ – ۹۹ عدد</small></button>
+        <button type="button" className={orderType === 'production' ? 'active' : ''} onClick={() => { setOrderType('production'); setQuantity(Math.max(100, Number(quantity))); setResult(null); }}><strong>سفارش تعداد</strong><small>+۱۰۰ عدد</small></button>
       </div>
       <div className="calc-form-grid">
-        <Field label="مدل هسته">
+        <Field label="مدل هسته" hint={selectedCore ? `موجودی قابل رزرو: ${formatNumber(selectedCore.available_qty)} عدد${selectedCore.warehouse_code ? ` · کد ${selectedCore.warehouse_code}` : ''}` : 'پس از انتخاب، موجودی واقعی انبار نمایش داده می‌شود.'}>
           <select value={coreId} onChange={(event) => setCoreId(event.target.value)}><option value="">انتخاب هسته</option>{cores.map((core) => {
             const ready = (core.calculable) && readyCoreIds.has(core.id);
             return <option key={core.id} value={core.id} disabled={!ready}>{core.model_code}{ready ? '' : ' · نیازمند تکمیل/اتصال انبار'}</option>;
           })}</select>
         </Field>
-        <Field label="مدل بوبین" hint="در گزینه فقط تعداد پین و جهت نصب نمایش داده می‌شود.">
+        <Field label="مدل بوبین" hint={selectedBobbin ? `موجودی قابل رزرو: ${formatNumber(selectedBobbin.available_qty)} عدد${selectedBobbin.warehouse_code ? ` · کد ${selectedBobbin.warehouse_code}` : ''}` : 'در گزینه فقط تعداد پین و جهت نصب نمایش داده می‌شود.'}>
           <select value={bobbinId} onChange={(event) => setBobbinId(event.target.value)} disabled={!coreId}><option value="">انتخاب بوبین</option>{bobbins.map((bobbin) => { const ready = bobbin.calculable; return <option key={bobbin.id} value={bobbin.id} disabled={!ready}>{bobbin.pins_left}+{bobbin.pins_right} پین · {bobbin.mount_orientation}{ready ? '' : ' · بدون اتصال معتبر انبار'}</option>; })}</select>
         </Field>
         <Field label="تعداد">
@@ -257,7 +358,7 @@ function TransformerDesigner({ catalog, onQuoteSaved, isAdmin }) {
     </section>
 
     <section className="calc-card calc-winding-panel">
-      <div className="calc-card-title"><div><Layers3/><h2>سیم‌پیچ‌ها</h2></div><button type="button" className="calc-secondary" onClick={addWinding} disabled={windings.length >= 12}><Plus/>افزودن</button></div>
+      <div className="calc-card-title"><div><Layers3/><h2>سیم‌پیچ‌ها</h2></div></div>
       <div className="calc-table-scroll">
         <table className="calc-winding-table has-row-numbers"><thead><tr><th>ردیف</th><th>نام</th><th>شروع</th><th>پایان</th><th>دور</th><th>سیم</th><th>رشته</th><th>لایه</th><th>جهت</th><th></th></tr></thead><tbody>{windings.map((row, index) => <tr key={row.id}>
           <td>{formatNumber(index + 1)}</td>
@@ -265,35 +366,72 @@ function TransformerDesigner({ catalog, onQuoteSaved, isAdmin }) {
           <td><select value={row.start_pin} onChange={(event) => updateWinding(row.id, 'start_pin', event.target.value)}>{Array.from({ length: maxPin }, (_, pin) => <option key={pin + 1} value={pin + 1}>{formatNumber(pin + 1)}</option>)}</select></td>
           <td><select value={row.end_pin} onChange={(event) => updateWinding(row.id, 'end_pin', event.target.value)}>{Array.from({ length: maxPin }, (_, pin) => <option key={pin + 1} value={pin + 1}>{formatNumber(pin + 1)}</option>)}</select></td>
           <td><input type="number" min="1" value={row.turns} onChange={(event) => updateWinding(row.id, 'turns', event.target.value)}/></td>
-          <td><select value={row.wire_id} onChange={(event) => updateWinding(row.id, 'wire_id', event.target.value)}><option value="">انتخاب</option>{wires.map((wire) => { const ready = wire.calculable; return <option key={wire.id} value={wire.id} disabled={!ready}>{formatWireLabel(wire.diameter_mm, wire.awg)}{ready ? '' : ' · بدون اتصال معتبر انبار'}</option>; })}</select></td>
+          <td><div className="calc-wire-select"><select value={row.wire_id} onChange={(event) => updateWinding(row.id, 'wire_id', event.target.value)}><option value="">انتخاب</option>{wires.map((wire) => { const ready = wire.calculable; return <option key={wire.id} value={wire.id} disabled={!ready}>{formatWireLabel(wire.diameter_mm, wire.awg)}{ready ? '' : ' · بدون اتصال معتبر انبار'}</option>; })}</select>{row.wire_id && <small className={Number(wireById.get(row.wire_id)?.available_qty) > 0 ? 'ok' : 'bad'}>موجودی: {formatNumber(wireById.get(row.wire_id)?.available_qty)} گرم</small>}</div></td>
           <td><input type="number" min="1" max="20" value={row.strands} onChange={(event) => updateWinding(row.id, 'strands', event.target.value)}/></td>
           <td><div className="calc-layer-cell"><select value={row.layer_mode} onChange={(event) => updateWinding(row.id, 'layer_mode', event.target.value)}><option value="auto">خودکار</option><option value="manual">دستی</option></select>{row.layer_mode === 'manual' && <input type="number" min="1" value={row.requested_layers} onChange={(event) => updateWinding(row.id, 'requested_layers', event.target.value)}/>}</div></td>
           <td><select value={row.direction} onChange={(event) => updateWinding(row.id, 'direction', event.target.value)}><option value="cw">ساعتگرد</option><option value="ccw">پادساعتگرد</option></select></td>
           <td><button type="button" className="calc-icon danger" aria-label="حذف سیم‌پیچ" disabled={windings.length === 1} onClick={() => { setWindings(windings.filter((item) => item.id !== row.id)); setResult(null); }}><Trash2/></button></td>
         </tr>)}</tbody></table>
       </div>
+      <div className="calc-winding-footer"><button type="button" className="calc-secondary" onClick={addWinding} disabled={windings.length >= 12}><Plus/>افزودن سیم‌پیچ</button></div>
+      <div className={`calc-live-fill ${liveFill.status}`}>
+        <div className="calc-live-fill-head"><span><Layers3/>پرشدگی زنده پنجره</span><b>{liveFill.loading ? 'در حال به‌روزرسانی…' : liveFill.percent === null ? '—' : `${formatNumber(liveFill.percent)}٪`}</b></div>
+        <div className="calc-live-fill-track" role="progressbar" aria-label="درصد پرشدگی پنجره" aria-valuemin="1" aria-valuemax="100" aria-valuenow={liveFill.percent === null ? 1 : Math.min(100, Math.max(1, liveFill.percent))}><span style={{ width: `${liveFill.percent === null ? 0 : Math.min(100, Math.max(1, liveFill.percent))}%` }}/></div>
+        <div className="calc-live-fill-scale"><span>۱٪</span><span>۲۵٪</span><span>۵۰٪</span><span>۷۵٪</span><span>۱۰۰٪</span></div>
+        <small>{liveFill.error || (selectionReady ? 'با هر تغییر در دور، سیم، رشته یا لایه به‌صورت خودکار محاسبه می‌شود.' : 'برای نمایش نوار، هسته، بوبین و سیم‌ها را کامل انتخاب کنید.')}</small>
+      </div>
       <ErrorNotice message={error} onClose={() => setError('')}/><SuccessNotice message={success} onClose={() => setSuccess('')}/>
-      <button type="button" className="calc-primary calc-run" disabled={busy || !selectionReady} onClick={runCalculation}>{busy ? <RefreshCw className="spin"/> : <Calculator/>}{busy ? 'در حال محاسبه امن...' : 'محاسبه و ثبت Snapshot'}</button>
+      <button type="button" className="calc-primary calc-run" disabled={busy || !selectionReady} onClick={runCalculation}>{busy ? <RefreshCw className="spin"/> : <Calculator/>}{busy ? 'در حال محاسبه امن...' : 'محاسبه و نمایش نتیجه'}</button>
     </section>
 
     {result?.engineering && <section className="calc-card calc-result-panel">
       <div className="calc-result-head">
-        <div><span className={`calc-result-state ${result.valid ? 'ok' : 'bad'}`}>{result.valid ? <CheckCircle2/> : <AlertTriangle/>}{result.valid ? 'قابل ساخت و ثبت‌شده' : 'نیازمند اصلاح'}</span><h2>{selectedCore?.model_code} · {selectedBobbin?.pins_left}+{selectedBobbin?.pins_right} پین · {selectedBobbin?.mount_orientation}</h2><small>{result.quote?.public_code || 'سند ذخیره نشده است'}</small></div>
-        <div className="calc-price"><small>قیمت هر عدد</small><strong>{formatToman(result.public_result?.unit_sale_rial)}</strong><span>جمع {formatToman(result.public_result?.total_sale_rial)}</span></div>
+        <div><span className={`calc-result-state ${result.valid ? 'ok' : 'bad'}`}>{result.valid ? <CheckCircle2/> : <AlertTriangle/>}{result.valid ? (result.quote ? 'تأیید نهایی و ثبت‌شده' : 'محاسبه معتبر؛ منتظر تأیید نهایی') : 'نیازمند اصلاح'}</span><h2>{selectedCore?.model_code} · {selectedBobbin?.pins_left}+{selectedBobbin?.pins_right} پین · {selectedBobbin?.mount_orientation}</h2><small>{result.quote?.public_code || 'پیش‌نمایش بدون ثبت؛ هنگام تأیید دوباره در سرور محاسبه می‌شود'}</small></div>
       </div>
-      <div className="calc-metrics">
-        <div><small>اشغال پنجره</small><b>{formatNumber(result.engineering.occupancy_percent)}٪</b></div>
-        <div><small>طول سیم هر عدد</small><b>{formatNumber(result.engineering.total_length_m)} متر</b></div>
-        <div><small>وزن مس هر عدد</small><b>{formatNumber(result.engineering.copper_weight_per_unit_g)} گرم</b></div>
-        <div><small>ارتفاع مصرف‌شده</small><b>{formatNumber(result.engineering.total_build_mm)} mm</b></div>
-      </div>
-      {(result.warnings || []).map((item) => <div className="calc-inline-warning" key={item.code}><AlertTriangle/>{item.message}</div>)}
-      <div className="calc-diagram-grid">
-        <article className="calc-diagram-card"><header><span>تصویر ۱</span><h3>نقشه پرشدگی سیم‌پیچ‌ها</h3></header><div className="calc-svg-host" dangerouslySetInnerHTML={{ __html: fillSvg }}/><div className="calc-winding-legend">{result.engineering.rows.map((row) => <div key={row.line_no}><i style={{ background: row.color }}/><span><b>N{formatNumber(row.line_no)} · {row.name}</b><small>پین {formatNumber(row.start_pin)} تا {formatNumber(row.end_pin)} · {formatNumber(row.turns)} دور · سهم پنجره {formatNumber(row.window_share_percent)}٪</small></span></div>)}</div></article>
-        <article className="calc-diagram-card pin"><header><span>تصویر ۲</span><h3>نمای بالای پایه و سیم‌پیچی</h3></header><div className="calc-svg-host pin" dangerouslySetInnerHTML={{ __html: pinSvg }}/></article>
-      </div>
-      {result.quote && <div className="calc-report-actions"><button type="button" onClick={() => printReport('customer')}><FileText/>گزارش مشتری با هر دو نقشه</button><button type="button" onClick={() => printReport('internal')}><Printer/>گزارش داخلی کارکنان{isAdmin && result.pricing ? ' + مالی مدیر' : ''}</button></div>}
+
+      <section className="calc-result-category summary">
+        <div className="calc-category-title"><span>۱</span><div><h3>خلاصه امکان ساخت، موجودی و قیمت نهایی</h3><small>اطلاعات سریع و قابل ارائه پیش از تأیید سفارش</small></div></div>
+        <div className="calc-customer-summary">
+          <div><small>اشغال پنجره</small><b>{formatNumber(result.engineering.occupancy_percent)}٪</b></div>
+          <div><small>وضعیت ساخت</small><b className={result.valid ? 'ok' : 'bad'}>{result.valid ? 'مجاز' : 'نیازمند اصلاح'}</b></div>
+          <div><small>موجودی هسته</small><InventoryStatus compact row={(result.inventory || []).find((item) => item.component_role === 'core')}/></div>
+          <div><small>موجودی بوبین</small><InventoryStatus compact row={(result.inventory || []).find((item) => item.component_role === 'bobbin')}/></div>
+          <div><small>قیمت هر عدد</small><b>{formatToman(result.public_result?.unit_sale_rial)}</b></div>
+          <div><small>هزینه ستاپ</small><b>{formatToman(result.public_result?.setup_fee_rial)}</b></div>
+          <div><small>تعداد سفارش</small><b>{formatNumber(quantity)} عدد</b></div>
+          <div className="total"><small>مبلغ نهایی</small><strong>{formatToman(result.public_result?.total_sale_rial)}</strong></div>
+        </div>
+        <div className="calc-table-scroll calc-inventory-result"><table><thead><tr><th>قلم مصرفی</th><th>مصرف هر عدد</th><th>نیاز کل</th><th>موجودی قابل رزرو</th><th>وضعیت</th></tr></thead><tbody>{(result.inventory || []).map((item, index) => <tr key={`${item.warehouse_item_id || item.component_role}-${index}`}><td><b>{item.label || (item.component_role === 'core' ? selectedCore?.model_code : item.component_role === 'bobbin' ? `${selectedBobbin?.pins_left}+${selectedBobbin?.pins_right} پین` : 'سیم مسی لاکی')}</b><small>{item.component_role === 'core' ? 'هسته' : item.component_role === 'bobbin' ? 'بوبین' : 'سیم'}</small></td><td>{formatNumber(item.quantity_per_unit)} {item.unit}</td><td>{formatNumber(item.quantity_total)} {item.unit}</td><td>{formatNumber(item.available_qty)} {item.unit}</td><td><InventoryStatus compact row={item}/></td></tr>)}</tbody></table></div>
+        {!result.quote && result.valid && <div className="calc-confirm-box"><ShieldCheck/><div><b>تأیید و ثبت نهایی</b><p>پس از تأیید، قیمت و موجودی دوباره در Edge بررسی، Snapshot ثابت و سفارش ثبت می‌شود.</p></div><button type="button" className="calc-primary" disabled={confirmBusy} onClick={confirmCalculation}>{confirmBusy ? <RefreshCw className="spin"/> : <CheckCircle2/>}{confirmBusy ? 'در حال ثبت نهایی…' : 'تأیید نهایی و ثبت سفارش'}</button></div>}
+        {result.quote && <div className="calc-confirmed-box"><CheckCircle2/><span><b>سفارش ثبت شد</b><small>کد پیگیری: {result.quote.public_code}</small></span></div>}
+      </section>
+
+      <section className="calc-result-category technical">
+        <div className="calc-category-title"><span>۲</span><div><h3>پرونده فنی، جدول‌ها و نقشه‌های پیش از تأیید</h3><small>اطلاعات دسته‌بندی‌شده هسته، بوبین، سیم‌پیچی و هندسه</small></div></div>
+        <div className="calc-component-summary">
+          <article><h4>مشخصات هسته</h4><dl><div><dt>مدل</dt><dd>{selectedCore?.model_code || '—'}</dd></div><div><dt>خانواده</dt><dd>{selectedCore?.family || '—'}</dd></div><div><dt>جنس</dt><dd>{selectedCore?.material || '—'}</dd></div><div><dt>Ae</dt><dd>{selectedCore?.effective_area_mm2 ? `${formatNumber(selectedCore.effective_area_mm2)} mm²` : '—'}</dd></div><div><dt>پایه مرکزی</dt><dd>{selectedCore?.center_leg_mm ? `${formatNumber(selectedCore.center_leg_mm)} mm` : '—'}</dd></div></dl></article>
+          <article><h4>مشخصات بوبین</h4><dl><div><dt>پایه‌ها</dt><dd>{selectedBobbin?.pins_left}+{selectedBobbin?.pins_right}</dd></div><div><dt>جهت نصب</dt><dd>{selectedBobbin?.mount_orientation || '—'}</dd></div><div><dt>BW</dt><dd>{formatNumber(selectedBobbin?.window_width_mm)} mm</dd></div><div><dt>HW</dt><dd>{formatNumber(selectedBobbin?.window_height_mm)} mm</dd></div><div><dt>MLT</dt><dd>{formatNumber(selectedBobbin?.mean_turn_length_mm)} mm</dd></div></dl></article>
+        </div>
+        <div className="calc-metrics">
+          <div><small>کنترل سطح مقطع</small><b>{formatNumber(result.engineering.area_percent)}٪</b></div>
+          <div><small>کنترل شعاعی</small><b>{formatNumber(result.engineering.radial_percent)}٪</b></div>
+          <div><small>طول سیم هر عدد</small><b>{formatNumber(result.engineering.total_length_m)} متر</b></div>
+          <div><small>وزن مس هر عدد</small><b>{formatNumber(result.engineering.copper_weight_per_unit_g)} گرم</b></div>
+          <div><small>ارتفاع مصرف‌شده</small><b>{formatNumber(result.engineering.total_build_mm)} mm</b></div>
+          <div><small>عایق ثابت</small><b>{formatNumber(result.engineering.insulation_mm)} mm</b></div>
+        </div>
+        {(result.warnings || []).map((item) => <div className="calc-inline-warning" key={item.code}><AlertTriangle/>{item.message}</div>)}
+        <div className="calc-table-scroll calc-technical-result"><table><thead><tr><th>ردیف</th><th>نام</th><th>پین</th><th>دور</th><th>سیم</th><th>رشته</th><th>لایه</th><th>جهت</th><th>طول</th><th>سهم پنجره</th></tr></thead><tbody>{result.engineering.rows.map((row) => <tr key={row.line_no}><td>{formatNumber(row.line_no)}</td><td><b>N{formatNumber(row.line_no)} · {row.name}</b></td><td>{formatNumber(row.start_pin)} ← {formatNumber(row.end_pin)}</td><td>{formatNumber(row.turns)}</td><td>{formatWireLabel(row.wire_diameter_mm, row.awg)}</td><td>{formatNumber(row.strands)}</td><td>{formatNumber(row.calculated_layers)}</td><td>{row.direction === 'ccw' ? 'پادساعتگرد' : 'ساعتگرد'}</td><td>{formatNumber(row.length_m)} متر</td><td>{formatNumber(row.window_share_percent)}٪</td></tr>)}</tbody></table></div>
+        <div className="calc-diagram-grid">
+          <article className="calc-diagram-card"><header><span>تصویر ۱</span><h3>نقشه پرشدگی سیم‌پیچ‌ها</h3></header><div className="calc-svg-host" dangerouslySetInnerHTML={{ __html: fillSvg }}/><div className="calc-winding-legend">{result.engineering.rows.map((row) => <div key={row.line_no}><i style={{ background: row.color }}/><span><b>N{formatNumber(row.line_no)} · {row.name}</b><small><em>پین {formatNumber(row.start_pin)} تا {formatNumber(row.end_pin)}</em><em>{formatNumber(row.turns)} دور</em><em>{formatWireLabel(row.wire_diameter_mm, row.awg)}</em><em>سهم {formatNumber(row.window_share_percent)}٪</em></small></span></div>)}</div></article>
+          <article className="calc-diagram-card pin"><header><span>تصویر ۲</span><h3>نمای بالای پایه و سیم‌پیچی</h3></header><div className="calc-svg-host pin" dangerouslySetInnerHTML={{ __html: pinSvg }}/></article>
+        </div>
+      </section>
+
+      {result.pricing_breakdown_visible && result.pricing && <InternalPricingBreakdown pricing={result.pricing}/>} 
+      {result.valid && <div className="calc-report-actions"><button type="button" onClick={() => printReport('customer')}><FileText/>خروجی PDF مشتری</button><button type="button" onClick={() => printReport('internal')}><Printer/>PDF داخلی کارکنان{result.pricing ? ' + ریز محرمانه' : ''}</button></div>}
     </section>}
+
   </div>;
 }
 
@@ -323,7 +461,7 @@ function BoardDesigner() {
   </section>;
 }
 
-function SavedQuoteReportModal({ quote, onClose, isAdmin }) {
+function SavedQuoteReportModal({ quote, onClose }) {
   const engineering = quote.engineering_snapshot || {};
   const input = quote.input_snapshot || {};
   const publicResult = quote.public_result_snapshot || {};
@@ -341,19 +479,32 @@ function SavedQuoteReportModal({ quote, onClose, isAdmin }) {
   const pinSvg = bobbin ? buildPinDiagramSvg(bobbin, engineering) : '';
   const rows = engineering.rows || [];
   function openReport(kind) {
-    const legend = rows.map((row) => `<div class="w"><i style="background:${htmlEscape(row.color)}"></i><b>N${row.line_no} · ${htmlEscape(row.name)}</b><span>پین ${row.start_pin} تا ${row.end_pin} · ${formatNumber(row.turns)} دور · سهم ${formatNumber(row.window_share_percent)}٪</span></div>`).join('');
-    const instructions = rows.map((row) => `<tr><td>${row.line_no}</td><td>${htmlEscape(row.name)}</td><td>${row.start_pin} ← ${row.end_pin}</td><td>${formatNumber(row.turns)}</td><td>${formatWireLabel(row.wire_diameter_mm, row.awg)}</td><td>${formatNumber(row.calculated_layers)}</td><td>${formatNumber(row.length_m)} متر</td><td>${row.direction === 'ccw' ? 'پادساعتگرد' : 'ساعتگرد'}</td></tr>`).join('');
-    const pricing = kind === 'internal' && isAdmin ? quote.pricing_snapshot : null;
-    const costs = pricing && Object.keys(pricing).length ? `<section><h2>ریز مالی محرمانه مدیر</h2><table><tbody><tr><th>بهای هسته</th><td>${formatToman(pricing.core_cost_rial)}</td></tr><tr><th>بهای بوبین</th><td>${formatToman(pricing.bobbin_cost_rial)}</td></tr><tr><th>بهای سیم</th><td>${formatToman(pricing.wire_cost_rial)}</td></tr><tr><th>بهای تمام‌شده</th><td>${formatToman(pricing.total_cost_rial)}</td></tr><tr><th>سود نسخه</th><td>${formatNumber(pricing.profit_percent)}٪</td></tr></tbody></table></section>` : '';
-    const html = `<!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8"><title>${htmlEscape(quote.public_code)}</title><style>@page{size:A4;margin:9mm}*{box-sizing:border-box}body{font-family:Tahoma,Arial;color:#142b45;margin:0}.sheet{padding:8mm}.head{display:flex;justify-content:space-between;border-bottom:3px solid #d6a31b;padding-bottom:10px}.head h1{font-size:21px;margin:0 0 6px}.head span,.note{font-size:11px;color:#687580}.code{font-weight:900;color:#a8672e}.summary{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin:14px 0}.summary div{border:1px solid #dfe4e7;border-radius:9px;padding:9px}.summary small{display:block;color:#74808a;margin-bottom:4px}.diagrams{display:grid;grid-template-columns:1fr 1fr;gap:9px;align-items:start}.d{border:1px solid #dfe4e7;border-radius:11px;padding:7px;overflow:hidden}.d h3{font-size:12px}.d svg{width:100%;height:auto}.legend{display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-top:5px}.w{display:grid;grid-template-columns:10px 1fr;gap:4px;border:1px solid #e8ebed;border-radius:6px;padding:5px;font-size:8.5px}.w i{width:9px;height:9px;border-radius:2px}.w span{grid-column:2;color:#687580}section{break-inside:avoid;margin:14px 0}h2{font-size:14px;border-right:4px solid #d6a31b;padding-right:7px}table{width:100%;border-collapse:collapse;font-size:10px}td,th{border:1px solid #dfe4e7;padding:6px;text-align:right}@media print{.sheet{padding:0}}</style></head><body><main class="sheet"><header class="head"><div><h1>${kind === 'internal' ? 'برگه ساخت و محاسبات ترانس' : 'گزارش سفارش مشتری'}</h1><span>${htmlEscape(quote.customer_name || 'مشتری ثبت‌نشده')} · ${htmlEscape(quote.project_title || 'پروژه بدون عنوان')}</span></div><div class="code">${htmlEscape(quote.public_code)}</div></header><div class="summary"><div><small>هسته</small><b>${htmlEscape(input.core_model || '—')}</b></div><div><small>بوبین</small><b>${htmlEscape(input.bobbin_label || '—')}</b></div><div><small>تعداد</small><b>${formatNumber(quote.quantity)}</b></div><div><small>اشغال پنجره</small><b>${formatNumber(engineering.occupancy_percent)}٪</b></div><div><small>قیمت هر عدد</small><b>${formatToman(publicResult.unit_sale_rial)}</b></div><div><small>ستاپ</small><b>${formatToman(publicResult.setup_fee_rial)}</b></div><div><small>جمع</small><b>${formatToman(publicResult.total_sale_rial)}</b></div><div><small>وضعیت</small><b>${STATUS_LABELS[quote.status] || quote.status}</b></div></div><section><h2>نقشه‌های مهندسی</h2><div class="diagrams"><div class="d"><h3>تصویر ۱ — پرشدگی سیم‌پیچ‌ها</h3>${fillSvg}<div class="legend">${legend}</div></div><div class="d"><h3>تصویر ۲ — نمای بالای پایه و سیم‌پیچی</h3>${pinSvg || '<p class="note">اطلاعات پایه برای این سند قدیمی ثبت نشده است.</p>'}</div></div></section>${kind === 'internal' ? `<section><h2>دستور سیم‌پیچی</h2><table><thead><tr><th>ردیف</th><th>نام</th><th>پین</th><th>دور</th><th>سیم</th><th>لایه</th><th>طول</th><th>جهت</th></tr></thead><tbody>${instructions}</tbody></table></section>` : ''}${costs}<p class="note">این گزارش از Snapshot ثبت‌شده تولید شده است و تغییرات بعدی قیمت یا موجودی، آن را تغییر نمی‌دهد.</p></main><script>window.onload=()=>window.print()</script></body></html>`;
-    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const win = window.open(url, '_blank');
-    if (!win) { const link = document.createElement('a'); link.href = url; link.download = `${kind}-${quote.public_code}.html`; link.click(); }
-    window.setTimeout(() => URL.revokeObjectURL(url), 60000);
+    openTransformerPdfReport({
+      kind,
+      code: quote.public_code,
+      quote,
+      confirmed: true,
+      createdAt: quote.created_at,
+      customerName: quote.customer_name,
+      customerPhone: quote.customer_phone,
+      projectTitle: quote.project_title,
+      orderType: quote.order_type,
+      quantity: quote.quantity,
+      hasGap: Boolean(input.has_gap),
+      core: input.core || { model_code: input.core_model },
+      bobbin: input.bobbin || bobbin || {},
+      engineering,
+      publicResult,
+      inventory: quote.inventory_snapshot || [],
+      pricing: quote.pricing_snapshot && Object.keys(quote.pricing_snapshot).length ? quote.pricing_snapshot : null,
+      formulaVersion: input.formula_version_code || '',
+      fillSvg,
+      pinSvg,
+    });
   }
+
   return <Modal title={`گزارش‌های ${quote.public_code}`} onClose={onClose} wide>
-    <div className="calc-saved-report"><div className="calc-result-head"><div><span className={`calc-status ${quote.status}`}>{STATUS_LABELS[quote.status] || quote.status}</span><h2>{input.core_model || '—'} · {input.bobbin_label || '—'}</h2><small>{quote.customer_name || '—'} · {quote.project_title || '—'}</small></div><div className="calc-price"><small>جمع Snapshot</small><strong>{formatToman(publicResult.total_sale_rial)}</strong></div></div><div className="calc-diagram-grid"><article className="calc-diagram-card"><header><span>تصویر ۱</span><h3>پرشدگی سیم‌پیچ‌ها</h3></header><div className="calc-svg-host" dangerouslySetInnerHTML={{ __html: fillSvg }}/><div className="calc-winding-legend">{rows.map((row) => <div key={row.line_no}><i style={{ background: row.color }}/><span><b>N{formatNumber(row.line_no)} · {row.name}</b><small>پین {formatNumber(row.start_pin)} تا {formatNumber(row.end_pin)} · {formatNumber(row.turns)} دور</small></span></div>)}</div></article><article className="calc-diagram-card"><header><span>تصویر ۲</span><h3>نمای بالای پایه و سیم‌پیچی</h3></header>{pinSvg ? <div className="calc-svg-host pin" dangerouslySetInnerHTML={{ __html: pinSvg }}/> : <div className="calc-empty">نقشه پایه برای سند قدیمی موجود نیست.</div>}</article></div><div className="calc-report-actions"><button onClick={() => openReport('customer')}><FileText/>گزارش مشتری</button><button onClick={() => openReport('internal')}><Printer/>گزارش داخلی کارکنان</button></div></div>
+    <div className="calc-saved-report"><div className="calc-result-head"><div><span className={`calc-status ${quote.status}`}>{STATUS_LABELS[quote.status] || quote.status}</span><h2>{input.core_model || '—'} · {input.bobbin_label || '—'}</h2><small>{quote.customer_name || '—'} · {quote.project_title || '—'}</small></div><div className="calc-price"><small>جمع Snapshot</small><strong>{formatToman(publicResult.total_sale_rial)}</strong></div></div><div className="calc-diagram-grid"><article className="calc-diagram-card"><header><span>تصویر ۱</span><h3>پرشدگی سیم‌پیچ‌ها</h3></header><div className="calc-svg-host" dangerouslySetInnerHTML={{ __html: fillSvg }}/><div className="calc-winding-legend">{rows.map((row) => <div key={row.line_no}><i style={{ background: row.color }}/><span><b>N{formatNumber(row.line_no)} · {row.name}</b><small>پین {formatNumber(row.start_pin)} تا {formatNumber(row.end_pin)} · {formatNumber(row.turns)} دور</small></span></div>)}</div></article><article className="calc-diagram-card"><header><span>تصویر ۲</span><h3>نمای بالای پایه و سیم‌پیچی</h3></header>{pinSvg ? <div className="calc-svg-host pin" dangerouslySetInnerHTML={{ __html: pinSvg }}/> : <div className="calc-empty">نقشه پایه برای سند قدیمی موجود نیست.</div>}</article></div><div className="calc-report-actions"><button onClick={() => openReport('customer')}><FileText/>خروجی PDF مشتری</button><button onClick={() => openReport('internal')}><Printer/>PDF داخلی کارکنان{quote.pricing_snapshot && Object.keys(quote.pricing_snapshot).length ? ' + ریز محرمانه' : ''}</button></div></div>
   </Modal>;
 }
 
@@ -364,7 +515,6 @@ function OrdersView({ refreshToken, hasRole }) {
   const [error, setError] = useState('');
   const [filter, setFilter] = useState('all');
   const [reportQuote, setReportQuote] = useState(null);
-  const isAdmin = hasRole('admin');
   const canReserve = hasRole(['admin', 'sales', 'sales_manager', 'warehouse']);
   const canConsume = hasRole(['admin', 'production', 'warehouse']);
   const canPromote = hasRole(['admin', 'sales', 'sales_manager']);
@@ -382,7 +532,7 @@ function OrdersView({ refreshToken, hasRole }) {
   }
   async function showReports(id) {
     setBusyId(id); setError('');
-    try { setReportQuote(await getCalculatorQuote(id, isAdmin)); }
+    try { setReportQuote(await getCalculatorQuote(id, true)); }
     catch (requestError) { setError(requestError.message); }
     finally { setBusyId(''); }
   }
@@ -392,7 +542,7 @@ function OrdersView({ refreshToken, hasRole }) {
     <div className="calc-card-title"><div><ClipboardList/><h2>سفارش‌های سایت و تولید</h2></div><div className="calc-toolbar"><select value={filter} onChange={(event) => setFilter(event.target.value)}><option value="all">همه وضعیت‌ها</option><option value="calculated">محاسبه‌شده</option><option value="reserved">رزروشده</option><option value="active">فعال در تولید</option><option value="produced">تکمیل‌شده</option><option value="cancelled">لغوشده</option></select><button type="button" className="calc-secondary" onClick={load}><RefreshCw/>به‌روزرسانی</button></div></div>
     <ErrorNotice message={error}/>
     <div className="calc-table-scroll"><table className="calc-orders-table"><thead><tr><th>کد</th><th>مشتری / پروژه</th><th>منبع</th><th>نوع / تعداد</th><th>قیمت Snapshot</th><th>وضعیت</th><th>اتصال</th><th>عملیات</th></tr></thead><tbody>{visible.map((row) => <tr key={row.id}><td><b>{row.public_code}</b><small>{formatJalaliDateTime(row.created_at)}</small></td><td><b>{row.customer_name || '—'}</b><small>{row.project_title || '—'}</small></td><td>{row.source === 'wordpress' ? 'WordPress' : 'داخلی'}{row.site_order_id && <small>{row.site_order_id}</small>}</td><td>{row.order_type === 'sample' ? 'نمونه' : row.order_type === 'production' ? 'تولید' : 'طراحی'}<small>{formatNumber(row.quantity)} عدد</small></td><td>{formatToman(row.public_result_snapshot?.total_sale_rial)}</td><td><span className={`calc-status ${row.status}`}>{STATUS_LABELS[row.status] || row.status}</span></td><td><small>{row.order_id ? 'سفارش مرکزی متصل' : 'بدون سفارش مرکزی'}</small><small>{row.production_order_id ? 'تولید متصل' : ''}</small></td><td><div className="calc-row-actions"><button disabled={busyId === row.id} onClick={() => showReports(row.id)}>گزارش‌ها</button>{canPromote && !row.order_id && !['cancelled', 'produced'].includes(row.status) && <button disabled={busyId === row.id} onClick={() => act(row.id, 'promote')}>انتقال به سفارش</button>}{canReserve && ['calculated', 'approved', 'paid', 'submitted'].includes(row.status) && <button className="primary" disabled={busyId === row.id} onClick={() => act(row.id, 'reserve')}>رزرو مواد</button>}{canConsume && ['reserved', 'in_production'].includes(row.status) && <button className="success" disabled={busyId === row.id} onClick={() => act(row.id, 'consume')}>پایان تولید و کسر قطعی</button>}{canReserve && !['cancelled', 'produced'].includes(row.status) && <button className="danger" disabled={busyId === row.id} onClick={() => act(row.id, 'release')}>لغو / آزادسازی</button>}</div></td></tr>)}{!visible.length && <tr><td colSpan="8" className="calc-empty">سندی با این وضعیت وجود ندارد.</td></tr>}</tbody></table></div>
-  </section>{reportQuote && <SavedQuoteReportModal quote={reportQuote} isAdmin={isAdmin} onClose={() => setReportQuote(null)}/>}</>;
+  </section>{reportQuote && <SavedQuoteReportModal quote={reportQuote} onClose={() => setReportQuote(null)}/>}</>;
 }
 
 function ComponentModal({ kind, existing, prefill, catalog, canCreateWarehouse, onClose, onSaved }) {
@@ -451,6 +601,7 @@ function FormulaModal({ onClose, onSaved }) {
     }).catch((requestError) => setError(requestError.message));
   }, []);
   function patch(key, value) { setConfig((current) => ({ ...current, [key]: Number(value) })); }
+  function patchBoolean(key, value) { setConfig((current) => ({ ...current, [key]: Boolean(value) })); }
   async function submit(event) {
     event.preventDefault(); setBusy(true); setError('');
     try { await publishTransformerFormula(versionCode, config, notes); await onSaved(); }
@@ -462,6 +613,7 @@ function FormulaModal({ onClose, onSaved }) {
       <div className="calc-secret-banner"><ShieldCheck/><span><b>فقط مدیر</b><small>با ثبت، نسخه جدید ساخته می‌شود؛ Snapshot اسناد قبلی تغییر نمی‌کند.</small></span></div>
       <div className="calc-form-section"><h4>هندسه و تولید</h4><div className="calc-form-grid"><Field label="کد نسخه جدید"><input required value={versionCode} onChange={(event) => setVersionCode(event.target.value)}/></Field><Field label="ضریب پرشدگی"><input required type="number" min="0.05" max="1" step="0.01" value={config.packing_factor ?? ''} onChange={(event) => patch('packing_factor', event.target.value)}/></Field><Field label="عایق ثابت بین لایه‌ها (mm)"><input required type="number" min="0" step="0.001" value={config.inter_winding_insulation_mm ?? ''} onChange={(event) => patch('inter_winding_insulation_mm', event.target.value)}/></Field><Field label="سرعت سیم‌پیچی (دور/دقیقه)"><input required type="number" min="1" value={config.winding_speed_turns_per_minute ?? ''} onChange={(event) => patch('winding_speed_turns_per_minute', event.target.value)}/></Field><Field label="ستاپ هر سیم‌پیچ (دقیقه)"><input type="number" min="0" step="0.1" value={config.setup_minutes_per_winding ?? ''} onChange={(event) => patch('setup_minutes_per_winding', event.target.value)}/></Field><Field label="چگالی مس (g/cm³)"><input required type="number" min="0.01" step="0.01" value={config.copper_density_g_cm3 ?? ''} onChange={(event) => patch('copper_density_g_cm3', event.target.value)}/></Field></div></div>
       <div className="calc-form-section"><h4>هزینه و قیمت محرمانه</h4><div className="calc-form-grid"><Field label="سود افزایشی (%)"><input required type="number" min="0" step="0.1" value={config.profit_percent ?? ''} onChange={(event) => patch('profit_percent', event.target.value)}/></Field><Field label="ضریب قیمت نمونه"><input required type="number" min="1" step="0.1" value={config.sample_multiplier ?? ''} onChange={(event) => patch('sample_multiplier', event.target.value)}/></Field><Field label="ستاپ نمونه (ریال)"><input type="number" min="0" step="10000" value={config.sample_setup_rial ?? ''} onChange={(event) => patch('sample_setup_rial', event.target.value)}/></Field><Field label="دستمزد ساعتی (ریال)"><input type="number" min="0" step="10000" value={config.labor_hour_rial ?? ''} onChange={(event) => patch('labor_hour_rial', event.target.value)}/></Field><Field label="سربار (%)"><input type="number" min="0" step="0.1" value={config.overhead_percent ?? ''} onChange={(event) => patch('overhead_percent', event.target.value)}/></Field><Field label="گرد کردن قیمت (ریال)"><input type="number" min="1" step="1000" value={config.price_rounding_rial ?? ''} onChange={(event) => patch('price_rounding_rial', event.target.value)}/></Field><Field label="حوض قلع (ریال)"><input type="number" min="0" step="1000" value={config.solder_cost_rial ?? ''} onChange={(event) => patch('solder_cost_rial', event.target.value)}/></Field><Field label="شارلاک (ریال)"><input type="number" min="0" step="1000" value={config.varnish_cost_rial ?? ''} onChange={(event) => patch('varnish_cost_rial', event.target.value)}/></Field><Field label="تست (ریال)"><input type="number" min="0" step="1000" value={config.test_cost_rial ?? ''} onChange={(event) => patch('test_cost_rial', event.target.value)}/></Field><Field label="بسته‌بندی (ریال)"><input type="number" min="0" step="1000" value={config.packaging_cost_rial ?? ''} onChange={(event) => patch('packaging_cost_rial', event.target.value)}/></Field><Field label="عملیات گپ (ریال)"><input type="number" min="0" step="1000" value={config.gap_cost_rial ?? ''} onChange={(event) => patch('gap_cost_rial', event.target.value)}/></Field><Field label="یادداشت کالیبراسیون"><input value={notes} onChange={(event) => setNotes(event.target.value)}/></Field></div></div>
+      <div className="calc-form-section visibility"><h4>نمایش ریز قیمت‌گذاری در محاسبه‌گر</h4><label className="calc-setting-toggle"><input type="checkbox" checked={Boolean(config.show_internal_pricing_breakdown)} onChange={(event) => patchBoolean('show_internal_pricing_breakdown', event.target.checked)}/><span><b>نمایش تمام هزینه‌ها و محاسبات برای کارکنان مجاز</b><small>در صورت فعال‌بودن، بهای هسته، بوبین، سیم، دستمزد، عملیات، سربار و سود پایین همه محاسبات ترانس نمایش داده می‌شود. این اطلاعات هرگز در خروجی مشتری یا WordPress قرار نمی‌گیرد.</small></span></label></div>
       <ErrorNotice message={error}/><footer><button type="button" className="calc-secondary" onClick={onClose}>انصراف</button><button type="submit" className="calc-primary" disabled={busy}>{busy ? <RefreshCw className="spin"/> : <Save/>}انتشار نسخه داخلی جدید</button></footer>
     </form>}
   </Modal>;
@@ -513,7 +665,7 @@ export default function CalculatorModule() {
   return <main className="calculator-module" dir="rtl">
     <Hero designer={designer} setDesigner={setDesigner} section={section} setSection={setSection}/>
     <div className="calc-page-body"><ErrorNotice message={error} onClose={() => setError('')}/>{loading && <LoadingBlock/>}{!loading && catalog && <>
-      {section === 'design' && designer === 'transformer' && <TransformerDesigner catalog={catalog} isAdmin={hasRole('admin')} onQuoteSaved={() => setQuoteRefresh((value) => value + 1)}/>} 
+      {section === 'design' && designer === 'transformer' && <TransformerDesigner catalog={catalog} onQuoteSaved={() => setQuoteRefresh((value) => value + 1)}/>} 
       {section === 'design' && designer === 'board' && <BoardDesigner/>}
       {section === 'orders' && <OrdersView refreshToken={quoteRefresh} hasRole={hasRole}/>} 
       {section === 'catalog' && <CatalogView catalog={catalog} reload={loadCatalog} hasRole={hasRole}/>} 

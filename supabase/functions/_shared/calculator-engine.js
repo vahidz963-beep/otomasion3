@@ -264,8 +264,27 @@ export function calculateTransformerQuote(input = {}) {
   const assemblyMinutes = positive(core?.assembly_time_seconds) / 60;
   const laborMinutes = windingMinutes + assemblyMinutes;
   const laborCostRial = laborMinutes / 60 * positive(settings.labor_hour_rial);
-  const operationCostRial = ['solder_cost_rial', 'varnish_cost_rial', 'test_cost_rial', 'packaging_cost_rial', ...(input.hasGap ? ['gap_cost_rial'] : [])]
-    .reduce((sum, key) => sum + positive(settings[key]), 0);
+  const operationDefinitions = [
+    ['solder_cost_rial', 'حوض قلع'],
+    ['varnish_cost_rial', 'شارلاک'],
+    ['test_cost_rial', 'آزمون و کنترل کیفیت'],
+    ['packaging_cost_rial', 'بسته‌بندی'],
+    ...(input.hasGap ? [['gap_cost_rial', 'عملیات گپ هسته']] : []),
+  ];
+  const operationBreakdown = operationDefinitions.map(([key, label]) => ({ key, label, amount_rial: round(positive(settings[key])) }));
+  const operationCostRial = operationBreakdown.reduce((sum, row) => sum + row.amount_rial, 0);
+  const wireCostLines = geometry.wire_usage.map((usage) => {
+    const wire = wireMap.get(usage.wire_id);
+    const quantityPerUnitG = usage.required_g / geometry.quantity;
+    const unitCostRial = positive(wire?.current_cost_rial);
+    return {
+      wire_id: usage.wire_id,
+      label: wireLabel(wire),
+      quantity_per_unit_g: round(quantityPerUnitG, 6),
+      unit_cost_rial_per_g: round(unitCostRial, 6),
+      amount_rial: round(quantityPerUnitG * unitCostRial),
+    };
+  });
   const directCostRial = coreCostRial + bobbinCostRial + wireCostRial + laborCostRial + operationCostRial;
   const overheadPercent = positive(settings.overhead_percent);
   const overheadCostRial = directCostRial * overheadPercent / 100;
@@ -273,16 +292,19 @@ export function calculateTransformerQuote(input = {}) {
   const profitPercent = positive(settings.profit_percent, 30);
   const rounding = Math.max(1, positive(settings.price_rounding_rial, 10000));
   const regularUnitSaleRial = roundTo(totalCostRial * (1 + profitPercent / 100), rounding);
+  const profitAmountRial = regularUnitSaleRial - totalCostRial;
   const sampleMultiplier = Math.max(1, positive(settings.sample_multiplier, 2));
   const unitSaleRial = orderType === 'sample' ? roundTo(regularUnitSaleRial * sampleMultiplier, rounding) : regularUnitSaleRial;
+  const sampleSurchargeRial = unitSaleRial - regularUnitSaleRial;
   const setupFeeRial = orderType === 'sample' ? positive(settings.sample_setup_rial) : 0;
   const totalSaleRial = unitSaleRial * geometry.quantity + setupFeeRial;
 
   const requirements = [];
-  if (core?.warehouse_item_id) requirements.push({ component_role: 'core', warehouse_item_id: core.warehouse_item_id, quantity_per_unit: 1, quantity_total: geometry.quantity, unit: core.unit || 'عدد' });
-  if (bobbin?.warehouse_item_id) requirements.push({ component_role: 'bobbin', warehouse_item_id: bobbin.warehouse_item_id, quantity_per_unit: 1, quantity_total: geometry.quantity, unit: bobbin.unit || 'عدد' });
+  if (core?.warehouse_item_id) requirements.push({ component_role: 'core', label: core.model_code || 'هسته', warehouse_code: core.warehouse_code || null, warehouse_item_id: core.warehouse_item_id, quantity_per_unit: 1, quantity_total: geometry.quantity, unit: core.unit || 'عدد' });
+  if (bobbin?.warehouse_item_id) requirements.push({ component_role: 'bobbin', label: `${bobbin.pins_left || '—'}+${bobbin.pins_right || '—'} پین · ${bobbin.mount_orientation || '—'}`, warehouse_code: bobbin.warehouse_code || null, warehouse_item_id: bobbin.warehouse_item_id, quantity_per_unit: 1, quantity_total: geometry.quantity, unit: bobbin.unit || 'عدد' });
   geometry.wire_usage.forEach((usage) => {
-    if (usage.warehouse_item_id) requirements.push({ component_role: 'wire', warehouse_item_id: usage.warehouse_item_id, quantity_per_unit: round(usage.required_g / geometry.quantity, 6), quantity_total: usage.required_g, unit: 'گرم' });
+    const wire = wireMap.get(usage.wire_id);
+    if (usage.warehouse_item_id) requirements.push({ component_role: 'wire', label: wireLabel(wire), warehouse_code: wire?.warehouse_code || null, warehouse_item_id: usage.warehouse_item_id, quantity_per_unit: round(usage.required_g / geometry.quantity, 6), quantity_total: usage.required_g, unit: 'گرم' });
   });
 
   const availability = requirements.map((requirement) => {
@@ -305,18 +327,26 @@ export function calculateTransformerQuote(input = {}) {
       core_cost_rial: round(coreCostRial),
       bobbin_cost_rial: round(bobbinCostRial),
       wire_cost_rial: round(wireCostRial),
+      wire_cost_lines: wireCostLines,
+      winding_minutes: round(windingMinutes),
+      assembly_minutes: round(assemblyMinutes),
       labor_minutes: round(laborMinutes),
+      labor_hour_rial: round(positive(settings.labor_hour_rial)),
       labor_cost_rial: round(laborCostRial),
+      operation_breakdown: operationBreakdown,
       operation_cost_rial: round(operationCostRial),
       direct_cost_rial: round(directCostRial),
       overhead_percent: round(overheadPercent),
       overhead_cost_rial: round(overheadCostRial),
       total_cost_rial: round(totalCostRial),
       profit_percent: round(profitPercent),
+      profit_amount_rial: round(profitAmountRial),
       regular_unit_sale_rial: round(regularUnitSaleRial),
       sample_multiplier: round(sampleMultiplier),
+      sample_surcharge_rial: round(sampleSurchargeRial),
       unit_sale_rial: round(unitSaleRial),
       setup_fee_rial: round(setupFeeRial),
+      quantity: geometry.quantity,
       total_sale_rial: round(totalSaleRial),
     },
     publicResult: {

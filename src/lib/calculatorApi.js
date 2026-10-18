@@ -49,8 +49,16 @@ export async function runCalculator(action, payload = {}) {
   return data;
 }
 
+export async function previewTransformerFill(payload) {
+  return runCalculator('preview_transformer_fill', { payload });
+}
+
 export async function calculateTransformer(payload) {
-  return runCalculator('calculate_transformer', { payload });
+  return runCalculator('preview_transformer', { payload });
+}
+
+export async function confirmTransformer(payload) {
+  return runCalculator('confirm_transformer', { payload });
 }
 
 export async function calculateBoard(payload) {

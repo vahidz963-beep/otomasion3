@@ -1,6 +1,8 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
 // @ts-ignore — shared JS is intentionally consumed by both Deno and Vite tests.
 import { CALCULATOR_ENGINE_VERSION, calculateBoardEstimate, calculateTransformerQuote } from '../_shared/calculator-engine.js';
+// @ts-ignore — pure action policy is shared with Node tests.
+import { shouldPersistTransformerAction, transformerActionPolicy } from '../_shared/calculator-policy.js';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') || '';
 const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY') || '';
@@ -27,6 +29,12 @@ function response(body: unknown, status = 200) {
 
 function cleanText(value: unknown, max = 200) {
   return String(value ?? '').trim().slice(0, max);
+}
+
+function assertConfirmationMetadata(raw: Record<string, unknown>) {
+  if (!cleanText(raw.customer_name, 160) || !cleanText(raw.customer_phone, 40) || !cleanText(raw.project_title, 200)) {
+    throw new Error('برای تأیید نهایی، نام مشتری، شماره تماس و عنوان پروژه الزامی است');
+  }
 }
 
 function safeUuid(value: unknown) {
@@ -142,7 +150,7 @@ async function getContext(payload: ReturnType<typeof sanitizePayload>) {
   return data;
 }
 
-async function calculateAndMaybeSave(raw: Record<string, unknown>, actorId: string | null, source: 'internal' | 'wordpress' | 'api') {
+async function calculateAndMaybeSave(raw: Record<string, unknown>, actorId: string | null, source: 'internal' | 'wordpress' | 'api', shouldSave = true) {
   const payload = sanitizePayload(raw);
   const context = await getContext(payload);
   if (context.formula?.engine_version !== CALCULATOR_ENGINE_VERSION) throw new Error('نسخه موتور و فرمول هم‌خوان نیست؛ استقرار را کامل کنید');
@@ -156,17 +164,30 @@ async function calculateAndMaybeSave(raw: Record<string, unknown>, actorId: stri
     quantity: payload.quantity,
     hasGap: payload.has_gap,
   });
-  if (!result.valid) return { saved: null, payload, context, result };
+  if (!result.valid || !shouldSave) return { saved: null, payload, context, result };
   const inputSnapshot = {
     core_id: payload.core_id,
     core_model: context.core.model_code,
-    core: { id: context.core.id, model_code: context.core.model_code, family: context.core.family, material: context.core.material },
+    core: {
+      id: context.core.id, model_code: context.core.model_code, family: context.core.family, material: context.core.material,
+      effective_area_mm2: context.core.effective_area_mm2, center_leg_mm: context.core.center_leg_mm, weight_g: context.core.weight_g,
+      assembly_time_seconds: context.core.assembly_time_seconds, assembly_method: context.core.assembly_method,
+      warehouse_code: context.core.warehouse_code, warehouse_name: context.core.warehouse_name,
+    },
     bobbin_id: payload.bobbin_id,
     bobbin_label: `${context.bobbin.pins_left}+${context.bobbin.pins_right} · ${context.bobbin.mount_orientation}`,
-    bobbin: { id: context.bobbin.id, core_id: context.bobbin.core_id, pins_left: context.bobbin.pins_left, pins_right: context.bobbin.pins_right, mount_orientation: context.bobbin.mount_orientation, window_width_mm: context.bobbin.window_width_mm, window_height_mm: context.bobbin.window_height_mm, mean_turn_length_mm: context.bobbin.mean_turn_length_mm },
+    bobbin: {
+      id: context.bobbin.id, core_id: context.bobbin.core_id, pins_left: context.bobbin.pins_left, pins_right: context.bobbin.pins_right,
+      mount_orientation: context.bobbin.mount_orientation, window_width_mm: context.bobbin.window_width_mm,
+      window_height_mm: context.bobbin.window_height_mm, mean_turn_length_mm: context.bobbin.mean_turn_length_mm,
+      flange_length_mm: context.bobbin.flange_length_mm, flange_width_mm: context.bobbin.flange_width_mm, weight_g: context.bobbin.weight_g,
+      warehouse_code: context.bobbin.warehouse_code, warehouse_name: context.bobbin.warehouse_name,
+    },
     order_type: payload.order_type,
     quantity: payload.quantity,
     has_gap: payload.has_gap,
+    formula_version_code: context.formula.version_code,
+    pricing_breakdown_visible: Boolean(context.formula.config?.show_internal_pricing_breakdown),
     windings: payload.windings,
   };
   const quotePayload = {
@@ -231,6 +252,74 @@ async function calculateAndSaveBoard(raw: Record<string, unknown>, actorId: stri
   return { model, result, saved };
 }
 
+function safePublicEngineering(engineering: any) {
+  return {
+    occupancy_percent: engineering?.occupancy_percent,
+    area_percent: engineering?.area_percent,
+    radial_percent: engineering?.radial_percent,
+    total_length_m: engineering?.total_length_m,
+    copper_weight_per_unit_g: engineering?.copper_weight_per_unit_g,
+    total_build_mm: engineering?.total_build_mm,
+    insulation_mm: engineering?.insulation_mm,
+    rows: (engineering?.rows || []).map((row: any) => ({
+      line_no: row.line_no, name: row.name, start_pin: row.start_pin, end_pin: row.end_pin,
+      turns: row.turns, wire_diameter_mm: row.wire_diameter_mm, awg: row.awg,
+      strands: row.strands, calculated_layers: row.calculated_layers, direction: row.direction,
+      window_share_percent: row.window_share_percent,
+    })),
+  };
+}
+
+function internalComponents(context: any) {
+  return {
+    core: {
+      model_code: context.core?.model_code, family: context.core?.family, material: context.core?.material,
+      effective_area_mm2: context.core?.effective_area_mm2, center_leg_mm: context.core?.center_leg_mm, weight_g: context.core?.weight_g,
+      assembly_method: context.core?.assembly_method, warehouse_code: context.core?.warehouse_code,
+      available_qty: context.core?.available_qty, unit: context.core?.unit,
+    },
+    bobbin: {
+      pins_left: context.bobbin?.pins_left, pins_right: context.bobbin?.pins_right, mount_orientation: context.bobbin?.mount_orientation,
+      window_width_mm: context.bobbin?.window_width_mm, window_height_mm: context.bobbin?.window_height_mm,
+      mean_turn_length_mm: context.bobbin?.mean_turn_length_mm, flange_length_mm: context.bobbin?.flange_length_mm,
+      flange_width_mm: context.bobbin?.flange_width_mm, weight_g: context.bobbin?.weight_g,
+      warehouse_code: context.bobbin?.warehouse_code, available_qty: context.bobbin?.available_qty, unit: context.bobbin?.unit,
+    },
+    wires: (context.wires || []).map((wire: any) => ({
+      id: wire.id, diameter_mm: wire.diameter_mm, awg: wire.awg, wire_type: wire.wire_type,
+      warehouse_code: wire.warehouse_code, available_qty: wire.available_qty, unit: wire.unit,
+    })),
+  };
+}
+
+function safePublicComponents(context: any) {
+  return {
+    core: {
+      model_code: context.core?.model_code, family: context.core?.family, material: context.core?.material,
+      effective_area_mm2: context.core?.effective_area_mm2,
+      available: Number(context.core?.available_qty) > 0,
+    },
+    bobbin: {
+      pins: `${context.bobbin?.pins_left || '—'}+${context.bobbin?.pins_right || '—'}`,
+      mount_orientation: context.bobbin?.mount_orientation, window_width_mm: context.bobbin?.window_width_mm,
+      window_height_mm: context.bobbin?.window_height_mm, mean_turn_length_mm: context.bobbin?.mean_turn_length_mm,
+      available: Number(context.bobbin?.available_qty) > 0,
+    },
+    wires: (context.wires || []).map((wire: any) => ({
+      diameter_mm: wire.diameter_mm, awg: wire.awg, available: Number(wire.available_qty) > 0,
+    })),
+  };
+}
+
+function safePublicInventory(inventory: any[]) {
+  return (inventory || []).map((row: any) => ({
+    component_role: row.component_role,
+    label: row.label,
+    unit: row.unit,
+    status: row.sufficient ? 'available' : 'unavailable',
+  }));
+}
+
 function safeCatalog(catalog: any) {
   const mappedCoreIds = new Set((catalog.bobbins || []).filter((row: any) => row.calculable).map((row: any) => row.core_id));
   return {
@@ -251,7 +340,7 @@ Deno.serve(async (req: Request) => {
     try { body = JSON.parse(rawBody || '{}'); } catch { return response({ error: 'JSON معتبر نیست' }, 400); }
     const action = cleanText(body.action, 50);
 
-    if (action === 'public_catalog' || action === 'public_quote' || action === 'site_event') {
+    if (['public_catalog', 'public_quote', 'public_quote_preview', 'public_quote_confirm', 'site_event'].includes(action)) {
       publicRequest = true;
       const { eventId } = await verifyWordPress(req, rawBody);
       if (action !== 'site_event' && !(await publicEnabled())) return response({ error: 'محاسبه و قیمت عمومی تا پایان کالیبراسیون غیرفعال است', code: 'PUBLIC_QUOTE_DISABLED' }, 503);
@@ -260,10 +349,16 @@ Deno.serve(async (req: Request) => {
         if (error) throw error;
         return response({ catalog: safeCatalog(data) });
       }
-      if (action === 'public_quote') {
-        const output = await calculateAndMaybeSave(body.payload || {}, null, 'wordpress');
+      if (action === 'public_quote_preview') {
+        const output = await calculateAndMaybeSave(body.payload || {}, null, 'wordpress', shouldPersistTransformerAction(action));
+        if (!output.result.valid) return response({ valid: false, errors: output.result.errors, warnings: output.result.warnings, engineering: safePublicEngineering(output.result.engineering), components: safePublicComponents(output.context), inventory: safePublicInventory(output.result.inventorySnapshot) }, 422);
+        return response({ valid: true, result: output.result.publicResult, engineering: safePublicEngineering(output.result.engineering), components: safePublicComponents(output.context), inventory: safePublicInventory(output.result.inventorySnapshot), warnings: output.result.warnings });
+      }
+      if (action === 'public_quote' || action === 'public_quote_confirm') {
+        if (action === 'public_quote_confirm') assertConfirmationMetadata(body.payload || {});
+        const output = await calculateAndMaybeSave(body.payload || {}, null, 'wordpress', shouldPersistTransformerAction(action));
         if (!output.result.valid) return response({ valid: false, errors: output.result.errors, warnings: output.result.warnings }, 422);
-        return response({ valid: true, quote_id: output.saved.id, quote_code: output.saved.public_code, result: output.result.publicResult });
+        return response({ valid: true, quote_id: output.saved.id, quote_code: output.saved.public_code, result: output.result.publicResult, engineering: safePublicEngineering(output.result.engineering), components: safePublicComponents(output.context), inventory: safePublicInventory(output.result.inventorySnapshot) });
       }
       const eventType = cleanText(body.event_type, 50);
       if (!['payment_confirmed', 'order_approved', 'order_cancelled'].includes(eventType)) return response({ error: 'نوع رویداد سایت مجاز نیست' }, 400);
@@ -283,9 +378,21 @@ Deno.serve(async (req: Request) => {
     }
 
     const identity = await internalIdentity(req);
-    if (action === 'calculate_transformer') {
-      const output = await calculateAndMaybeSave(body.payload || {}, identity.user.id, 'internal');
+    const actionPolicy = transformerActionPolicy(action);
+    if (actionPolicy?.scope === 'internal' && actionPolicy.response === 'fill') {
+      const output = await calculateAndMaybeSave(body.payload || {}, identity.user.id, 'internal', actionPolicy.persist);
+      return response({
+        occupancy_percent: output.result.engineering?.occupancy_percent ?? null,
+        radial_percent: output.result.engineering?.radial_percent ?? null,
+        valid: output.result.valid,
+        errors: output.result.errors,
+      });
+    }
+    if (actionPolicy?.scope === 'internal' && actionPolicy.response === 'full') {
+      if (action === 'confirm_transformer') assertConfirmationMetadata(body.payload || {});
+      const output = await calculateAndMaybeSave(body.payload || {}, identity.user.id, 'internal', actionPolicy.persist);
       const isAdmin = identity.roles.has('admin');
+      const showPricingBreakdown = isAdmin || Boolean(output.context.formula?.config?.show_internal_pricing_breakdown);
       return response({
         valid: output.result.valid,
         errors: output.result.errors,
@@ -293,8 +400,11 @@ Deno.serve(async (req: Request) => {
         engineering: output.result.engineering,
         public_result: output.result.publicResult,
         inventory: output.result.inventorySnapshot,
+        components: internalComponents(output.context),
+        formula_version: output.context.formula?.version_code || null,
+        pricing_breakdown_visible: showPricingBreakdown,
         quote: output.saved ? { id: output.saved.id, public_code: output.saved.public_code, status: output.saved.status } : null,
-        ...(isAdmin ? { pricing: output.result.pricing } : {}),
+        ...(showPricingBreakdown ? { pricing: output.result.pricing } : {}),
       });
     }
     if (action === 'calculate_board') {

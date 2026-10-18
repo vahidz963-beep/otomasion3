@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Aryaman Calculator Connector
  * Description: اتصال امن مرکز محاسبه آریامن به WordPress/WooCommerce؛ قیمت‌گذاری فقط از Supabase Edge Function و با امضای HMAC انجام می‌شود.
- * Version: 1.0.0
+ * Version: 1.2.0
  * Author: Aryaman
  * Requires at least: 6.2
  * Requires PHP: 8.0
@@ -12,7 +12,7 @@
 defined('ABSPATH') || exit;
 
 final class Aryaman_Calculator_Connector {
-    const VERSION = '1.0.0';
+    const VERSION = '1.2.0';
     const OPTION = 'aryaman_calculator_connector';
     const REST_NS = 'aryaman-calculator/v1';
     const QUOTE_META = '_aryaman_quote_id';
@@ -100,6 +100,7 @@ final class Aryaman_Calculator_Connector {
         wp_localize_script('aryaman-calculator', 'AryamanCalculatorConfig', [
             'catalogUrl' => esc_url_raw(rest_url(self::REST_NS . '/catalog')),
             'quoteUrl' => esc_url_raw(rest_url(self::REST_NS . '/quote')),
+            'confirmUrl' => esc_url_raw(rest_url(self::REST_NS . '/confirm')),
             'cartUrl' => esc_url_raw(rest_url(self::REST_NS . '/cart')),
             'nonce' => wp_create_nonce('wp_rest'),
             'woocommerce' => class_exists('WooCommerce'),
@@ -119,6 +120,12 @@ final class Aryaman_Calculator_Connector {
             'args' => ['payload' => ['required' => true, 'type' => 'object']],
             'callback' => [$this, 'quote_route'],
         ]);
+        register_rest_route(self::REST_NS, '/confirm', [
+            'methods' => WP_REST_Server::CREATABLE,
+            'permission_callback' => '__return_true',
+            'args' => ['payload' => ['required' => true, 'type' => 'object']],
+            'callback' => [$this, 'confirm_route'],
+        ]);
         register_rest_route(self::REST_NS, '/cart', [
             'methods' => WP_REST_Server::CREATABLE,
             'permission_callback' => function (WP_REST_Request $request): bool {
@@ -129,9 +136,13 @@ final class Aryaman_Calculator_Connector {
     }
 
     public function quote_route(WP_REST_Request $request) {
-        $raw = (array) $request->get_param('payload');
-        $payload = $this->sanitize_quote_payload($raw);
-        $response = $this->proxy(['action' => 'public_quote', 'payload' => $payload], 'quote-' . wp_generate_uuid4());
+        $payload = $this->sanitize_quote_payload((array) $request->get_param('payload'));
+        return $this->proxy(['action' => 'public_quote_preview', 'payload' => $payload], 'quote-preview-' . wp_generate_uuid4());
+    }
+
+    public function confirm_route(WP_REST_Request $request) {
+        $payload = $this->sanitize_quote_payload((array) $request->get_param('payload'));
+        $response = $this->proxy(['action' => 'public_quote_confirm', 'payload' => $payload], 'quote-confirm-' . wp_generate_uuid4());
         if (is_wp_error($response)) return $response;
         $data = $response->get_data();
         if (!empty($data['valid']) && !empty($data['quote_id'])) {

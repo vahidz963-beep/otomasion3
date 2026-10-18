@@ -59,7 +59,7 @@ create unique index if not exists uq_calculator_public_formula
 
 insert into calculator.formula_versions(calculator_type,version_code,status,engine_version,config,calibration_notes)
 values
-('transformer','TR-0.1.0','internal_active','calculator-engine-1.0.0',jsonb_build_object(
+('transformer','TR-0.1.0','internal_active','calculator-engine-1.1.0',jsonb_build_object(
   'packing_factor',0.35,'inter_winding_insulation_mm',0.05,'profit_percent',30,
   'sample_multiplier',2,'sample_setup_rial',5000000,'winding_speed_turns_per_minute',120,
   'setup_minutes_per_winding',0,'labor_hour_rial',0,'overhead_percent',0,
@@ -67,7 +67,7 @@ values
   'gap_cost_rial',0,'copper_density_g_cm3',8.96,'minimum_production_quantity',100,
   'maximum_sample_quantity',99,'price_rounding_rial',10000
 ),'نسخه داخلی بتا؛ انتشار عمومی تا تکمیل کالیبراسیون غیرفعال است.'),
-('board','PCB-0.1.0','internal_active','calculator-engine-1.0.0',jsonb_build_object(
+('board','PCB-0.1.0','internal_active','calculator-engine-1.1.0',jsonb_build_object(
   'base_design_rial',300000000,'profit_percent',30,'price_rounding_rial',10000
 ),'برآورد داخلی طراحی برد؛ پیش از انتشار عمومی نیازمند کالیبراسیون است.')
 on conflict(calculator_type,version_code) do nothing;
@@ -412,23 +412,31 @@ begin
     'cores',coalesce((select jsonb_agg(jsonb_build_object(
       'id',c.id,'model_code',c.model_code,'family',c.family,'material',c.material,'effective_area_mm2',c.effective_area_mm2,
       'center_leg_mm',c.center_leg_mm,'weight_g',c.weight_g,'assembly_time_seconds',c.assembly_time_seconds,'assembly_method',c.assembly_method,
-      'warehouse_item_id',c.warehouse_item_id,'warehouse_code',wi.item_code,'warehouse_name',wi.item_name_fa,
+      'warehouse_item_id',c.warehouse_item_id,'warehouse_code',wi.item_code,'warehouse_name',wi.item_name_fa,'unit',wi.unit,
       'current_qty',coalesce(s.current_qty,0),'available_qty',coalesce(s.available_for_sale_qty,0),
-      'mapped',c.warehouse_item_id is not null,'technical_complete',(c.effective_area_mm2 is not null and c.center_leg_mm is not null),
+      'mapped',c.warehouse_item_id is not null,'unit_valid',(c.warehouse_item_id is not null and coalesce(wi.is_active,false) and lower(trim(wi.unit)) in ('عدد','piece','pieces','pcs','pc')),
+      'priced',coalesce(p.current_cost_rial,0)>0,'technical_complete',(c.effective_area_mm2 is not null and c.center_leg_mm is not null),
+      'calculable',(c.warehouse_item_id is not null and coalesce(wi.is_active,false) and lower(trim(wi.unit)) in ('عدد','piece','pieces','pcs','pc') and coalesce(p.current_cost_rial,0)>0 and c.effective_area_mm2 is not null and c.center_leg_mm is not null),
       'bobbin_count',(select count(*) from calculator.transformer_bobbins b where b.core_id=c.id and b.is_active)
-    ) order by c.model_code) from calculator.transformer_cores c left join public.warehouse_items wi on wi.id=c.warehouse_item_id left join public.v_sales_stock_overview s on s.item_id=c.warehouse_item_id where c.is_active),'[]'::jsonb),
+    ) order by c.model_code) from calculator.transformer_cores c left join public.warehouse_items wi on wi.id=c.warehouse_item_id left join public.v_warehouse_currency_prices p on p.item_id=c.warehouse_item_id left join public.v_sales_stock_overview s on s.item_id=c.warehouse_item_id where c.is_active),'[]'::jsonb),
     'bobbins',coalesce((select jsonb_agg(jsonb_build_object(
       'id',b.id,'core_id',b.core_id,'core_code',c.model_code,'mount_orientation',b.mount_orientation,'pins_left',b.pins_left,'pins_right',b.pins_right,
       'window_width_mm',b.window_width_mm,'window_height_mm',b.window_height_mm,'mean_turn_length_mm',b.mean_turn_length_mm,
       'flange_length_mm',b.flange_length_mm,'flange_width_mm',b.flange_width_mm,'weight_g',b.weight_g,
-      'warehouse_item_id',b.warehouse_item_id,'warehouse_code',wi.item_code,'warehouse_name',wi.item_name_fa,
-      'current_qty',coalesce(s.current_qty,0),'available_qty',coalesce(s.available_for_sale_qty,0),'mapped',b.warehouse_item_id is not null
-    ) order by c.model_code,b.mount_orientation,b.pins_left) from calculator.transformer_bobbins b join calculator.transformer_cores c on c.id=b.core_id left join public.warehouse_items wi on wi.id=b.warehouse_item_id left join public.v_sales_stock_overview s on s.item_id=b.warehouse_item_id where b.is_active),'[]'::jsonb),
+      'warehouse_item_id',b.warehouse_item_id,'warehouse_code',wi.item_code,'warehouse_name',wi.item_name_fa,'unit',wi.unit,
+      'current_qty',coalesce(s.current_qty,0),'available_qty',coalesce(s.available_for_sale_qty,0),'mapped',b.warehouse_item_id is not null,
+      'unit_valid',(b.warehouse_item_id is not null and coalesce(wi.is_active,false) and lower(trim(wi.unit)) in ('عدد','piece','pieces','pcs','pc')),
+      'priced',coalesce(p.current_cost_rial,0)>0,
+      'calculable',(b.warehouse_item_id is not null and coalesce(wi.is_active,false) and lower(trim(wi.unit)) in ('عدد','piece','pieces','pcs','pc') and coalesce(p.current_cost_rial,0)>0)
+    ) order by c.model_code,b.mount_orientation,b.pins_left) from calculator.transformer_bobbins b join calculator.transformer_cores c on c.id=b.core_id left join public.warehouse_items wi on wi.id=b.warehouse_item_id left join public.v_warehouse_currency_prices p on p.item_id=b.warehouse_item_id left join public.v_sales_stock_overview s on s.item_id=b.warehouse_item_id where b.is_active),'[]'::jsonb),
     'wires',coalesce((select jsonb_agg(jsonb_build_object(
       'id',w.id,'diameter_mm',w.diameter_mm,'awg',w.awg,'wire_type',w.wire_type,'warehouse_item_id',w.warehouse_item_id,
-      'warehouse_code',wi.item_code,'warehouse_name',wi.item_name_fa,'current_qty',coalesce(s.current_qty,0),
-      'available_qty',coalesce(s.available_for_sale_qty,0),'mapped',w.warehouse_item_id is not null
-    ) order by w.diameter_mm) from calculator.enamel_wires w left join public.warehouse_items wi on wi.id=w.warehouse_item_id left join public.v_sales_stock_overview s on s.item_id=w.warehouse_item_id where w.is_active),'[]'::jsonb),
+      'warehouse_code',wi.item_code,'warehouse_name',wi.item_name_fa,'unit',wi.unit,'current_qty',coalesce(s.current_qty,0),
+      'available_qty',coalesce(s.available_for_sale_qty,0),'mapped',w.warehouse_item_id is not null,
+      'unit_valid',(w.warehouse_item_id is not null and coalesce(wi.is_active,false) and lower(trim(wi.unit)) in ('گرم','g','gr','gram','grams')),
+      'priced',coalesce(p.current_cost_rial,0)>0,
+      'calculable',(w.warehouse_item_id is not null and coalesce(wi.is_active,false) and lower(trim(wi.unit)) in ('گرم','g','gr','gram','grams') and coalesce(p.current_cost_rial,0)>0)
+    ) order by w.diameter_mm) from calculator.enamel_wires w left join public.warehouse_items wi on wi.id=w.warehouse_item_id left join public.v_warehouse_currency_prices p on p.item_id=w.warehouse_item_id left join public.v_sales_stock_overview s on s.item_id=w.warehouse_item_id where w.is_active),'[]'::jsonb),
     'warehouse_items',coalesce((select jsonb_agg(jsonb_build_object('id',v.item_id,'item_code',v.item_code,'item_name_fa',v.item_name_fa,'unit',v.unit,'category',v.category,'current_qty',v.current_qty,'available_qty',v.available_for_sale_qty) order by v.item_code) from public.v_app_inventory_catalog v),'[]'::jsonb),
     'public_quote_enabled',coalesce((select (value#>>'{}')::boolean from calculator.settings where key='public_quote_enabled'),false)
   );
@@ -443,9 +451,9 @@ begin
   if not found then raise exception 'نسخه فعال فرمول ترانس یافت نشد'; end if;
   return jsonb_build_object(
     'formula',jsonb_build_object('id',v_formula.id,'version_code',v_formula.version_code,'engine_version',v_formula.engine_version,'config',v_formula.config),
-    'core',(select jsonb_build_object('id',c.id,'model_code',c.model_code,'family',c.family,'material',c.material,'effective_area_mm2',c.effective_area_mm2,'center_leg_mm',c.center_leg_mm,'weight_g',c.weight_g,'assembly_time_seconds',c.assembly_time_seconds,'warehouse_item_id',c.warehouse_item_id,'warehouse_code',wi.item_code,'unit',wi.unit,'current_cost_rial',p.current_cost_rial,'current_sale_rial',p.current_sale_rial,'current_qty',coalesce(s.current_qty,0),'available_qty',coalesce(s.available_for_sale_qty,0),'pricing_updated_at',p.pricing_updated_at) from calculator.transformer_cores c left join public.warehouse_items wi on wi.id=c.warehouse_item_id left join public.v_warehouse_currency_prices p on p.item_id=c.warehouse_item_id left join public.v_sales_stock_overview s on s.item_id=c.warehouse_item_id where c.id=p_core_id and c.is_active),
-    'bobbin',(select jsonb_build_object('id',b.id,'core_id',b.core_id,'mount_orientation',b.mount_orientation,'pins_left',b.pins_left,'pins_right',b.pins_right,'window_width_mm',b.window_width_mm,'window_height_mm',b.window_height_mm,'mean_turn_length_mm',b.mean_turn_length_mm,'weight_g',b.weight_g,'warehouse_item_id',b.warehouse_item_id,'warehouse_code',wi.item_code,'unit',wi.unit,'current_cost_rial',p.current_cost_rial,'current_sale_rial',p.current_sale_rial,'current_qty',coalesce(s.current_qty,0),'available_qty',coalesce(s.available_for_sale_qty,0),'pricing_updated_at',p.pricing_updated_at) from calculator.transformer_bobbins b left join public.warehouse_items wi on wi.id=b.warehouse_item_id left join public.v_warehouse_currency_prices p on p.item_id=b.warehouse_item_id left join public.v_sales_stock_overview s on s.item_id=b.warehouse_item_id where b.id=p_bobbin_id and b.core_id=p_core_id and b.is_active),
-    'wires',coalesce((select jsonb_agg(jsonb_build_object('id',w.id,'diameter_mm',w.diameter_mm,'awg',w.awg,'wire_type',w.wire_type,'warehouse_item_id',w.warehouse_item_id,'warehouse_code',wi.item_code,'unit',wi.unit,'current_cost_rial',p.current_cost_rial,'current_sale_rial',p.current_sale_rial,'current_qty',coalesce(s.current_qty,0),'available_qty',coalesce(s.available_for_sale_qty,0),'pricing_updated_at',p.pricing_updated_at) order by w.diameter_mm) from calculator.enamel_wires w left join public.warehouse_items wi on wi.id=w.warehouse_item_id left join public.v_warehouse_currency_prices p on p.item_id=w.warehouse_item_id left join public.v_sales_stock_overview s on s.item_id=w.warehouse_item_id where w.id=any(p_wire_ids) and w.is_active),'[]'::jsonb)
+    'core',(select jsonb_build_object('id',c.id,'model_code',c.model_code,'family',c.family,'material',c.material,'effective_area_mm2',c.effective_area_mm2,'center_leg_mm',c.center_leg_mm,'weight_g',c.weight_g,'assembly_time_seconds',c.assembly_time_seconds,'warehouse_item_id',c.warehouse_item_id,'warehouse_code',wi.item_code,'unit',wi.unit,'current_cost_rial',p.current_cost_rial,'current_sale_rial',p.current_sale_rial,'current_qty',coalesce(s.current_qty,0),'available_qty',coalesce(s.available_for_sale_qty,0),'pricing_updated_at',p.pricing_updated_at) from calculator.transformer_cores c left join public.warehouse_items wi on wi.id=c.warehouse_item_id left join public.v_warehouse_currency_prices p on p.item_id=c.warehouse_item_id left join public.v_sales_stock_overview s on s.item_id=c.warehouse_item_id where c.id=p_core_id and c.is_active and c.warehouse_item_id is not null and coalesce(wi.is_active,false) and lower(trim(wi.unit)) in ('عدد','piece','pieces','pcs','pc')),
+    'bobbin',(select jsonb_build_object('id',b.id,'core_id',b.core_id,'mount_orientation',b.mount_orientation,'pins_left',b.pins_left,'pins_right',b.pins_right,'window_width_mm',b.window_width_mm,'window_height_mm',b.window_height_mm,'mean_turn_length_mm',b.mean_turn_length_mm,'weight_g',b.weight_g,'warehouse_item_id',b.warehouse_item_id,'warehouse_code',wi.item_code,'unit',wi.unit,'current_cost_rial',p.current_cost_rial,'current_sale_rial',p.current_sale_rial,'current_qty',coalesce(s.current_qty,0),'available_qty',coalesce(s.available_for_sale_qty,0),'pricing_updated_at',p.pricing_updated_at) from calculator.transformer_bobbins b left join public.warehouse_items wi on wi.id=b.warehouse_item_id left join public.v_warehouse_currency_prices p on p.item_id=b.warehouse_item_id left join public.v_sales_stock_overview s on s.item_id=b.warehouse_item_id where b.id=p_bobbin_id and b.core_id=p_core_id and b.is_active and b.warehouse_item_id is not null and coalesce(wi.is_active,false) and lower(trim(wi.unit)) in ('عدد','piece','pieces','pcs','pc')),
+    'wires',coalesce((select jsonb_agg(jsonb_build_object('id',w.id,'diameter_mm',w.diameter_mm,'awg',w.awg,'wire_type',w.wire_type,'warehouse_item_id',w.warehouse_item_id,'warehouse_code',wi.item_code,'unit',wi.unit,'current_cost_rial',p.current_cost_rial,'current_sale_rial',p.current_sale_rial,'current_qty',coalesce(s.current_qty,0),'available_qty',coalesce(s.available_for_sale_qty,0),'pricing_updated_at',p.pricing_updated_at) order by w.diameter_mm) from calculator.enamel_wires w left join public.warehouse_items wi on wi.id=w.warehouse_item_id left join public.v_warehouse_currency_prices p on p.item_id=w.warehouse_item_id left join public.v_sales_stock_overview s on s.item_id=w.warehouse_item_id where w.id=any(p_wire_ids) and w.is_active and w.warehouse_item_id is not null and coalesce(wi.is_active,false) and lower(trim(wi.unit)) in ('گرم','g','gr','gram','grams')),'[]'::jsonb)
   );
 end $$;
 
@@ -526,8 +534,8 @@ begin
   perform public.fn_calculator_assert_role(array['admin','warehouse','production']);
   v_existing:=nullif(p_payload->>'id','')::uuid;
   if coalesce((p_payload->>'diameter_mm')::numeric,0)<=0 then raise exception 'قطر واقعی سیم با احتساب لاک الزامی است'; end if;
-  v_wh:=calculator.resolve_warehouse_item(nullif(p_payload->>'warehouse_item_id','')::uuid,p_new_warehouse_item,'سیم مسی لاکی قطر '||(p_payload->>'diameter_mm')||' میلی‌متر','کیلوگرم','Wire');
-  if v_wh is not null and not exists(select 1 from public.warehouse_items where id=v_wh and lower(trim(unit)) in ('کیلوگرم','کیلو','kg','kilogram','kilograms')) then raise exception 'واحد قلم انبار سیم باید کیلوگرم باشد'; end if;
+  v_wh:=calculator.resolve_warehouse_item(nullif(p_payload->>'warehouse_item_id','')::uuid,p_new_warehouse_item,'سیم مسی لاکی قطر '||(p_payload->>'diameter_mm')||' میلی‌متر','گرم','Wire');
+  if v_wh is not null and not exists(select 1 from public.warehouse_items where id=v_wh and lower(trim(unit)) in ('گرم','g','gr','gram','grams')) then raise exception 'واحد قلم انبار سیم باید گرم باشد'; end if;
   insert into calculator.enamel_wires(id,diameter_mm,awg,wire_type,warehouse_item_id,created_by,updated_by)
   values(coalesce(v_existing,gen_random_uuid()),(p_payload->>'diameter_mm')::numeric,nullif(p_payload->>'awg','')::int,coalesce(nullif(trim(p_payload->>'wire_type'),''),'مسی لاکی'),v_wh,auth.uid(),auth.uid())
   on conflict(id) do update set diameter_mm=excluded.diameter_mm,awg=excluded.awg,wire_type=excluded.wire_type,warehouse_item_id=excluded.warehouse_item_id,updated_by=auth.uid()
@@ -753,7 +761,7 @@ begin
   if exists(select 1 from jsonb_each_text(v_config) x where x.value::numeric<0) then raise exception 'مقادیر تنظیمات نمی‌توانند منفی باشند'; end if;
   update calculator.formula_versions set status='retired' where calculator_type='transformer' and status='internal_active';
   insert into calculator.formula_versions(calculator_type,version_code,status,engine_version,config,calibration_notes,created_by,published_by,published_at)
-  values('transformer',trim(p_version_code),'internal_active','calculator-engine-1.0.0',v_config,nullif(trim(p_calibration_notes),''),auth.uid(),auth.uid(),now()) returning id into v_id;
+  values('transformer',trim(p_version_code),'internal_active','calculator-engine-1.1.0',v_config,nullif(trim(p_calibration_notes),''),auth.uid(),auth.uid(),now()) returning id into v_id;
   update calculator.settings set value='false'::jsonb,updated_by=auth.uid(),updated_at=now() where key in ('public_quote_enabled','public_quote_calibrated');
   perform calculator.log_event('formula_published','formula',v_id::text,jsonb_build_object('version_code',trim(p_version_code),'public_quote_disabled',true));
   return jsonb_build_object('id',v_id,'version_code',trim(p_version_code),'config',v_config);
