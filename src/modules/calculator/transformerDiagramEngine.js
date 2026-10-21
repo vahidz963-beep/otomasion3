@@ -12,7 +12,7 @@ const TransformerDiagram = (() => {
   };
   var COLOR = { ink: '#16325c', paper: '#fbfaf6', wire: '#1e3a8a', accent: '#c1440e', muted: '#7f9cd6' };
   var LIMITS = { maxPinsPerSide: 30, maxWindings: 12 };
-  var FONT = 'Vazirmatn, Tahoma, Arial, sans-serif';
+  var FONT = "'Aryaman Vazirmatn', Vazirmatn, Tahoma, Arial, sans-serif";
 
   function f(n) { return (Math.round(n * 100) / 100).toString(); }
 

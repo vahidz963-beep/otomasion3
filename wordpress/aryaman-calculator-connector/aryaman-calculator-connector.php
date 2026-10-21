@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Aryaman Calculator Connector
  * Description: اتصال امن مرکز محاسبه آریامن به WordPress/WooCommerce؛ قیمت‌گذاری فقط از Supabase Edge Function و با امضای HMAC انجام می‌شود.
- * Version: 1.2.0
+ * Version: 1.2.1
  * Author: Aryaman
  * Requires at least: 6.2
  * Requires PHP: 8.0
@@ -12,7 +12,7 @@
 defined('ABSPATH') || exit;
 
 final class Aryaman_Calculator_Connector {
-    const VERSION = '1.2.0';
+    const VERSION = '1.2.1';
     const OPTION = 'aryaman_calculator_connector';
     const REST_NS = 'aryaman-calculator/v1';
     const QUOTE_META = '_aryaman_quote_id';

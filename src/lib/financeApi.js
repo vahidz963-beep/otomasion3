@@ -1,6 +1,7 @@
 import { supabase } from './supabaseClient';
 import { ARYAMAN_BRAND_FA, ARYAMAN_LOGO_DATA_URI, brandedExcelTableHtml } from './reporting';
 import { jalaliToGregorian, toPersianDigits } from './formatters';
+import { ARYAMAN_FONT_FAMILY_CSS, buildAryamanFontFaceCss } from './typography';
 
 const FINANCE_LEGAL_NAME_FA = 'پیشرو الکترونیک آریامن پارس';
 
@@ -18,51 +19,15 @@ function isMissingColumn(error) {
   return text.includes('column') && (text.includes('does not exist') || text.includes('could not find') || text.includes('schema cache') || text.includes('42703') || text.includes('pgrst204'));
 }
 
-async function issueInventoryForApprovedInvoice(documentId) {
+async function syncReservationForApprovedInvoice(documentId) {
   if (!documentId) return null;
-  const res = await supabase.rpc('fn_finance_issue_inventory_for_document', { p_document_id: documentId });
-  if (res.error && !isMissingRpc(res.error)) throw new Error(res.error.message || 'خطا در ثبت خروج انبار فاکتور');
-  return res.data || null;
-}
-
-
-async function reissueInventoryForEditedDocument(documentId, reason) {
-  if (!documentId) return null;
-  const res = await supabase.rpc('fn_finance_reissue_inventory_for_document', {
-    p_document_id: documentId,
-    p_reason: reason || null,
-  });
+  const res = await supabase.rpc('fn_sync_order_reservation_for_finance_document', { p_document_id: documentId });
   if (res.error) {
-    if (isMissingRpc(res.error)) return issueInventoryForApprovedInvoice(documentId);
-    throw new Error(res.error.message || 'خطا در همگام‌سازی اسناد انبار فاکتور');
+    if (isMissingRpc(res.error)) throw new Error('Migration 126 اجرا نشده است؛ تأیید فاکتور نباید قبل از فعال‌شدن گردش جدید ارسال انجام شود.');
+    throw new Error(res.error.message || 'خطا در رزرو موجودی فاکتور');
   }
   return res.data || null;
 }
-
-async function repostFinanceDocumentAfterEdit(documentId, reason) {
-  if (!documentId) return null;
-  const res = await supabase.rpc('fn_finance_repost_document_after_edit', {
-    p_document_id: documentId,
-    p_reason: reason || null,
-  });
-  if (!res.error) return res.data || null;
-  if (!isMissingRpc(res.error)) throw new Error(res.error.message || 'خطا در اصلاح سند حسابداری فاکتور');
-
-  // Backward-compatible fallback until SQL 050 is applied: void old posted journal
-  // entries for this invoice, then create a fresh posted journal from edited totals.
-  const voidRes = await supabase
-    .from('finance_journal_entries')
-    .update({
-      status: 'void',
-      description: reason ? `ابطال و جایگزینی به دلیل اصلاح فاکتور: ${reason}` : 'ابطال و جایگزینی به دلیل اصلاح فاکتور',
-      updated_at: new Date().toISOString(),
-    })
-    .eq('related_document_id', documentId)
-    .eq('status', 'posted');
-  assertNoError(voidRes, 'خطا در ابطال سند حسابداری قبلی فاکتور');
-  return postFinanceDocument(documentId);
-}
-
 
 export async function convertProformaToInvoice(proformaId) {
   const res = await supabase.rpc('fn_convert_finance_proforma_to_invoice', {
@@ -422,13 +387,28 @@ export async function createFinanceDocument({ document, items }) {
   }
 
   if (document.document_type === 'sales_invoice' && ['approved', 'partially_paid', 'paid'].includes(defaultStatus)) {
-    await issueInventoryForApprovedInvoice(documentId);
+    await syncReservationForApprovedInvoice(documentId);
   }
 
   return docRes.data;
 }
 
 export async function updateFinanceDocument(documentId, { document, items, syncLinkedDocuments = false, edit_reason = '' }) {
+  if (syncLinkedDocuments) {
+    const cleanItems = normalizeDocumentItems(documentId, items).map(({ document_id: _documentId, ...item }) => item);
+    const safeRes = await supabase.rpc('fn_update_confirmed_finance_document', {
+      p_document_id: documentId,
+      p_document: document || {},
+      p_items: cleanItems,
+      p_reason: edit_reason || null,
+    });
+    if (safeRes.error) {
+      if (isMissingRpc(safeRes.error)) throw new Error('Migration 127 اجرا نشده است؛ اصلاح اتمیک فاکتور و سند انبار در دسترس نیست.');
+      throw new Error(safeRes.error.message || 'خطا در اصلاح اتمیک فاکتور و اسناد مرتبط');
+    }
+    return safeRes.data;
+  }
+
   const docRes = await supabase
     .from('finance_documents')
     .update(document)
@@ -449,13 +429,8 @@ export async function updateFinanceDocument(documentId, { document, items, syncL
   const recalcRes = await supabase.rpc('fn_finance_recalculate_document_totals', { p_document_id: documentId });
   assertNoError(recalcRes, 'خطا در محاسبه جمع سند');
 
-  if (syncLinkedDocuments && docRes.data.document_type !== 'sales_proforma' && !['draft', 'pending_approval', 'cancelled', 'void'].includes(docRes.data.status)) {
-    await repostFinanceDocumentAfterEdit(documentId, edit_reason);
-  }
-
   if (docRes.data.document_type === 'sales_invoice' && ['approved', 'partially_paid', 'paid'].includes(docRes.data.status)) {
-    if (syncLinkedDocuments) await reissueInventoryForEditedDocument(documentId, edit_reason);
-    else await issueInventoryForApprovedInvoice(documentId);
+    await syncReservationForApprovedInvoice(documentId);
   }
 
   return docRes.data;
@@ -464,7 +439,7 @@ export async function updateFinanceDocument(documentId, { document, items, syncL
 export async function postFinanceDocument(documentId) {
   const res = await supabase.rpc('fn_post_finance_document', { p_document_id: documentId });
   assertNoError(res, 'خطا در ثبت سند حسابداری فاکتور');
-  await issueInventoryForApprovedInvoice(documentId);
+  await syncReservationForApprovedInvoice(documentId);
   return res.data;
 }
 
@@ -748,7 +723,7 @@ function escapeHtml(value) {
 }
 
 function brandedReportShell(title, body) {
-  const css = `@page{size:A4;margin:12mm}body{margin:0;background:#f3f5f6;color:#1b2126;direction:rtl;font-family:Vazirmatn,Tahoma,Arial,sans-serif;padding:22px}.report{background:#fff;border-radius:18px;overflow:hidden;border:1px solid #e7eaec;box-shadow:0 8px 28px rgba(16,36,61,.10)}.brand-head{background:linear-gradient(135deg,#10243d,#1b365d);color:#fff;padding:18px 22px;display:flex;align-items:center;justify-content:space-between;gap:16px}.brand-title{display:flex;align-items:center;gap:12px}.brand-title img{width:54px;height:54px;object-fit:contain;border-radius:14px;background:#fff;padding:5px}.brand-title h1{margin:0;font-size:20px}.brand-title span{display:block;color:#f8d348;font-size:12px;margin-top:4px}.report-date{color:#d8dee3;font-size:12px}.report-body{padding:20px}.report-body h1{margin:0 0 14px;color:#10243d;font-size:20px}.meta{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin:16px 0}.meta div{border:1px solid #edf0f2;background:#f8fafb;border-radius:12px;padding:10px}table{width:100%;border-collapse:separate;border-spacing:0;margin-top:12px;overflow:hidden;border:1px solid #e7eaec;border-radius:14px}th{background:#10243d;color:#fff;font-weight:800}td,th{padding:10px;border-bottom:1px solid #edf0f2;text-align:right;font-size:12px}tr:nth-child(even) td{background:#fafafa}.money{direction:ltr}.footer{margin-top:42px;display:flex;justify-content:space-between;gap:16px}.footer span{flex:1;border-top:1px solid #ccd3da;padding-top:10px;text-align:center;color:#5b6670}.print-btn{margin:0 0 12px;background:#a8672e;color:#fff;border:0;border-radius:12px;padding:10px 14px;font-weight:800;cursor:pointer}@media print{body{background:#fff;padding:0}.print-btn{display:none}.report{box-shadow:none;border-radius:0}}`;
+  const css = `${buildAryamanFontFaceCss()}@page{size:A4;margin:12mm}body{margin:0;background:#f3f5f6;color:#1b2126;direction:rtl;font-family:${ARYAMAN_FONT_FAMILY_CSS};font-synthesis:none;text-rendering:optimizeLegibility;-webkit-font-smoothing:antialiased;padding:22px}.report{background:#fff;border-radius:18px;overflow:hidden;border:1px solid #e7eaec;box-shadow:0 8px 28px rgba(16,36,61,.10)}.brand-head{background:linear-gradient(135deg,#10243d,#1b365d);color:#fff;padding:18px 22px;display:flex;align-items:center;justify-content:space-between;gap:16px}.brand-title{display:flex;align-items:center;gap:12px}.brand-title img{width:54px;height:54px;object-fit:contain;border-radius:14px;background:#fff;padding:5px}.brand-title h1{margin:0;font-size:20px}.brand-title span{display:block;color:#f8d348;font-size:12px;margin-top:4px}.report-date{color:#d8dee3;font-size:12px}.report-body{padding:20px}.report-body h1{margin:0 0 14px;color:#10243d;font-size:20px}.meta{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin:16px 0}.meta div{border:1px solid #edf0f2;background:#f8fafb;border-radius:12px;padding:10px}table{width:100%;border-collapse:separate;border-spacing:0;margin-top:12px;overflow:hidden;border:1px solid #e7eaec;border-radius:14px}th{background:#10243d;color:#fff;font-weight:800}td,th{padding:10px;border-bottom:1px solid #edf0f2;text-align:right;font-size:12px}tr:nth-child(even) td{background:#fafafa}.money{direction:ltr}.footer{margin-top:42px;display:flex;justify-content:space-between;gap:16px}.footer span{flex:1;border-top:1px solid #ccd3da;padding-top:10px;text-align:center;color:#5b6670}.print-btn{margin:0 0 12px;background:#a8672e;color:#fff;border:0;border-radius:12px;padding:10px 14px;font-weight:800;cursor:pointer}@media print{body{background:#fff;padding:0}.print-btn{display:none}.report{box-shadow:none;border-radius:0}}`;
   return `<!doctype html><html dir="rtl" lang="fa"><head><meta charset="utf-8"><title>${escapeHtml(title)}</title><style>${css}</style></head><body><button class="print-btn" onclick="window.print()">چاپ / ذخیره PDF</button><main class="report"><header class="brand-head"><div class="brand-title"><img src="${ARYAMAN_LOGO_DATA_URI}" alt="Aryaman"><div><h1>${escapeHtml(title)}</h1><span>${ARYAMAN_BRAND_FA}</span></div></div><div class="report-date">گزارش رسمی مالی</div></header><section class="report-body">${body}</section></main></body></html>`;
 }
 
@@ -828,18 +803,19 @@ export function openOfficialFinancePrint({ title, subtitle = '', body, reportLab
   const fs = (value) => `${(Number(value) * fontScale).toFixed(2)}px`;
   const ns = (value) => `${(Number(value) * numberScale).toFixed(2)}px`;
   const css = `
+    ${buildAryamanFontFaceCss()}
     @page{size:${pageSize};margin:${marginMm}mm}
     *{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-    body{margin:0;background:#eef1f4;color:#050505;direction:rtl;font-family:"B Nazanin","Vazirmatn","IRANSansX","IRANSans","Segoe UI",Tahoma,Arial,sans-serif;padding:${marginMm}mm;font-size:${fs(14)}}
+    body{margin:0;background:#eef1f4;color:#050505;direction:rtl;font-family:${ARYAMAN_FONT_FAMILY_CSS};font-synthesis:none;text-rendering:optimizeLegibility;-webkit-font-smoothing:antialiased;padding:${marginMm}mm;font-size:${fs(14)}}
     .print-btn{margin:0 auto 3mm;display:flex;align-items:center;justify-content:center;background:#10243d;color:#fff;border:0;border-radius:10px;padding:8px 14px;font-weight:900;cursor:pointer;box-shadow:0 8px 22px rgba(16,36,61,.20)}
     .official-sheet{width:100%;max-width:${sheetWidth};min-height:${sheetMinHeight};margin:0 auto;background:#fff;border:1.6px solid #151515;padding:0;position:relative;box-shadow:0 12px 34px rgba(15,23,32,.16);overflow:hidden}
     .official-inner{padding:0 0 ${isInvoice ? '2mm' : '7mm'};min-height:inherit;position:relative}
     .official-top{direction:ltr;display:grid;grid-template-columns:38mm 1fr 42mm;align-items:start;gap:4mm;border-bottom:1.6px solid #151515;padding:${isInvoice ? '1.4mm 4mm 1.8mm' : '3mm 4mm 4mm'};min-height:${isInvoice ? '10mm' : '34mm'}}
     .official-top.invoice-top{display:block;min-height:10mm;padding:1.1mm 4mm 1.4mm;position:relative;text-align:center;direction:rtl}.invoice-top .invoice-meta{position:absolute;left:4mm;top:1.6mm;text-align:right;line-height:1.9;font-size:${isInvoice ? ns(11.5) : ns(13.5)};font-weight:850}.invoice-top .invoice-title{font-size:${isInvoice ? fs(17) : fs(22)};font-weight:950;margin:0;text-decoration:underline;text-underline-offset:2px}.invoice-top .invoice-subtitle{font-size:${isInvoice ? fs(9.5) : fs(12.5)};color:#444;margin-top:.8mm}.invoice-top .logo-mini{position:absolute;right:4mm;top:1.6mm;width:28mm;height:13mm;object-fit:contain}
     .page-no{grid-column:1;text-align:left;direction:rtl;font-size:14px;font-weight:850;color:#111;white-space:nowrap;padding-top:1mm}.brand-center{grid-column:2;text-align:center;direction:rtl;padding-top:1mm}.brand-center h1{font-size:18px;margin:0 0 2mm;font-weight:950}.brand-center h2{font-size:24px;margin:0 0 2.5mm;font-weight:950;letter-spacing:-.02em}.brand-center p{font-size:14px;margin:0;line-height:1.75;font-weight:750}.brand-logo{grid-column:3;text-align:center;direction:ltr}.brand-logo img{width:32mm;height:21mm;object-fit:contain;display:block;margin:0 auto .5mm}.brand-logo span{display:block;font-size:${fs(14)};margin-top:0;color:#333;letter-spacing:.03em}
-    .section-label{display:block;text-align:center;background:#dddddd;border-top:1.25px solid #151515;border-bottom:1.25px solid #151515;padding:${isInvoice ? '1mm 4mm' : '1.8mm 4mm'};font-size:${isInvoice ? fs(12.2) : fs(16)};font-weight:950;line-height:1.1;color:#111;margin:0}.box-row{border-bottom:1.45px solid #151515;padding:${isInvoice ? '1.5mm 4mm' : '3mm 4mm'};min-height:${isInvoice ? 'auto' : '22mm'}}.compact-box{border-bottom:1.45px solid #151515;padding:${isInvoice ? '1.15mm 4mm' : '2mm 4mm'}}.box-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:1.4mm 5mm}.box-grid.two{grid-template-columns:1fr 1fr}.box-grid.four{grid-template-columns:repeat(4,1fr)}.info-grid{display:grid;grid-template-columns:${isLandscape ? '1.15fr 1fr 1fr 1fr' : '1fr 1fr'};gap:${isInvoice ? '.25mm 3mm' : '.7mm 4mm'};align-items:center}.field{font-size:${isInvoice ? fs(11.3) : fs(15)};line-height:${isInvoice ? '1.28' : '2'};min-height:${isInvoice ? '3.7mm' : '6mm'}}.compact-box .field{line-height:${isInvoice ? '1.22' : '1.55'};min-height:${isInvoice ? '3.4mm' : '5mm'}}.field.full{grid-column:1/-1}.field b{font-weight:950;color:#111}.field span[dir="ltr"],.field[dir="ltr"]{font-family:"B Nazanin","Vazirmatn","IRANSansX",Tahoma,Arial,sans-serif;font-weight:850;font-variant-numeric:tabular-nums}.highlight-number span,.highlight-number{font-size:${isInvoice ? fs(12.5) : fs(17)};font-weight:950;color:#111}
-    .official-table{width:100%;border-collapse:collapse;margin:0;font-size:${isInvoice ? (isLandscape ? fs(9.2) : fs(8.6)) : (isLandscape ? fs(13.6) : fs(14))};table-layout:fixed}.official-table thead{display:table-header-group}.official-table tfoot{display:table-footer-group}.official-table tr{page-break-inside:avoid}.official-table th,.official-table td{border:1.15px solid #151515;padding:${isInvoice ? (isLandscape ? '.75mm .65mm' : '.62mm .55mm') : (isLandscape ? '1.6mm 1.25mm' : '2.1mm 1.5mm')};text-align:center;vertical-align:middle;line-height:1.65;word-break:break-word}.official-table th{background:#d9d9d9!important;color:#111;font-weight:950}.official-table td.desc{text-align:right}.official-table tbody tr:nth-child(even) td,.official-table tr.alt td{background:#f7f7f7!important}.official-table .money,.money{direction:ltr;text-align:left;font-family:"B Nazanin","Vazirmatn","IRANSansX",Tahoma,Arial,sans-serif!important;font-weight:850;white-space:nowrap;font-variant-numeric:tabular-nums}.rial-word{font-family:"Vazirmatn",Tahoma,Arial,sans-serif;font-weight:800;margin-right:2px}.official-table.compact th,.official-table.compact td{padding:${isInvoice ? '.7mm .6mm' : '1.6mm 1.25mm'};font-size:${isInvoice ? fs(9) : fs(13.5)}}
-    .totals-wrap{direction:ltr;display:grid;grid-template-columns:${isInvoice ? (isLandscape ? '48mm' : '42mm') : (isLandscape ? '58mm' : '50mm')} 1fr;gap:0;border-bottom:1.6px solid #151515;min-height:${isInvoice ? 'auto' : (isLandscape ? '25mm' : '34mm')}}.totals-table{direction:rtl;width:${isInvoice ? (isLandscape ? '48mm' : '42mm') : (isLandscape ? '58mm' : '50mm')};border-collapse:collapse;font-size:${isInvoice ? fs(10) : fs(14)};margin:0}.totals-table td{border:1.15px solid #151515;padding:${isInvoice ? '.85mm 1.2mm' : '2mm'};line-height:${isInvoice ? '1.22' : '1.5'}}.totals-table td:first-child{font-weight:950;background:#eeeeee;color:#111}.totals-table td.money{direction:ltr;text-align:left;font-family:"B Nazanin","Vazirmatn","IRANSansX",Tahoma,Arial,sans-serif;font-weight:950;font-size:${isInvoice ? ns(10.5) : ns(16)};font-variant-numeric:tabular-nums}.amount-words{direction:rtl;border:1.15px solid #151515;border-left:0;padding:${isInvoice ? '1.6mm 2.4mm' : '3.5mm 4mm'};font-size:${isInvoice ? fs(10.5) : fs(15)};line-height:${isInvoice ? '1.45' : '2.05'};display:flex;flex-direction:column;justify-content:center}.amount-words b{font-weight:950}.notes-box{border-bottom:1.6px solid #151515;min-height:${isInvoice ? 'auto' : (isLandscape ? '15mm' : '18mm')};padding:${isInvoice ? '1.4mm 4mm' : '3.5mm 4mm'};font-size:${isInvoice ? fs(10.2) : fs(15)};line-height:${isInvoice ? '1.35' : '2'}}.notes-box b{font-weight:950}.statement-title{text-align:center;border-bottom:1.6px solid #151515;padding:4mm;margin:0}.statement-title h1{font-size:19px;margin:0 0 2mm;font-weight:950}.statement-title h2{font-size:14px;margin:0;font-weight:900}.statement-summary{display:grid;grid-template-columns:repeat(4,1fr);gap:0;border-bottom:1.6px solid #151515}.statement-summary div{border-left:1.15px solid #151515;padding:3mm;font-size:14px;min-height:18mm}.statement-summary div:nth-child(even){background:#f7f7f7}.statement-summary span{display:block;color:#4b5563;font-weight:800}.statement-summary strong{display:block;margin-top:1.5mm;font-size:16px;color:#111;font-weight:950}.status-cell{font-weight:950}.continued{text-align:left;font-size:${isInvoice ? fs(9.5) : fs(13)};padding:${isInvoice ? '.8mm 4mm' : '2mm 4mm'};color:#555}.signatures{display:grid;grid-template-columns:repeat(3,1fr);gap:14mm;min-height:${isInvoice ? (isLandscape ? '13mm' : '16mm') : (isLandscape ? '28mm' : '48mm')};align-items:end;padding:${isInvoice ? (isLandscape ? '4mm 12mm 3mm' : '5mm 10mm 3mm') : (isLandscape ? '12mm 14mm 8mm' : '18mm 12mm 9mm')};text-align:center;font-size:${isInvoice ? fs(10.5) : fs(15)};page-break-inside:avoid}.signatures span{display:block;font-weight:850}.footer-line{position:absolute;left:4mm;right:4mm;bottom:1.8mm;border-top:1px solid #777;padding:1.5mm 0 0;font-size:${isInvoice ? fs(8.5) : fs(11)};text-align:center;color:#444;display:${printSettings.showFooter === false ? 'none' : 'block'}}.soft-row{background:#f7f7f7!important}.no-print{display:none}
+    .section-label{display:block;text-align:center;background:#dddddd;border-top:1.25px solid #151515;border-bottom:1.25px solid #151515;padding:${isInvoice ? '1mm 4mm' : '1.8mm 4mm'};font-size:${isInvoice ? fs(12.2) : fs(16)};font-weight:950;line-height:1.1;color:#111;margin:0}.box-row{border-bottom:1.45px solid #151515;padding:${isInvoice ? '1.5mm 4mm' : '3mm 4mm'};min-height:${isInvoice ? 'auto' : '22mm'}}.compact-box{border-bottom:1.45px solid #151515;padding:${isInvoice ? '1.15mm 4mm' : '2mm 4mm'}}.box-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:1.4mm 5mm}.box-grid.two{grid-template-columns:1fr 1fr}.box-grid.four{grid-template-columns:repeat(4,1fr)}.info-grid{display:grid;grid-template-columns:${isLandscape ? '1.15fr 1fr 1fr 1fr' : '1fr 1fr'};gap:${isInvoice ? '.25mm 3mm' : '.7mm 4mm'};align-items:center}.field{font-size:${isInvoice ? fs(11.3) : fs(15)};line-height:${isInvoice ? '1.28' : '2'};min-height:${isInvoice ? '3.7mm' : '6mm'}}.compact-box .field{line-height:${isInvoice ? '1.22' : '1.55'};min-height:${isInvoice ? '3.4mm' : '5mm'}}.field.full{grid-column:1/-1}.field b{font-weight:950;color:#111}.field span[dir="ltr"],.field[dir="ltr"]{font-family:${ARYAMAN_FONT_FAMILY_CSS};font-weight:850;font-variant-numeric:tabular-nums}.highlight-number span,.highlight-number{font-size:${isInvoice ? fs(12.5) : fs(17)};font-weight:950;color:#111}
+    .official-table{width:100%;border-collapse:collapse;margin:0;font-size:${isInvoice ? (isLandscape ? fs(9.2) : fs(8.6)) : (isLandscape ? fs(13.6) : fs(14))};table-layout:fixed}.official-table thead{display:table-header-group}.official-table tfoot{display:table-footer-group}.official-table tr{page-break-inside:avoid}.official-table th,.official-table td{border:1.15px solid #151515;padding:${isInvoice ? (isLandscape ? '.75mm .65mm' : '.62mm .55mm') : (isLandscape ? '1.6mm 1.25mm' : '2.1mm 1.5mm')};text-align:center;vertical-align:middle;line-height:1.65;word-break:break-word}.official-table th{background:#d9d9d9!important;color:#111;font-weight:950}.official-table td.desc{text-align:right}.official-table tbody tr:nth-child(even) td,.official-table tr.alt td{background:#f7f7f7!important}.official-table .money,.money{direction:ltr;text-align:left;font-family:${ARYAMAN_FONT_FAMILY_CSS}!important;font-weight:850;white-space:nowrap;font-variant-numeric:tabular-nums}.rial-word{font-family:${ARYAMAN_FONT_FAMILY_CSS};font-weight:800;margin-right:2px}.official-table.compact th,.official-table.compact td{padding:${isInvoice ? '.7mm .6mm' : '1.6mm 1.25mm'};font-size:${isInvoice ? fs(9) : fs(13.5)}}
+    .totals-wrap{direction:ltr;display:grid;grid-template-columns:${isInvoice ? (isLandscape ? '48mm' : '42mm') : (isLandscape ? '58mm' : '50mm')} 1fr;gap:0;border-bottom:1.6px solid #151515;min-height:${isInvoice ? 'auto' : (isLandscape ? '25mm' : '34mm')}}.totals-table{direction:rtl;width:${isInvoice ? (isLandscape ? '48mm' : '42mm') : (isLandscape ? '58mm' : '50mm')};border-collapse:collapse;font-size:${isInvoice ? fs(10) : fs(14)};margin:0}.totals-table td{border:1.15px solid #151515;padding:${isInvoice ? '.85mm 1.2mm' : '2mm'};line-height:${isInvoice ? '1.22' : '1.5'}}.totals-table td:first-child{font-weight:950;background:#eeeeee;color:#111}.totals-table td.money{direction:ltr;text-align:left;font-family:${ARYAMAN_FONT_FAMILY_CSS};font-weight:950;font-size:${isInvoice ? ns(10.5) : ns(16)};font-variant-numeric:tabular-nums}.amount-words{direction:rtl;border:1.15px solid #151515;border-left:0;padding:${isInvoice ? '1.6mm 2.4mm' : '3.5mm 4mm'};font-size:${isInvoice ? fs(10.5) : fs(15)};line-height:${isInvoice ? '1.45' : '2.05'};display:flex;flex-direction:column;justify-content:center}.amount-words b{font-weight:950}.notes-box{border-bottom:1.6px solid #151515;min-height:${isInvoice ? 'auto' : (isLandscape ? '15mm' : '18mm')};padding:${isInvoice ? '1.4mm 4mm' : '3.5mm 4mm'};font-size:${isInvoice ? fs(10.2) : fs(15)};line-height:${isInvoice ? '1.35' : '2'}}.notes-box b{font-weight:950}.statement-title{text-align:center;border-bottom:1.6px solid #151515;padding:4mm;margin:0}.statement-title h1{font-size:19px;margin:0 0 2mm;font-weight:950}.statement-title h2{font-size:14px;margin:0;font-weight:900}.statement-summary{display:grid;grid-template-columns:repeat(4,1fr);gap:0;border-bottom:1.6px solid #151515}.statement-summary div{border-left:1.15px solid #151515;padding:3mm;font-size:14px;min-height:18mm}.statement-summary div:nth-child(even){background:#f7f7f7}.statement-summary span{display:block;color:#4b5563;font-weight:800}.statement-summary strong{display:block;margin-top:1.5mm;font-size:16px;color:#111;font-weight:950}.status-cell{font-weight:950}.continued{text-align:left;font-size:${isInvoice ? fs(9.5) : fs(13)};padding:${isInvoice ? '.8mm 4mm' : '2mm 4mm'};color:#555}.signatures{display:grid;grid-template-columns:repeat(3,1fr);gap:14mm;min-height:${isInvoice ? (isLandscape ? '13mm' : '16mm') : (isLandscape ? '28mm' : '48mm')};align-items:end;padding:${isInvoice ? (isLandscape ? '4mm 12mm 3mm' : '5mm 10mm 3mm') : (isLandscape ? '12mm 14mm 8mm' : '18mm 12mm 9mm')};text-align:center;font-size:${isInvoice ? fs(10.5) : fs(15)};page-break-inside:avoid}.signatures span{display:block;font-weight:850}.footer-line{position:absolute;left:4mm;right:4mm;bottom:1.8mm;border-top:1px solid #777;padding:1.5mm 0 0;font-size:${isInvoice ? fs(8.5) : fs(11)};text-align:center;color:#444;display:${printSettings.showFooter === false ? 'none' : 'block'}}.soft-row{background:#f7f7f7!important}.no-print{display:none}
     body{font-size:${fs(14)}}.invoice-top .invoice-meta{font-size:${ns(13.5)}}.invoice-top .invoice-title{font-size:${fs(22)}}.invoice-top .invoice-subtitle{font-size:${fs(12.5)}}.page-no{font-size:${ns(14)}}.brand-center h1{font-size:${fs(18)}}.brand-center h2{font-size:${fs(24)}}.brand-center p{font-size:${fs(14)}}.section-label{font-size:${fs(16)}}.field{font-size:${fs(15)}}.official-table{font-size:${fs(isLandscape ? 13.6 : 14)}}.official-table .money,.money{font-size:${ns(15)}}.official-table.compact th,.official-table.compact td{font-size:${fs(13.5)}}.totals-table{font-size:${fs(14)}}.totals-table td.money{font-size:${ns(16)}}.amount-words,.notes-box{font-size:${fs(15)}}.statement-summary div{font-size:${fs(14)}}.statement-summary strong{font-size:${ns(16)}}.continued{font-size:${fs(13)}}.signatures{font-size:${fs(15)}}.footer-line{font-size:${fs(11)}}
     @media print{body{background:#fff;padding:0}.print-btn{display:none}.official-sheet{border:1.5px solid #151515;max-width:${sheetWidth};width:100%;min-height:${printMinHeight};box-shadow:none;break-inside:avoid;page-break-inside:avoid;page-break-after:avoid}.official-inner{break-inside:avoid;page-break-inside:avoid}.official-top{min-height:${isInvoice ? '12mm' : '31mm'}}.official-table th{background:#d9d9d9!important}.official-table tbody tr:nth-child(even) td,.official-table tr.alt td{background:#f7f7f7!important}.totals-wrap,.notes-box,.signatures{break-inside:avoid;page-break-inside:avoid}}
   `;

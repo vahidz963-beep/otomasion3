@@ -1,5 +1,6 @@
 import { supabase } from './supabaseClient';
 import { ARYAMAN_BRAND_FA, ARYAMAN_LOGO_DATA_URI, brandedExcelTableHtml } from './reporting';
+import { ARYAMAN_FONT_FAMILY_CSS, buildAryamanFontFaceCss } from './typography';
 
 function assertNoError({ error }, fallbackMessage) {
   if (error) throw new Error(error.message || fallbackMessage);
@@ -105,7 +106,8 @@ export async function createOrderWithItems({ order, items, options = {} }) {
 
   const cleanItems = (items || [])
     .filter((item) => item.item_name_fa && Number(item.quantity) > 0)
-    .map((item) => ({
+    .map((item, index) => ({
+      line_no: index + 1,
       item_name_fa: item.item_name_fa,
       item_name_en: item.item_name_en || null,
       warehouse_item_code: item.warehouse_item_code || null,
@@ -140,12 +142,28 @@ export async function setOrderStage(orderId, stageKey, note = '') {
   return res.data;
 }
 
-export async function toggleOrderShipment(orderId, enabled = true) {
-  const res = await supabase.rpc('fn_toggle_order_shipment', {
+export async function dispatchOrderShipment(orderId, payload = {}) {
+  const lines = (payload.lines || [])
+    .map((line) => ({
+      order_item_id: line.order_item_id,
+      quantity: Number(line.quantity || 0),
+    }))
+    .filter((line) => line.order_item_id && line.quantity > 0);
+
+  if (lines.length === 0) throw new Error('حداقل یک قلم با تعداد مثبت برای ارسال انتخاب کنید.');
+
+  const res = await supabase.rpc('fn_dispatch_order_shipment', {
     p_order_id: orderId,
-    p_enabled: Boolean(enabled),
+    p_lines: lines,
+    p_shipment_date: payload.shipment_date || null,
+    p_carton_count: Math.max(0, Number(payload.carton_count || 0)),
+    p_carrier_name: payload.carrier_name?.trim() || null,
+    p_tracking_code: payload.tracking_code?.trim() || null,
+    p_receiver_name: payload.receiver_name?.trim() || null,
+    p_notes: payload.notes?.trim() || null,
+    p_idempotency_key: payload.idempotency_key || null,
   });
-  assertNoError(res, enabled ? 'خطا در ثبت ارسال سفارش' : 'خطا در لغو ارسال سفارش');
+  assertNoError(res, 'خطا در ثبت قطعی ارسال سفارش');
   return res.data;
 }
 
@@ -378,7 +396,7 @@ function escapeHtml(value) {
 
 function brandedReportShell(title, body) {
   const css = `
-    @page{size:A4;margin:12mm}*{box-sizing:border-box}body{margin:0;background:#f3f5f6;color:#1b2126;direction:rtl;font-family:Vazirmatn,Tahoma,Arial,sans-serif;padding:22px}.report{background:#fff;border-radius:18px;overflow:hidden;border:1px solid #e7eaec;box-shadow:0 8px 28px rgba(16,36,61,.10)}.brand-head{background:linear-gradient(135deg,#10243d,#1b365d);color:#fff;padding:18px 22px;display:flex;align-items:center;justify-content:space-between;gap:16px}.brand-title{display:flex;align-items:center;gap:12px}.brand-title img{width:54px;height:54px;object-fit:contain;border-radius:14px;background:#fff;padding:5px}.brand-title h1{margin:0;font-size:20px}.brand-title span{display:block;color:#f8d348;font-size:12px;margin-top:4px}.report-date{color:#d8dee3;font-size:12px}.report-body{padding:20px}.report-body h1{margin:0 0 14px;color:#10243d;font-size:20px}.meta{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin:14px 0}.meta div{border:1px solid #edf0f2;background:#f8fafb;border-radius:12px;padding:10px}table{width:100%;border-collapse:separate;border-spacing:0;margin-top:12px;overflow:hidden;border:1px solid #e7eaec;border-radius:14px}th{background:#10243d;color:#fff;font-weight:800}td,th{padding:10px;border-bottom:1px solid #edf0f2;text-align:right;font-size:12px}tr:nth-child(even) td{background:#fafafa}.money{direction:ltr}.footer{margin-top:38px;display:flex;justify-content:space-between;gap:16px}.footer span{flex:1;border-top:1px solid #ccd3da;padding-top:10px;text-align:center;color:#5b6670}.print-btn{margin:0 0 12px;background:#a8672e;color:#fff;border:0;border-radius:12px;padding:10px 14px;font-weight:800;cursor:pointer}@media print{body{background:#fff;padding:0}.print-btn{display:none}.report{box-shadow:none;border-radius:0}}
+    ${buildAryamanFontFaceCss()}@page{size:A4;margin:12mm}*{box-sizing:border-box}body{margin:0;background:#f3f5f6;color:#1b2126;direction:rtl;font-family:${ARYAMAN_FONT_FAMILY_CSS};font-synthesis:none;text-rendering:optimizeLegibility;-webkit-font-smoothing:antialiased;padding:22px}.report{background:#fff;border-radius:18px;overflow:hidden;border:1px solid #e7eaec;box-shadow:0 8px 28px rgba(16,36,61,.10)}.brand-head{background:linear-gradient(135deg,#10243d,#1b365d);color:#fff;padding:18px 22px;display:flex;align-items:center;justify-content:space-between;gap:16px}.brand-title{display:flex;align-items:center;gap:12px}.brand-title img{width:54px;height:54px;object-fit:contain;border-radius:14px;background:#fff;padding:5px}.brand-title h1{margin:0;font-size:20px}.brand-title span{display:block;color:#f8d348;font-size:12px;margin-top:4px}.report-date{color:#d8dee3;font-size:12px}.report-body{padding:20px}.report-body h1{margin:0 0 14px;color:#10243d;font-size:20px}.meta{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin:14px 0}.meta div{border:1px solid #edf0f2;background:#f8fafb;border-radius:12px;padding:10px}table{width:100%;border-collapse:separate;border-spacing:0;margin-top:12px;overflow:hidden;border:1px solid #e7eaec;border-radius:14px}th{background:#10243d;color:#fff;font-weight:800}td,th{padding:10px;border-bottom:1px solid #edf0f2;text-align:right;font-size:12px}tr:nth-child(even) td{background:#fafafa}.money{direction:ltr}.footer{margin-top:38px;display:flex;justify-content:space-between;gap:16px}.footer span{flex:1;border-top:1px solid #ccd3da;padding-top:10px;text-align:center;color:#5b6670}.print-btn{margin:0 0 12px;background:#a8672e;color:#fff;border:0;border-radius:12px;padding:10px 14px;font-weight:800;cursor:pointer}@media print{body{background:#fff;padding:0}.print-btn{display:none}.report{box-shadow:none;border-radius:0}}
   `;
   return `<!doctype html><html dir="rtl" lang="fa"><head><meta charset="utf-8"><title>${escapeHtml(title)}</title><style>${css}</style></head><body><button class="print-btn" onclick="window.print()">چاپ / ذخیره PDF</button><main class="report"><header class="brand-head"><div class="brand-title"><img src="${ARYAMAN_LOGO_DATA_URI}" alt="Aryaman"><div><h1>${escapeHtml(title)}</h1><span>${ARYAMAN_BRAND_FA}</span></div></div><div class="report-date">گزارش رسمی سیستم</div></header><section class="report-body">${body}</section></main></body></html>`;
 }

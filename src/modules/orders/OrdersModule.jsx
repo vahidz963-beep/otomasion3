@@ -17,6 +17,7 @@ import {
   Users,
 } from 'lucide-react';
 import { useOrdersData, useOrderDetails } from '../../hooks/useOrdersData';
+import { useAuth } from '../../auth/AuthProvider';
 import ReferralPanel from '../../components/referrals/ReferralPanel';
 import JalaliDateInput from '../../components/JalaliDateInput';
 import ProductPicker from '../../components/ProductPicker';
@@ -37,7 +38,7 @@ import {
   openPrintable,
   reserveOrderInventory,
   setOrderStage,
-  toggleOrderShipment,
+  dispatchOrderShipment,
   updateWorkflowTemplate,
   updateWorkflowStep,
   createWorkflowStep,
@@ -67,6 +68,8 @@ export default function OrdersModule({ lang = 'fa' }) {
   const [editingCustomer, setEditingCustomer] = useState(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
+  const { hasRole } = useAuth();
+  const canDispatchShipments = hasRole('admin', 'warehouse');
 
   const data = useOrdersData();
   const activeOrders = useMemo(() => data.orders.filter((o) => o.delivery_status !== 'cancelled'), [data.orders]);
@@ -107,8 +110,10 @@ export default function OrdersModule({ lang = 'fa' }) {
       setModal(null);
       await data.refetch();
       await details.refetch?.();
+      return true;
     } catch (e) {
       setNotice(getFriendlyErrorMessage(e, 'خطا در اجرای عملیات'));
+      return false;
     } finally {
       setBusy(false);
     }
@@ -196,7 +201,7 @@ export default function OrdersModule({ lang = 'fa' }) {
 
       {!data.loading && tab === 'overview' && <Overview kpis={kpis} followups={activeDueFollowups} orders={activeOrders} onOpenOrder={setSelectedOrderId} onNewFollowup={openFollowup} setTab={setTab} />}
       {!data.loading && tab === 'crm' && <CrmSection customers={data.customers} followups={activeDueFollowups} interactions={data.crmInteractions} opportunities={data.crmOpportunities} orders={activeOrders} busy={busy} onNewFollowup={openFollowup} onNewCustomer={() => openCustomerModal()} onQuickOrder={(customer) => openOrderModal({ customerId: customer.id })} onEditCustomer={(customer) => openCustomerModal(customer)} onDeactivateCustomer={(customer) => { if (window.confirm(`مشتری «${customer.company_name}» غیرفعال شود؟`)) runAction(() => deactivateCustomer(customer.id), 'مشتری غیرفعال شد.'); }} onMarkDone={(followup) => runAction(() => markCrmFollowupDone(followup.id), 'پیگیری انجام شد و از فهرست باز حذف شد.')} onExport={() => exportCrm('excel')} onPrint={printCrm} />}
-      {!data.loading && tab === 'flow' && <FlowSection orders={filteredOrders} templateSteps={data.templateSteps} production={data.production} rnd={data.rnd} productionStages={data.productionStages} rndStages={data.rndStages} details={details} selectedOrder={selectedOrder} busy={busy} onSelect={setSelectedOrderId} onSetStage={(stage) => selectedOrder && runAction(() => setOrderStage(selectedOrder.id, stage, 'تغییر مرحله از ماژول سفارش'), 'مرحله سفارش تغییر کرد.')} onToggleShipment={(enabled) => selectedOrder && runAction(() => toggleOrderShipment(selectedOrder.id, enabled), enabled ? 'ارسال سفارش ثبت شد و در لیست ارسال/انبار قرار گرفت.' : 'ارسال سفارش لغو شد.')} onProforma={(id) => runAction(() => createSalesProformaFromOrder(id), 'پیش‌فاکتور سفارش ساخته شد.')} onReserve={(id) => runAction(() => reserveOrderInventory(id), 'موجودی سفارش رزرو شد.')} onReferral={(id, targetModule, targetRole, label) => runAction(() => createOrderReferral({ orderId: id, targetModule, targetRole, title: `ارجاع سفارش به ${label}`, priority: 2 }), `ارجاع به ${label} ثبت شد.`)} onCancelOrder={(id) => confirmCancelOrder(activeOrders.find((o) => o.id === id) || id)} onCloseDetails={() => setSelectedOrderId(null)} />}
+      {!data.loading && tab === 'flow' && <FlowSection orders={filteredOrders} templateSteps={data.templateSteps} production={data.production} rnd={data.rnd} productionStages={data.productionStages} rndStages={data.rndStages} details={details} selectedOrder={selectedOrder} busy={busy} canDispatchShipments={canDispatchShipments} onSelect={setSelectedOrderId} onSetStage={(stage) => selectedOrder && runAction(() => setOrderStage(selectedOrder.id, stage, 'تغییر مرحله از ماژول سفارش'), 'مرحله سفارش تغییر کرد.')} onDispatch={(payload) => selectedOrder && runAction(() => dispatchOrderShipment(selectedOrder.id, payload), 'ارسال سفارش، سند خروج، کاردکس و مصرف رزرو با موفقیت ثبت شد.')} onProforma={(id) => runAction(() => createSalesProformaFromOrder(id), 'پیش‌فاکتور سفارش ساخته شد.')} onReserve={(id) => runAction(() => reserveOrderInventory(id), 'موجودی سفارش رزرو شد.')} onReferral={(id, targetModule, targetRole, label) => runAction(() => createOrderReferral({ orderId: id, targetModule, targetRole, title: `ارجاع سفارش به ${label}`, priority: 2 }), `ارجاع به ${label} ثبت شد.`)} onCancelOrder={(id) => confirmCancelOrder(activeOrders.find((o) => o.id === id) || id)} onCloseDetails={() => setSelectedOrderId(null)} />}
       {!data.loading && tab === 'list' && <ListSection orders={filteredOrders} query={query} setQuery={setQuery} pathFilter={pathFilter} setPathFilter={setPathFilter} deliveryFilter={deliveryFilter} setDeliveryFilter={setDeliveryFilter} onSelect={(id) => { setSelectedOrderId(id); setTab('flow'); }} onCancel={confirmCancelOrder} onExcel={() => exportOrders('excel')} onPrint={printOrders} />}
       {!data.loading && tab === 'stock' && <StockSection stock={data.stock} />}
       {!data.loading && tab === 'referrals' && <div className="orders-grid"><ReferralPanel sourceModule="orders" title="ارجاع و اسناد سفارش‌ها" defaultTarget="accounting" /></div>}
@@ -321,7 +326,7 @@ function Pipeline({ opportunities, customers }) {
   return <div className="crm-pipeline">{stages.map((s) => <div key={s.key} className="pipeline-stage"><span>{s.label}</span><b>{formatNumber(s.count)}</b><small>{formatMoney(s.amount)}</small></div>)}</div>;
 }
 
-function FlowSection({ orders, templateSteps = [], production = [], rnd = [], productionStages = [], rndStages = [], selectedOrder, details, busy, onSelect, onCloseDetails, onSetStage, onToggleShipment, onProforma, onReserve, onReferral, onCancelOrder }) {
+function FlowSection({ orders, templateSteps = [], production = [], rnd = [], productionStages = [], rndStages = [], selectedOrder, details, busy, canDispatchShipments, onSelect, onCloseDetails, onSetStage, onDispatch, onProforma, onReserve, onReferral, onCancelOrder }) {
   const [flowPath, setFlowPath] = useState('all');
   const [flowStatus, setFlowStatus] = useState('all');
   const [flowFromDate, setFlowFromDate] = useState('');
@@ -414,7 +419,7 @@ function FlowSection({ orders, templateSteps = [], production = [], rnd = [], pr
 
     {selectedOrder && <div className="order-drawer-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onCloseDetails?.()}>
       <aside className="order-detail-drawer-left">
-        <OrderDetailPanel order={selectedOrder} details={details} busy={busy} onClose={onCloseDetails} onSetStage={onSetStage} onToggleShipment={onToggleShipment} onProforma={onProforma} onReserve={onReserve} onReferral={onReferral} onCancelOrder={onCancelOrder} />
+        <OrderDetailPanel order={selectedOrder} details={details} busy={busy} canDispatchShipments={canDispatchShipments} onClose={onCloseDetails} onSetStage={onSetStage} onDispatch={onDispatch} onProforma={onProforma} onReserve={onReserve} onReferral={onReferral} onCancelOrder={onCancelOrder} />
       </aside>
     </div>}
   </section>;
@@ -453,8 +458,8 @@ function stageStepsForOrder(order, templateSteps, linkedInfo = null, linkedStage
 
 
 
-function OrderDetailPanel({ order, details, busy, onClose, onSetStage, onToggleShipment, onProforma, onReserve, onReferral, onCancelOrder }) {
-  const [shipmentEnabled, setShipmentEnabled] = useState(false);
+function OrderDetailPanel({ order, details, busy, canDispatchShipments, onClose, onSetStage, onDispatch, onProforma, onReserve, onReferral, onCancelOrder }) {
+  const [shipmentModalOpen, setShipmentModalOpen] = useState(false);
   if (!order) return <section className="orders-card"><div className="orders-empty">یک سفارش را انتخاب کنید.</div></section>;
   const hasProforma = Number(order.proforma_count || 0) > 0 || details.documents.some((d) => d.document_type === 'sales_proforma' && d.status !== 'void');
   const productionStages = details.productionStages || [];
@@ -464,21 +469,97 @@ function OrderDetailPanel({ order, details, busy, onClose, onSetStage, onToggleS
   const isDelegatedToProduction = order.sales_path === 'production' && (linkedProduction || productionStages.length > 0);
   const isDelegatedToRnd = order.sales_path === 'rnd' && (linkedRnd || rndStages.length > 0);
   const isDelegated = isDelegatedToProduction || isDelegatedToRnd;
-  const delegatedStages = isDelegatedToProduction ? productionStages : isDelegatedToRnd ? rndStages : [];
   const delegatedTitle = isDelegatedToProduction ? 'مراحل تأییدشده تولید' : isDelegatedToRnd ? 'مراحل تأییدشده R&D' : '';
   const linkedInfo = linkedProduction || linkedRnd;
+  const shipmentItems = details.shipmentItems || [];
+  const shipments = details.shipments || [];
+  const remainingItems = shipmentItems.filter((item) => Number(item.remaining_quantity || 0) > 0);
+  const hasApprovedInvoice = shipmentItems.some((item) => item.has_approved_invoice)
+    || details.documents.some((d) => d.document_type === 'sales_invoice' && ['approved', 'sent', 'partially_paid', 'paid'].includes(d.status));
+  const canOpenDispatch = canDispatchShipments && remainingItems.length > 0 && hasApprovedInvoice && order.delivery_status !== 'cancelled';
 
-  return <section className="orders-card detail-card"><CardTitle icon={FileText} title={`جزئیات ${order.order_code}`} action={onClose ? <button onClick={onClose}>بستن ×</button> : null} />
+  async function submitDispatch(payload) {
+    const ok = await onDispatch?.(payload);
+    if (ok) setShipmentModalOpen(false);
+    return ok;
+  }
+
+  return <section className="orders-card detail-card">
+    {shipmentModalOpen && <OrderShipmentModal order={order} items={shipmentItems} busy={busy} onClose={() => setShipmentModalOpen(false)} onSubmit={submitDispatch} />}
+    <CardTitle icon={FileText} title={`جزئیات ${order.order_code}`} action={onClose ? <button onClick={onClose}>بستن ×</button> : null} />
     <div className="detail-mini-grid"><Info label="مشتری" value={order.customer_name} /><Info label="مرحله" value={isDelegated ? (linkedInfo?.current_stage_name_fa || order.current_stage_name_fa) : order.current_stage_name_fa} /><Info label="تاریخ ثبت" value={formatDate(order.registered_at)} /><Info label="پیشرفت" value={`${formatNumber(isDelegated ? (linkedInfo?.progress_percent ?? order.progress_percent) : (order.progress_percent || 0))}٪`} /><Info label="تحویل" value={daysText(order.days_to_delivery, order.delivery_status)} /><Info label="مالی" value={FINANCE_LABELS[order.financial_status] || order.financial_status} /><Info label="انبار" value={STOCK_LABELS[order.stock_status] || order.stock_status} /><Info label="مانده" value={formatMoney(order.balance_amount)} /></div>
     <div className="detail-actions"><button disabled={busy || hasProforma} title={hasProforma ? 'برای این سفارش قبلاً پیش‌فاکتور صادر شده است.' : ''} onClick={() => onProforma(order.id)}>{hasProforma ? 'پیش‌فاکتور صادر شده' : 'صدور پیش‌فاکتور'}</button><button disabled={busy} onClick={() => onReserve(order.id)}>رزرو انبار</button><button disabled={busy} onClick={() => onReferral(order.id, 'accounting', 'accountant', 'مالی')}>ارجاع مالی</button><button disabled={busy} onClick={() => onReferral(order.id, 'warehouse', 'warehouse', 'انبار')}>ارجاع انبار</button><button disabled={busy} onClick={() => onReferral(order.id, 'admin', 'admin', 'مدیر کل')}>ارجاع مدیر کل</button><button className="danger" disabled={busy || order.delivery_status === 'cancelled'} onClick={() => onCancelOrder(order.id)}>لغو سفارش</button></div>
-    <label className="order-shipment-toggle"><input type="checkbox" checked={shipmentEnabled} disabled={busy || order.delivery_status === 'cancelled'} onChange={(e) => { const enabled = e.target.checked; setShipmentEnabled(enabled); onToggleShipment?.(enabled); }} /><span>ارسال شده و خروج از انبار</span></label>
+
+    <section className="detail-block order-shipment-center">
+      <div className="order-shipment-head">
+        <div><h3>ارسال از سفارش</h3><p>هر بار فقط تعداد واقعی تحویلی را ثبت کنید؛ سند خروج، کاردکس و مصرف رزرو هم‌زمان و قطعی ثبت می‌شوند.</p></div>
+        <button className="dispatch-order-btn" disabled={busy || !canOpenDispatch} title={!canDispatchShipments ? 'ثبت قطعی فقط برای مدیر یا انبار مجاز است' : ''} onClick={() => setShipmentModalOpen(true)}><PackageCheck size={16} />{remainingItems.length === 0 && shipmentItems.length > 0 ? 'ارسال کامل شده' : !canDispatchShipments ? 'در انتظار تأیید انبار' : 'ثبت ارسال جدید'}</button>
+      </div>
+      {!hasApprovedInvoice && <p className="shipment-gate-note">برای ثبت ارسال، ابتدا فاکتور فروش نهایی این سفارش باید تأیید شود.</p>}
+      {shipmentItems.length === 0 ? <p className="muted">قلم ساختاریافته‌ای برای ارسال پیدا نشد.</p> : <div className="shipment-progress-list">{shipmentItems.map((item) => <article key={item.order_item_id} className={Number(item.remaining_quantity || 0) <= 0 ? 'complete' : !item.is_warehouse_mapped ? 'blocked' : ''}>
+        <div><b>{item.item_name_fa}</b><small dir="ltr">{item.warehouse_item_code || 'بدون اتصال انبار'}</small></div>
+        <div className="shipment-qty-flow"><span>سفارش <b>{formatNumber(item.ordered_quantity)}</b></span><span>ارسال‌شده <b>{formatNumber(item.sent_quantity)}</b></span><span className="remaining">مانده <b>{formatNumber(item.remaining_quantity)} {item.unit}</b></span></div>
+      </article>)}</div>}
+      <small className="shipment-role-hint">{canDispatchShipments ? 'شما مجاز به ثبت قطعی ارسال هستید.' : 'برای ثبت قطعی، سفارش را به انبار ارجاع دهید؛ فقط مدیر یا انبار مجاز به خروج موجودی است.'} سفارش تولیدی نیز پس از ورود محصول نهایی به انبار، از همین بخش ارسال می‌شود.</small>
+    </section>
+
+    {shipments.length > 0 && <section className="detail-block order-shipment-history"><h3>محموله‌های این سفارش</h3><div className="shipment-history-list">{shipments.map((shipment) => <article key={shipment.id} className={shipment.status === 'cancelled' ? 'cancelled' : ''}>
+      <header><div><b dir="ltr">{shipment.shipment_number || '—'}</b><small>{formatDate(shipment.shipment_date)} · سند خروج <span dir="ltr">{shipment.warehouse_doc_number || '—'}</span></small></div><span className={`shipment-status ${shipment.status}`}>{orderShipmentStatus(shipment.status)}</span></header>
+      <div className="shipment-history-lines">{orderShipmentLines(shipment).map((line) => <span key={line.id || `${line.item_code}-${line.line_no}`}><b>{line.item_name}</b><em dir="ltr">{line.item_code}</em><strong>{formatNumber(line.quantity)} {line.unit}</strong></span>)}</div>
+      <footer><span>{shipment.carrier_name || 'حامل ثبت نشده'}</span><span>رهگیری: <b dir="ltr">{shipment.tracking_code || '—'}</b></span><span>تحویل‌گیرنده: {shipment.receiver_name || '—'}</span></footer>
+      {shipment.status === 'cancelled' && shipment.cancellation_reason && <p>{shipment.cancellation_reason}</p>}
+    </article>)}</div></section>}
+
     {hasProforma && <p className="orders-info-note">برای این سفارش پیش‌فاکتور قبلاً صادر شده است؛ صدور مجدد از بخش سفارش‌ها مجاز نیست.</p>}
-    {isDelegated && <p className="orders-info-note delegated">این سفارش بعد از ورود به {isDelegatedToProduction ? 'تولید' : 'R&D'}، مراحلش از همان بخش کنترل می‌شود و فروش فقط روند را مشاهده می‌کند.</p>}
+    {isDelegated && <p className="orders-info-note delegated">این سفارش بعد از ورود به {isDelegatedToProduction ? 'تولید' : 'R&D'}، مراحلش از همان بخش کنترل می‌شود و فروش فقط روند را مشاهده می‌کند. پایان تولید/R&D به‌تنهایی محموله مشتری ایجاد نمی‌کند.</p>}
     {isDelegated ? <section className="detail-block delegated-stage-block"><h3>{delegatedTitle}</h3><p className="orders-info-note delegated">نوار اصلی این سفارش از مراحل زنده {isDelegatedToProduction ? 'تولید' : 'R&D'} در کارت روند سفارش نمایش داده می‌شود. فروش/مدیر فروش برای تغییر مرحله این سفارش دسترسی ندارد.</p></section> : <section className="detail-block"><h3>تغییر مرحله فروش/سفارش</h3>{details.stages.length === 0 ? <p className="muted">مرحله‌ای ثبت نشده است.</p> : <div className="stage-buttons">{details.stages.map((s) => <button key={s.id} disabled={busy || s.status === 'current' || order.delivery_status === 'cancelled'} className={s.status} onClick={() => onSetStage(s.stage_key)}>{s.stage_order}. {s.stage_name_fa}</button>)}</div>}</section>}
     {(details.production?.length > 0 || details.rnd?.length > 0) && <section className="detail-block live-linked-progress"><h3>پیشرفت آنلاین تولید / R&D</h3>{details.production?.map((p) => <article key={p.id}><b>{p.code} · {p.product_name_fa}</b><span>{p.current_stage_name_fa || '—'} · پیشرفت {formatNumber(p.progress_percent)}٪ · تولید {formatNumber(p.quantity_produced || p.output_registered_qty || 0)} از {formatNumber(p.quantity_planned || 0)} · کد انبار {p.output_item_code || '—'}</span></article>)}{details.rnd?.map((r) => <article key={r.id}><b>{r.code} · {r.title_fa}</b><span>{r.current_stage_name_fa || '—'} · پیشرفت {formatNumber(r.progress_percent)}٪ · هزینه {formatMoney(r.actual_total_cost)}</span></article>)}</section>}
     <section className="detail-block"><h3>وضعیت موجودی اقلام</h3>{details.stock.length === 0 ? <p className="muted">قلم انباری ندارد.</p> : <div className="orders-table-wrap"><table><thead><tr><th>قلم</th><th>کد</th><th>درخواست</th><th>قابل فروش</th><th>وضعیت</th></tr></thead><tbody>{details.stock.map((s) => <tr key={s.order_item_id}><td>{s.item_name_fa}</td><td dir="ltr">{s.warehouse_item_code || '—'}</td><td>{formatNumber(s.requested_qty)}</td><td>{formatNumber(s.available_for_sale_qty)}</td><td>{s.stock_status}</td></tr>)}</tbody></table></div>}</section>
-    <section className="detail-block"><h3>تاریخچه</h3>{details.events.length === 0 ? <p className="muted">رویدادی ثبت نشده است.</p> : <div className="orders-timeline order-history-scroll">{details.events.map((e) => <article key={e.id}><strong>{e.title}</strong><small>{formatDateTime(e.created_at)} · {e.description || ''}</small></article>)}</div>}</section><ReferralPanel compact sourceModule="orders" relatedOrderId={order.id} title="ارجاعات همین سفارش" defaultTarget="accounting" /></section>;
+    <section className="detail-block"><h3>تاریخچه</h3>{details.events.length === 0 ? <p className="muted">رویدادی ثبت نشده است.</p> : <div className="orders-timeline order-history-scroll">{details.events.map((e) => <article key={e.id}><strong>{e.title}</strong><small>{formatDateTime(e.created_at)} · {e.description || ''}</small></article>)}</div>}</section><ReferralPanel compact sourceModule="orders" relatedOrderId={order.id} title="ارجاعات همین سفارش" defaultTarget="accounting" />
+  </section>;
 }
+
+function OrderShipmentModal({ order, items = [], busy, onClose, onSubmit }) {
+  const eligible = items.filter((item) => Number(item.remaining_quantity || 0) > 0);
+  const [quantities, setQuantities] = useState(() => Object.fromEntries(eligible.map((item) => [item.order_item_id, Math.max(0, Math.min(Number(item.remaining_quantity || 0), Number(item.available_to_this_line || 0)))])));
+  const [form, setForm] = useState({ shipment_date: new Date().toISOString().slice(0, 10), carton_count: 0, carrier_name: '', tracking_code: '', receiver_name: '', notes: '' });
+  const [idempotencyKey] = useState(() => globalThis.crypto?.randomUUID?.() || `shipment-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+  const [error, setError] = useState('');
+
+  async function submit(e) {
+    e.preventDefault();
+    setError('');
+    const lines = eligible.map((item) => ({ order_item_id: item.order_item_id, quantity: Number(quantities[item.order_item_id] || 0) })).filter((line) => line.quantity > 0);
+    if (lines.length === 0) {
+      setError('حداقل برای یک قلم، تعداد ارسال را بیشتر از صفر وارد کنید.');
+      return;
+    }
+    const invalid = eligible.find((item) => Number(quantities[item.order_item_id] || 0) > Number(item.remaining_quantity || 0));
+    if (invalid) {
+      setError(`تعداد «${invalid.item_name_fa}» از مانده سفارش بیشتر است.`);
+      return;
+    }
+    await onSubmit({ ...form, lines, idempotency_key: idempotencyKey });
+  }
+
+  return <div className="orders-modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && !busy && onClose()}><div className="orders-modal order-shipment-modal"><header><div><h3>ثبت قطعی ارسال سفارش</h3><small>{order.order_code} · {order.customer_name}</small></div><button disabled={busy} onClick={onClose}>×</button></header><div><form onSubmit={submit}>
+    <div className="shipment-atomic-note"><PackageCheck size={20} /><div><b>عملیات اتمیک انبار</b><span>با ثبت نهایی، موجودی اقلام انتخاب‌شده کم، سند خروج و کاردکس ساخته و رزرو همان مقدار مصرف می‌شود.</span></div></div>
+    {error && <div className="orders-message error">{error}</div>}
+    <div className="dispatch-lines"><div className="dispatch-lines-head"><span>قلم سفارش</span><span>سفارش / قبلاً ارسال</span><span>موجودی قابل استفاده</span><span>تعداد این ارسال</span></div>{eligible.map((item) => { const max = Number(item.remaining_quantity || 0); const available = Number(item.available_to_this_line || 0); return <div className={`dispatch-line ${!item.is_warehouse_mapped || available <= 0 ? 'blocked' : ''}`} key={item.order_item_id}><div><b>{item.item_name_fa}</b><small dir="ltr">{item.warehouse_item_code || 'بدون اتصال انبار'}</small></div><span>{formatNumber(item.ordered_quantity)} / {formatNumber(item.sent_quantity)} {item.unit}</span><span>{formatNumber(available)} {item.unit}<small>رزرو این قلم: {formatNumber(item.reserved_quantity)}</small></span><label><input type="number" min="0" max={Math.max(0, Math.min(max, available))} step="any" disabled={!item.is_warehouse_mapped || available <= 0} value={quantities[item.order_item_id] ?? 0} onChange={(e) => setQuantities({ ...quantities, [item.order_item_id]: e.target.value })} /><small>از مانده {formatNumber(max)}</small></label></div>})}</div>
+    <div className="form-grid shipment-logistics-form"><label><span>تاریخ ارسال</span><JalaliDateInput value={form.shipment_date} onChange={(value) => setForm({ ...form, shipment_date: value })} /></label><label><span>تعداد کارتن/بسته</span><input type="number" min="0" step="any" value={form.carton_count} onChange={(e) => setForm({ ...form, carton_count: e.target.value })} /></label><label><span>حامل / باربری</span><input value={form.carrier_name} onChange={(e) => setForm({ ...form, carrier_name: e.target.value })} placeholder="نام باربری یا پیک" /></label><label><span>کد رهگیری</span><input value={form.tracking_code} onChange={(e) => setForm({ ...form, tracking_code: e.target.value })} dir="ltr" /></label><label><span>تحویل‌گیرنده</span><input value={form.receiver_name} onChange={(e) => setForm({ ...form, receiver_name: e.target.value })} /></label><label className="full"><span>یادداشت ارسال</span><textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></label></div>
+    <p className="shipment-final-warning">این دکمه «تیک نمایشی» نیست؛ خروج واقعی انبار را ثبت می‌کند. برای اصلاح بعدی باید از عملیات برگشت ارسال در ماژول انبار استفاده شود.</p>
+    <div className="modal-actions"><button type="button" disabled={busy} onClick={onClose}>انصراف</button><button type="submit" disabled={busy}>{busy ? 'در حال ثبت...' : 'ثبت قطعی و خروج از انبار'}</button></div>
+  </form></div></div></div>;
+}
+
+function orderShipmentLines(shipment) {
+  if (Array.isArray(shipment?.line_items)) return shipment.line_items;
+  if (typeof shipment?.line_items === 'string') {
+    try { const parsed = JSON.parse(shipment.line_items); return Array.isArray(parsed) ? parsed : []; } catch { return []; }
+  }
+  return [];
+}
+function orderShipmentStatus(status) { return ({ sent: 'ارسال‌شده', delivered: 'تحویل‌شده', cancelled: 'برگشت/لغو', ready: 'آماده' }[status] || status || '—'); }
 
 function linkedStageState(status) {
   if (status === 'completed' || status === 'done') return 'done';

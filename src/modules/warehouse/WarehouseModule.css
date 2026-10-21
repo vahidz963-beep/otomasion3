@@ -36,3 +36,112 @@
 .currency-pricing-card{max-width:1440px!important;overflow:hidden}.currency-pricing-head{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;margin-bottom:16px}.currency-pricing-head h2{margin:0;color:#10243d;font-size:21px}.currency-pricing-head p{max-width:850px;margin:6px 0 0;color:#66727d;font-size:12px;line-height:1.9}.refresh-rates-btn{border:0;background:#10243d;color:#fff;border-radius:12px;padding:10px 14px;display:inline-flex;align-items:center;justify-content:center;gap:7px;white-space:nowrap;font-weight:900;cursor:pointer}.refresh-rates-btn:hover{background:#1b365d}.refresh-rates-btn:disabled{opacity:.55;cursor:not-allowed}.exchange-rate-cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:13px;margin-bottom:12px}.exchange-rate-card{position:relative;display:grid;grid-template-columns:50px 1fr;column-gap:12px;border:1px solid #dfe6ea;border-radius:18px;padding:15px 17px;background:linear-gradient(145deg,#fff,#f7fafb);overflow:hidden}.exchange-rate-card:before{content:"";position:absolute;inset-block:0;inset-inline-start:0;width:5px;background:#386e96}.exchange-rate-card.cny:before{background:#a8672e}.exchange-rate-symbol{grid-row:1/4;width:46px;height:46px;border-radius:14px;display:grid;place-items:center;background:#e3eff7;color:#1b5c7d;font-size:23px;font-weight:950}.exchange-rate-card.cny .exchange-rate-symbol{background:#fff0df;color:#8a5628}.exchange-rate-card>span{color:#66727d;font-size:11px;font-weight:800}.exchange-rate-card>strong{margin-top:3px;color:#10243d;font-size:26px;line-height:1.35}.exchange-rate-card>strong small{font-size:11px;color:#66727d}.exchange-rate-meta{grid-column:1/-1;display:flex;justify-content:space-between;gap:12px;margin-top:12px;padding-top:10px;border-top:1px solid #e6ebee}.exchange-rate-meta b{color:#25694a;font-size:11px}.exchange-rate-card.stale .exchange-rate-meta b{color:#a5453f}.exchange-rate-card.manual .exchange-rate-meta b{color:#8a5c10}.exchange-rate-meta small{color:#66727d;font-size:10px}.rate-source-status{grid-column:1/-1;display:flex;gap:6px;flex-wrap:wrap;margin-top:9px}.rate-source-status>span{display:inline-flex;align-items:center;gap:5px;border-radius:999px;padding:4px 8px;background:#e8f5ed;color:#25694a;font-size:10px;font-weight:900;cursor:help}.rate-source-status>span.error{background:#fff0ee;color:#a5453f}.rate-source-status i{width:6px;height:6px;border-radius:50%;background:currentColor}.rate-source-status>small{color:#889199;font-size:10px}.currency-pricing-summary{display:flex;align-items:center;gap:9px;flex-wrap:wrap;border:1px solid #e3e9ed;background:#f8fafb;border-radius:13px;padding:9px 11px;margin-bottom:12px}.currency-pricing-summary span{display:inline-flex;gap:5px;align-items:center;border-radius:999px;background:#e7f2eb;color:#25694a;padding:5px 9px;font-size:11px}.currency-pricing-summary span.warning{background:#fff1d6;color:#8a5c10}.currency-pricing-summary small{margin-inline-start:auto;color:#66727d;font-size:10px}.currency-pricing-toolbar{display:grid;grid-template-columns:minmax(240px,1fr) 170px auto auto;align-items:center;gap:8px;margin-bottom:12px}.currency-pricing-toolbar>input,.currency-pricing-toolbar>select{min-width:0;width:100%;border:1px solid #d8dee3;background:#fff;border-radius:11px;padding:9px 11px}.currency-display-switch{display:flex;align-items:center;gap:4px;padding:3px;background:#f1f4f6;border:1px solid #e0e6ea;border-radius:11px;white-space:nowrap}.currency-display-switch span{padding:0 5px;color:#66727d;font-size:10px;font-weight:800}.currency-display-switch button{border:0;background:transparent;color:#53616d;border-radius:8px;padding:6px 8px;font-size:10px;font-weight:900;cursor:pointer}.currency-display-switch button.active{background:#10243d;color:#fff}.currency-bulk-actions{display:flex;gap:5px}.currency-bulk-actions button{border:1px solid #d8dee3;background:#fff;color:#10243d;border-radius:10px;padding:8px 9px;white-space:nowrap;font-size:11px;font-weight:900;cursor:pointer}.currency-bulk-actions button:hover{border-color:#a8672e;background:#fffaf5}.currency-bulk-actions button:disabled{opacity:.55;cursor:not-allowed}.currency-price-table-wrap{max-height:610px;overflow:auto}.currency-price-table{min-width:1210px}.currency-price-table thead th{position:sticky;top:0;z-index:3}.currency-price-table tbody tr:hover td{background:#fbfcfd}.currency-price-table td:nth-child(2)>b{display:block;color:#10243d}.currency-price-table td:nth-child(2)>small{display:block;color:#66727d;margin-top:4px;max-width:180px}.missing-price-row td{background:#fffcf6}.currency-badge{display:inline-flex;align-items:center;justify-content:center;min-width:74px;border-radius:999px;padding:5px 8px;background:#e5eff7;color:#1b5c7d;font-size:10px;font-weight:950;white-space:nowrap}.currency-badge.cny{background:#fff0df;color:#8a5628}.currency-badge.missing{background:#fff1d6;color:#8a5c10}.pricing-mode-badge{display:block;width:max-content;margin-top:4px;border-radius:999px;background:#eee8f8;color:#62428a;padding:3px 7px;font-size:9px;font-weight:900}.currency-edit-btn{border:1px solid #cdd9e0;background:#f7fafb;color:#21425f;border-radius:9px;padding:7px 9px;white-space:nowrap;font-size:10px;font-weight:900;cursor:pointer}.currency-edit-btn:hover{background:#10243d;color:#fff}.currency-edit-btn:disabled{opacity:.55;cursor:not-allowed}.currency-price-modal{display:grid;gap:13px}.currency-item-identity{display:grid;grid-template-columns:auto 1fr;gap:3px 10px;border:1px solid #e2e8ec;background:#f8fafb;border-radius:14px;padding:11px 13px}.currency-item-identity b{grid-row:1/3;align-self:center;border-radius:8px;background:#dcecf6;color:#1b5c7d;padding:5px 8px}.currency-item-identity span{color:#10243d;font-weight:900}.currency-item-identity small{color:#66727d}.currency-choice{display:grid;grid-template-columns:1fr 1fr;gap:7px}.currency-choice button{border:1px solid #d8dee3;background:#fff;color:#53616d;border-radius:11px;padding:9px;font-weight:900;cursor:pointer}.currency-choice button.active.usd{border-color:#386e96;background:#eaf3f9;color:#1b5c7d}.currency-choice button.active.cny{border-color:#a8672e;background:#fff3e6;color:#8a5628}.legacy-price-suggest{justify-self:start;border:1px solid #f0dbc3;background:#fffaf5;color:#7b4c21;border-radius:10px;padding:8px 10px;font-size:11px;font-weight:900;cursor:pointer}.currency-live-preview{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.currency-live-preview>div{border:1px solid #dfe6ea;background:linear-gradient(145deg,#f7fafb,#fff);border-radius:13px;padding:11px}.currency-live-preview span{display:block;color:#66727d;font-size:11px;margin-bottom:5px}.currency-live-preview b{color:#10243d;font-size:16px}.produced-price-rule{display:grid;grid-template-columns:1fr auto;gap:4px 10px;border:1px solid #d8cbea;background:#f8f5fd;border-radius:14px;padding:11px 13px}.produced-price-rule b{color:#62428a}.produced-price-rule strong{color:#10243d}.produced-price-rule small{grid-column:1/-1;color:#66727d;line-height:1.7}.produced-pricing-fields input[readonly]{background:#f3f6f8;color:#40515f}.currency-price-modal .note{margin:0}.currency-price-modal .modal-actions{margin-top:0}
 @media(max-width:1100px){.currency-pricing-toolbar{grid-template-columns:1fr 1fr}.currency-display-switch{justify-content:center}.currency-bulk-actions{justify-content:flex-start}.currency-pricing-head{flex-direction:column}.refresh-rates-btn{align-self:stretch}.currency-pricing-summary small{width:100%;margin-inline-start:0}}
 @media(max-width:720px){.exchange-rate-cards,.currency-pricing-toolbar,.currency-live-preview{grid-template-columns:1fr}.currency-display-switch{overflow-x:auto;justify-content:flex-start}.currency-bulk-actions{display:grid;grid-template-columns:1fr 1fr}.currency-pricing-head h2{font-size:18px}.exchange-rate-meta{flex-direction:column}.currency-pricing-summary{align-items:flex-start}.currency-price-table-wrap{max-height:none}.produced-price-rule{grid-template-columns:1fr}.produced-price-rule small{grid-column:auto}}
+
+/* Version 134: clear, order-driven shipment management */
+.shipment-management-card{padding:18px!important}.shipment-section-head{align-items:flex-start;border-bottom:1px solid #edf0f2;padding-bottom:13px}.shipment-section-head>div:first-child>p{margin:-5px 0 0;color:#66727d;font-size:11.5px;line-height:1.8}.shipment-stat-tabs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px;margin:13px 0}.shipment-stat-tabs button{border:1px solid #dfe5e8;background:#fff;border-radius:14px;padding:10px 12px;display:flex;align-items:center;justify-content:space-between;color:#53616d;cursor:pointer;text-align:right}.shipment-stat-tabs button b{display:grid;place-items:center;min-width:31px;height:31px;border-radius:10px;background:#eef2f5;color:#10243d;font-size:14px}.shipment-stat-tabs button.active{border-color:#a8672e;background:#fffaf5;color:#7b4c21;font-weight:900;box-shadow:0 4px 14px rgba(168,103,46,.09)}.shipment-stat-tabs button.active b{background:#a8672e;color:#fff}.shipment-filters-clean{grid-template-columns:minmax(280px,1.4fr) 190px 165px 165px auto!important;align-items:center}.shipment-filters-clean button{border:1px solid #d8dee3;background:#fff;color:#53616d;border-radius:10px;padding:9px 11px;cursor:pointer}.shipment-result-note{display:flex;align-items:center;gap:12px;margin:0 0 10px;color:#66727d;font-size:11px}.shipment-result-note b{color:#10243d;border-radius:999px;background:#eef2f5;padding:5px 9px}.shipment-table-wrap{max-height:650px;overflow:auto}.shipment-table{min-width:1260px}.shipment-table thead th{position:sticky;top:0;z-index:3}.shipment-table th:nth-child(1){width:145px}.shipment-table th:nth-child(2){width:195px}.shipment-table th:nth-child(3){width:335px}.shipment-table th:nth-child(4){width:82px}.shipment-table th:nth-child(5){width:210px}.shipment-table th:nth-child(6){width:105px}.shipment-table th:nth-child(7){width:120px}.shipment-identity>b{display:block;color:#10243d;font-size:12px}.shipment-identity>span{display:block;color:#66727d;font-size:10px;margin:4px 0 6px}.shipment-identity>em{display:inline-flex;border-radius:999px;padding:4px 7px;font-style:normal;font-size:9.5px;font-weight:900}.shipment-identity>em.structured{background:#e5f3eb;color:#25694a}.shipment-identity>em.manual{background:#fff1d6;color:#8a5c10}.shipment-order-customer>b,.shipment-order-customer>strong,.shipment-order-customer>small{display:block}.shipment-order-customer>b{color:#a8672e;font-size:11px}.shipment-order-customer>strong{color:#10243d;margin-top:4px;line-height:1.6}.shipment-order-customer>small{color:#889199;font-size:10px;margin-top:4px}.shipment-line-list{display:grid;gap:5px}.shipment-line-list>div{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:10px;border:1px solid #e4e9ec;background:#f8fafb;border-radius:10px;padding:6px 8px}.shipment-line-list span>b,.shipment-line-list span>small{display:block}.shipment-line-list span>b{color:#10243d;font-size:11px}.shipment-line-list span>small{color:#889199;font-size:9.5px;margin-top:2px}.shipment-line-list>div>strong{color:#25694a;white-space:nowrap}.shipment-line-list>div>strong small{font-size:9px}.manual-shipment-summary{border:1px dashed #e2cba9;background:#fffaf5;border-radius:10px;padding:8px}.manual-shipment-summary>span{display:inline-flex;border-radius:999px;background:#f0dbc3;color:#7b4c21;padding:3px 7px;font-size:9px;font-weight:900}.manual-shipment-summary p{margin:5px 0 0;white-space:pre-line;line-height:1.7;color:#53616d;font-size:11px}.shipment-total-cell{text-align:center!important}.shipment-total-cell>b,.shipment-total-cell>small{display:block}.shipment-total-cell>b{font-size:16px;color:#10243d}.shipment-total-cell>small{font-size:9.5px;color:#889199;margin-top:4px}.shipment-logistics-cell>span,.shipment-logistics-cell>b,.shipment-logistics-cell>small{display:block}.shipment-logistics-cell>span{color:#10243d;font-weight:800}.shipment-logistics-cell>b{color:#1b5c7d;font-size:10.5px;margin-top:4px}.shipment-logistics-cell>small{color:#889199;font-size:9.5px;margin-top:4px}.shipment-status-badge{display:inline-flex;border-radius:999px;padding:5px 8px;background:#e7edf3;color:#3b4b5c;font-size:10px;font-weight:900}.shipment-status-badge.sent{background:#e5f3eb;color:#25694a}.shipment-status-badge.ready{background:#fff1d6;color:#8a5c10}.shipment-status-badge.cancelled{background:#f7e5e3;color:#a5453f}.shipment-cancel-reason{display:block;color:#a5453f;line-height:1.6;margin-top:5px}.shipment-cancelled-row td{background:#fffafa;opacity:.82}.icon-action-btn.reverse{color:#8a5c10;border-color:#ead7b0}.icon-action-btn.reverse:hover{background:#fffaf0}.structured-shipment-identity{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;border:1px solid #cde8d6;background:#f4fbf6;border-radius:13px;padding:10px 12px;margin-bottom:13px}.structured-shipment-identity>b{color:#25694a}.structured-shipment-identity>span{color:#10243d;font-weight:900}.structured-shipment-identity>small{color:#66727d}.manual-shipment-note{margin-bottom:13px}.shipment-reversal-reason{display:block;margin-top:13px}.shipment-reversal-reason>span{display:block;color:#5b6670;font-size:11px;font-weight:900;margin-bottom:5px}.shipment-reversal-reason textarea{width:100%;min-height:100px;border:1px solid #e2b9b4;border-radius:11px;padding:9px;background:#fff;resize:vertical}.shipment-row-actions{justify-content:center}
+@media(max-width:1100px){.shipment-stat-tabs{grid-template-columns:1fr 1fr}.shipment-filters-clean{grid-template-columns:1fr 1fr!important}.shipment-section-head{flex-direction:column}.shipment-section-head .report-buttons{width:100%}}
+@media(max-width:680px){.shipment-stat-tabs,.shipment-filters-clean{grid-template-columns:1fr!important}.shipment-result-note{align-items:flex-start;flex-direction:column}.shipment-section-head .report-buttons{display:grid;grid-template-columns:1fr}.structured-shipment-identity{grid-template-columns:1fr}}
+
+/* v135: professional warehouse document search and sync-page hierarchy */
+.warehouse-document-search {
+  display: grid;
+  grid-template-columns: auto minmax(260px, 1fr) auto auto;
+  align-items: center;
+  gap: 9px;
+  margin: 0 0 12px;
+  padding: 9px 11px;
+  border: 1px solid #dde5eb;
+  border-radius: 14px;
+  background: #f8fafb;
+  color: #536271;
+}
+.warehouse-document-search input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #10243d;
+  font: inherit;
+  font-weight: 700;
+}
+.warehouse-document-search > span {
+  white-space: nowrap;
+  color: #647485;
+  font-size: 11px;
+  font-weight: 900;
+}
+.warehouse-document-search > button {
+  width: 27px;
+  height: 27px;
+  border: 0;
+  border-radius: 9px;
+  background: #e8edf1;
+  color: #34475a;
+  cursor: pointer;
+  font-size: 18px;
+}
+.warehouse-sync-state {
+  display: block;
+  width: max-content;
+  margin-top: 4px;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: #e5f3eb;
+  color: #25694a;
+  font-size: 9px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+.sync-page-stack {
+  width: 100%;
+  max-width: 1440px;
+  margin: 0 auto;
+  display: grid;
+  gap: 16px;
+}
+.sync-page-stack > .currency-pricing-card { order: 0; width: 100%; margin: 0; }
+.sync-page-stack > .sync-grid {
+  order: 1;
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: stretch;
+  gap: 16px;
+}
+.sync-grid > .warehouse-card {
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+}
+.sync-files-table,
+.sync-detail-table {
+  max-height: 480px;
+  overflow-y: auto;
+  overflow-x: auto;
+  scrollbar-gutter: stable;
+}
+.sync-files-table { flex: 1; }
+.sync-detail-table { margin-top: 0; }
+.sync-files-table thead th,
+.sync-detail-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: #f8fafb;
+}
+.sync-status-card .sync-status-buttons {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+@media (max-width: 980px) {
+  .sync-page-stack > .sync-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 720px) {
+  .warehouse-document-search { grid-template-columns: auto minmax(0, 1fr) auto; }
+  .warehouse-document-search > span { grid-column: 2; grid-row: 2; }
+  .warehouse-document-search > button { grid-column: 3; grid-row: 1; }
+  .sync-status-card .sync-status-buttons { grid-template-columns: 1fr; }
+}

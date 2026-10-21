@@ -29,7 +29,7 @@ export function useWarehouseData() {
   const fetchData = useCallback(async () => {
     setState((s) => ({ ...s, loading: true, error: null }));
 
-    const [stockRes, pricingRes, docsRes, snapshotsRes, matchedRes, unmatchedRes, inactiveRes, referralsRes, shipmentsRes, categoriesRes] = await Promise.all([
+    const [stockRes, pricingRes, docsRes, snapshotsRes, inactiveRes, referralsRes, shipmentsRes, categoriesRes] = await Promise.all([
       supabase
         .from('v_warehouse_current_stock')
         .select('item_id, item_code, item_name_fa, item_name_en, item_group, category, unit, location, reorder_point, min_stock_threshold, unit_price_estimate, price_currency, current_qty, total_in, total_out, last_movement_at, last_synced_at, is_low_stock, stock_value_estimate')
@@ -50,21 +50,11 @@ export function useWarehouseData() {
         .order('imported_at', { ascending: false })
         .limit(20),
       supabase
-        .from('warehouse_snapshot_items')
-        .select('id, snapshot_id, item_code, quantity, unit, matched')
-        .eq('matched', true)
-        .limit(100),
-      supabase
-        .from('warehouse_snapshot_items')
-        .select('id, snapshot_id, item_code, quantity, unit, matched')
-        .eq('matched', false)
-        .limit(100),
-      supabase
         .from('warehouse_items')
         .select('id, item_code, item_name_fa, category, unit, location, updated_at, is_active')
         .eq('is_active', false)
         .order('updated_at', { ascending: false })
-        .limit(100),
+        .limit(3000),
       supabase
         .from('automation_referrals')
         .select('id, referral_number, source_module, target_module, target_role, referral_type, priority, status, title_fa, due_date, related_order_id, related_document_id, created_at')
@@ -75,7 +65,7 @@ export function useWarehouseData() {
         .from('v_warehouse_shipment_overview')
         .select('*')
         .order('shipment_date', { ascending: false })
-        .limit(500),
+        .limit(2000),
       supabase
         .from('warehouse_item_categories')
         .select('id, name_fa, name_en, code, sort_order, is_active, created_at, updated_at')
@@ -83,6 +73,28 @@ export function useWarehouseData() {
         .order('sort_order', { ascending: true })
         .order('name_fa', { ascending: true }),
     ]);
+
+    const latestSnapshotId = (snapshotsRes.data || [])[0]?.id || null;
+    let matchedRes = { data: [], error: null };
+    let unmatchedRes = { data: [], error: null };
+    if (latestSnapshotId) {
+      [matchedRes, unmatchedRes] = await Promise.all([
+        supabase
+          .from('warehouse_snapshot_items')
+          .select('id, snapshot_id, item_code, quantity, unit, matched')
+          .eq('snapshot_id', latestSnapshotId)
+          .eq('matched', true)
+          .order('item_code', { ascending: true })
+          .limit(3000),
+        supabase
+          .from('warehouse_snapshot_items')
+          .select('id, snapshot_id, item_code, quantity, unit, matched')
+          .eq('snapshot_id', latestSnapshotId)
+          .eq('matched', false)
+          .order('item_code', { ascending: true })
+          .limit(3000),
+      ]);
+    }
 
     const draftDocuments = (docsRes.data || []).filter((d) => d.status === 'draft');
     let draftLines = [];
@@ -110,7 +122,7 @@ export function useWarehouseData() {
 
     setState({
       loading: false,
-      error: firstError([stockRes, pricingRes, docsRes, snapshotsRes, matchedRes, unmatchedRes, inactiveRes, referralsRes, { error: draftLinesError }]),
+      error: firstError([stockRes, pricingRes, docsRes, snapshotsRes, matchedRes, unmatchedRes, inactiveRes, referralsRes, shipmentsRes, categoriesRes, { error: draftLinesError }]),
       stock: mergedStock,
       documents: docsRes.data || [],
       draftDocument: firstDraftWithLines,
@@ -145,6 +157,7 @@ export function useWarehouseData() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'production_output' }, scheduleRefetch)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'finance_documents' }, scheduleRefetch)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'warehouse_shipments' }, scheduleRefetch)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'warehouse_shipment_lines' }, scheduleRefetch)
       .subscribe();
     return () => { clearTimeout(timer); supabase.removeChannel(channel); };
   }, [fetchData]);

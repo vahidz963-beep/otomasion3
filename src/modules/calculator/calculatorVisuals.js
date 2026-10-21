@@ -25,7 +25,7 @@ export function buildWindowFillSvg(bobbin, engineering) {
   const width = 820;
   const height = 430;
   const frame = { x: 120, y: 72, width: 580, height: 278 };
-  const fontFamily = 'Vazirmatn,Tahoma,Arial,sans-serif';
+  const fontFamily = "'Aryaman Vazirmatn',Vazirmatn,Tahoma,Arial,sans-serif";
   if (!bobbin || !rows.length) {
     return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="نقشه پرشدگی"><rect width="100%" height="100%" rx="20" fill="#fbfaf6"/><text x="410" y="215" text-anchor="middle" font-family="${fontFamily}" font-size="16" fill="#5b6670">برای رسم نقشه، محاسبه معتبر لازم است.</text></svg>`;
   }

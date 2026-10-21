@@ -95,9 +95,9 @@ export function useAccountingData() {
       supabase.from('v_finance_dashboard').select('*').maybeSingle(),
       supabase
         .from('v_finance_document_summary')
-        .select('id, doc_number, document_type, status, issue_date, due_date, party_id, party_name, party_type, related_order_id, order_code, source_module, converted_from_document_id, subtotal_amount, discount_amount, tax_amount, total_amount, paid_amount, balance_amount, is_overdue, customer_code')
+        .select('*')
         .order('issue_date', { ascending: false })
-        .limit(80),
+        .limit(3000),
       fetchAllRows(() => supabase
         .from('v_party_balances')
         .select('party_id, display_name, party_type, phone, email, balance, total_debit, total_credit, customer_code')

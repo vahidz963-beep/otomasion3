@@ -137,7 +137,7 @@ export function FinanceDocumentForm({ parties, orders = [], stock = [], initialD
       <Field label="📝 جزئیات زیر فاکتور در چاپ" full><textarea value={document.print_note} onChange={(e) => setDocument({ ...document, print_note: e.target.value })} placeholder="متنی که باید پایین فاکتور/پیش‌فاکتور چاپ شود؛ مثل شرایط پرداخت، زمان تحویل، توضیحات فنی یا توضیحات رسمی..." /></Field>
     </div>
 
-    {isConfirmedEdit && <div className="finance-note warning">این فاکتور قبلاً تأیید/ثبت شده است. بعد از ثبت فرم، پنجره تأیید اصلاح باز می‌شود و سپس سند حسابداری و خروج انبار وابسته دوباره همگام می‌شوند.</div>}
+    {isConfirmedEdit && <div className="finance-note warning">این فاکتور قبلاً تأیید/ثبت شده است. اصلاح به‌صورت اتمیک ثبت می‌شود؛ رزرو/سند انبار قدیمی با سابقه قابل‌ردیابی همگام می‌شود و سند خروج محموله فیزیکی بدون لغو یا بازنویسی باقی می‌ماند.</div>}
 
     <div className="line-editor">
       <table>

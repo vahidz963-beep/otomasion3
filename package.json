@@ -1,6 +1,6 @@
 {
   "name": "otomasion2",
-  "version": "133.0.0",
+  "version": "135.0.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -8,7 +8,10 @@
     "build": "vite build",
     "preview": "vite preview",
     "test:calculator": "node tests/calculator-engine.test.mjs",
-    "check": "npm run test:calculator && npm run build"
+    "test:shipments": "node tests/warehouse-shipments.test.mjs",
+    "test:jalali-input": "node tests/jalali-input.test.mjs",
+    "test:ui-workflows": "node tests/ui-workflow-regressions.test.mjs",
+    "check": "npm run test:calculator && npm run test:shipments && npm run test:jalali-input && npm run test:ui-workflows && npm run build"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",

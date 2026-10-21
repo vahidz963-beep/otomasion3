@@ -1,5 +1,6 @@
 import { supabase } from './supabaseClient';
 import { ARYAMAN_BRAND_FA, ARYAMAN_LOGO_DATA_URI, brandedExcelTableHtml } from './reporting';
+import { ARYAMAN_FONT_FAMILY_CSS, buildAryamanFontFaceCss } from './typography';
 
 function assertNoError({ error }, fallbackMessage) {
   if (error) throw new Error(error.message || fallbackMessage);
@@ -288,50 +289,70 @@ export async function createWarehouseSnapshot({ fileName, rows, notes }) {
 
 
 export async function createWarehouseShipment(payload) {
+  if (!payload.customer_name?.trim()) throw new Error('نام مشتری/مقصد در ثبت دستی الزامی است.');
+  if (!payload.item_summary?.trim()) throw new Error('شرح متنی اقلام در ثبت دستی الزامی است.');
+  if (Number(payload.total_quantity || 0) <= 0) throw new Error('تعداد کل ثبت دستی باید بیشتر از صفر باشد.');
+
   const res = await supabase.from('warehouse_shipments').insert({
-    source_type: payload.source_type || 'manual',
-    customer_name: payload.customer_name || null,
-    customer_city: payload.customer_city || null,
+    source_type: 'manual',
+    model_version: 2,
+    customer_name: payload.customer_name.trim(),
+    customer_city: payload.customer_city?.trim() || null,
     shipment_date: payload.shipment_date || new Date().toISOString().slice(0, 10),
-    item_summary: payload.item_summary || null,
-    total_quantity: Number(payload.total_quantity || 0),
-    carton_count: Number(payload.carton_count || 0),
-    total_value: Number(payload.total_value || 0),
-    carrier_name: payload.carrier_name || null,
-    tracking_code: payload.tracking_code || null,
-    receiver_name: payload.receiver_name || null,
+    item_summary: payload.item_summary.trim(),
+    total_quantity: Number(payload.total_quantity),
+    carton_count: Math.max(0, Number(payload.carton_count || 0)),
+    total_value: Math.max(0, Number(payload.total_value || 0)),
+    carrier_name: payload.carrier_name?.trim() || null,
+    tracking_code: payload.tracking_code?.trim() || null,
+    receiver_name: payload.receiver_name?.trim() || null,
     status: payload.status || 'ready',
-    notes: payload.notes || null,
+    notes: payload.notes?.trim() || null,
   }).select('id').single();
   assertNoError(res, 'خطا در ثبت ارسال دستی');
   return res.data;
 }
 
-export async function archiveWarehouseShipment(id, reason = 'بایگانی ارسال از لیست ارسال‌ها') {
-  const res = await supabase.from('warehouse_shipments').update({
-    archived_at: new Date().toISOString(),
-    notes: reason,
-    updated_at: new Date().toISOString(),
-  }).eq('id', id).select('id').single();
+export async function archiveWarehouseShipment(id, reason = 'بایگانی ارسال از فهرست ارسال‌ها') {
+  const res = await supabase.rpc('fn_archive_warehouse_shipment', {
+    p_shipment_id: id,
+    p_reason: reason,
+  });
   assertNoError(res, 'خطا در بایگانی ارسال');
   return res.data;
 }
 
+export async function reverseWarehouseShipment(id, reason) {
+  if (!reason?.trim()) throw new Error('ثبت دلیل برگشت ارسال الزامی است.');
+  const res = await supabase.rpc('fn_reverse_order_shipment', {
+    p_shipment_id: id,
+    p_reason: reason.trim(),
+  });
+  assertNoError(res, 'خطا در برگشت ارسال و اصلاح موجودی');
+  return res.data;
+}
+
 export async function updateWarehouseShipment(id, payload) {
-  const res = await supabase.from('warehouse_shipments').update({
-    customer_name: payload.customer_name || null,
-    customer_city: payload.customer_city || null,
+  const isStructured = Boolean(payload.related_order_id || payload.warehouse_document_id || (!payload.is_manual_record && payload.source_type !== 'manual'));
+  const patch = {
+    carton_count: Math.max(0, Number(payload.carton_count || 0)),
+    carrier_name: payload.carrier_name?.trim() || null,
+    tracking_code: payload.tracking_code?.trim() || null,
+    receiver_name: payload.receiver_name?.trim() || null,
+    notes: payload.notes?.trim() || null,
+  };
+
+  if (!isStructured) Object.assign(patch, {
+    customer_name: payload.customer_name?.trim() || null,
+    customer_city: payload.customer_city?.trim() || null,
     shipment_date: payload.shipment_date || new Date().toISOString().slice(0, 10),
-    item_summary: payload.item_summary || null,
-    total_quantity: Number(payload.total_quantity || 0),
-    carton_count: Number(payload.carton_count || 0),
-    total_value: Number(payload.total_value || 0),
-    carrier_name: payload.carrier_name || null,
-    tracking_code: payload.tracking_code || null,
-    receiver_name: payload.receiver_name || null,
+    item_summary: payload.item_summary?.trim() || null,
+    total_quantity: Math.max(0, Number(payload.total_quantity || 0)),
+    total_value: Math.max(0, Number(payload.total_value || 0)),
     status: payload.status || 'ready',
-    notes: payload.notes || null,
-  }).eq('id', id).select('id').single();
+  });
+
+  const res = await supabase.from('warehouse_shipments').update(patch).eq('id', id).select('id').single();
   assertNoError(res, 'خطا در ویرایش اطلاعات ارسال');
   return res.data;
 }
@@ -351,7 +372,7 @@ function escapeHtml(value) {
 }
 
 function brandedReportShell(title, body) {
-  const css = `@page{size:A4;margin:12mm}body{margin:0;background:#f3f5f6;color:#1b2126;direction:rtl;font-family:Vazirmatn,Tahoma,Arial,sans-serif;padding:22px}.report{background:#fff;border-radius:18px;overflow:hidden;border:1px solid #e7eaec;box-shadow:0 8px 28px rgba(16,36,61,.10)}.brand-head{background:linear-gradient(135deg,#10243d,#1b365d);color:#fff;padding:18px 22px;display:flex;align-items:center;justify-content:space-between;gap:16px}.brand-title{display:flex;align-items:center;gap:12px}.brand-title img{width:54px;height:54px;object-fit:contain;border-radius:14px;background:#fff;padding:5px}.brand-title h1{margin:0;font-size:20px}.brand-title span{display:block;color:#f8d348;font-size:12px;margin-top:4px}.report-date{color:#d8dee3;font-size:12px}.report-body{padding:20px}.report-body h1{margin:0 0 14px;color:#10243d;font-size:20px}table{width:100%;border-collapse:separate;border-spacing:0;margin-top:12px;overflow:hidden;border:1px solid #e7eaec;border-radius:14px}th{background:#10243d;color:#fff;font-weight:800}td,th{padding:10px;border-bottom:1px solid #edf0f2;text-align:right;font-size:12px}tr:nth-child(even) td{background:#fafafa}.print-btn{margin:0 0 12px;background:#a8672e;color:#fff;border:0;border-radius:12px;padding:10px 14px;font-weight:800;cursor:pointer}@media print{body{background:#fff;padding:0}.print-btn{display:none}.report{box-shadow:none;border-radius:0}}`;
+  const css = `${buildAryamanFontFaceCss()}@page{size:A4;margin:12mm}body{margin:0;background:#f3f5f6;color:#1b2126;direction:rtl;font-family:${ARYAMAN_FONT_FAMILY_CSS};font-synthesis:none;text-rendering:optimizeLegibility;-webkit-font-smoothing:antialiased;padding:22px}.report{background:#fff;border-radius:18px;overflow:hidden;border:1px solid #e7eaec;box-shadow:0 8px 28px rgba(16,36,61,.10)}.brand-head{background:linear-gradient(135deg,#10243d,#1b365d);color:#fff;padding:18px 22px;display:flex;align-items:center;justify-content:space-between;gap:16px}.brand-title{display:flex;align-items:center;gap:12px}.brand-title img{width:54px;height:54px;object-fit:contain;border-radius:14px;background:#fff;padding:5px}.brand-title h1{margin:0;font-size:20px}.brand-title span{display:block;color:#f8d348;font-size:12px;margin-top:4px}.report-date{color:#d8dee3;font-size:12px}.report-body{padding:20px}.report-body h1{margin:0 0 14px;color:#10243d;font-size:20px}table{width:100%;border-collapse:separate;border-spacing:0;margin-top:12px;overflow:hidden;border:1px solid #e7eaec;border-radius:14px}th{background:#10243d;color:#fff;font-weight:800}td,th{padding:10px;border-bottom:1px solid #edf0f2;text-align:right;font-size:12px}tr:nth-child(even) td{background:#fafafa}.print-btn{margin:0 0 12px;background:#a8672e;color:#fff;border:0;border-radius:12px;padding:10px 14px;font-weight:800;cursor:pointer}@media print{body{background:#fff;padding:0}.print-btn{display:none}.report{box-shadow:none;border-radius:0}}`;
   return `<!doctype html><html dir="rtl" lang="fa"><head><meta charset="utf-8"><title>${escapeHtml(title)}</title><style>${css}</style></head><body><button class="print-btn" onclick="window.print()">چاپ / ذخیره PDF</button><main class="report"><header class="brand-head"><div class="brand-title"><img src="${ARYAMAN_LOGO_DATA_URI}" alt="Aryaman"><div><h1>${escapeHtml(title)}</h1><span>${ARYAMAN_BRAND_FA}</span></div></div><div class="report-date">گزارش رسمی انبار</div></header><section class="report-body">${body}</section></main></body></html>`;
 }
 

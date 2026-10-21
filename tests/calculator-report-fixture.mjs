@@ -23,6 +23,7 @@ export function buildReportFixture() {
     orderType: 'sample', quantity: 30, hasGap: false, core, bobbin,
     engineering: result.engineering, publicResult: result.publicResult, inventory: result.inventorySnapshot,
     pricing: result.pricing, formulaVersion: 'TR-0.1.0-R133',
+    fontBaseUrl: new URL('../public/assets/fonts/vazirmatn/', import.meta.url).href,
     fillSvg: buildWindowFillSvg(bobbin, result.engineering), pinSvg: buildPinDiagramSvg(bobbin, result.engineering),
   };
 }

@@ -12,6 +12,7 @@
 - گزینه نسخه‌دار مدیر برای نمایش یا پنهان‌کردن ریز قیمت‌گذاری برای کارکنان مجاز
 - عنوان‌های «سفارش نمونه ترانس — ۱ تا ۹۹» و «سفارش تعداد — +۱۰۰»
 - هماهنگی اندازه عنوان Hero با سایر ماژول‌ها
+- فونت محلی و نسخه‌دار Vazirmatn برای کل سایت، گزارش‌های PDF و افزونه WordPress؛ بدون وابستگی به Google Fonts یا فونت نصب‌شده روی دستگاه
 
 ## Migration الزامی
 
@@ -69,7 +70,7 @@ npm run check
 فایل زیر جایگزین نسخه قبل شود:
 
 ```text
-wordpress/aryaman-calculator-connector-v1.2.0.zip
+wordpress/aryaman-calculator-connector-v1.2.1.zip
 ```
 
 تنظیمات Endpoint، Shared Secret و شناسه محصول WooCommerce حفظ می‌شوند.

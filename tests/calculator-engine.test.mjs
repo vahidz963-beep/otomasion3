@@ -139,8 +139,15 @@ assert.doesNotMatch(customerReport, /ریز مالی محرمانه|بهای ت�
 assert.match(staffReport, /ریز مالی محرمانه/);
 assert.match(staffReport, /بهای تمام‌شده/);
 assert.match(staffReport, /چک‌لیست کنترل کیفیت/);
-assert.equal((customerReport.match(/class="page"/g) || []).length, 2, 'customer PDF has two organized pages');
-assert.equal((staffReport.match(/class="page"/g) || []).length, 3, 'staff PDF adds a confidential third page');
+assert.equal((customerReport.match(/class="page(?: [^"]*)?"/g) || []).length, 2, 'customer PDF has two organized pages');
+assert.equal((staffReport.match(/class="page(?: [^"]*)?"/g) || []).length, 3, 'staff PDF adds a confidential third page');
+assert.match(customerReport, /@font-face[\s\S]*Aryaman Vazirmatn[\s\S]*vazirmatn-v16-arabic-wght-normal\.woff2/, 'customer PDF embeds the versioned local site font contract');
+assert.match(staffReport, /font-family:"Aryaman Vazirmatn"/, 'staff PDF uses the same high-quality font as the site');
+assert.ok(fs.existsSync(path.join(root, 'public/assets/fonts/vazirmatn/vazirmatn-v16-arabic-wght-normal.woff2')));
+assert.ok(fs.existsSync(path.join(root, 'public/assets/fonts/vazirmatn/vazirmatn-v16-latin-wght-normal.woff2')));
+const globalStyles = fs.readFileSync(path.join(root, 'src/styles.css'), 'utf8');
+assert.match(globalStyles, /@font-face[\s\S]*Aryaman Vazirmatn/);
+assert.doesNotMatch(globalStyles, /fonts\.googleapis\.com/, 'site typography is local and does not depend on Google Fonts');
 
 const migration = fs.readFileSync(path.join(root, 'supabase/migrations/123_calculator_center_integration.sql'), 'utf8');
 assert.match(migration, /'public_quote_enabled','false'::jsonb/);
@@ -256,5 +263,10 @@ assert.match(pluginJs, /دریافت خروجی PDF مشتری/);
 assert.match(pluginJs, /ary-stock-hint/);
 assert.match(pluginJs, /سفارش نمونه ترانس/);
 assert.match(pluginJs, /pendingPayload = null;[\s\S]*resultHost\.innerHTML = ''/, 'WordPress input changes invalidate the preview');
+assert.match(pluginJs, /Aryaman Vazirmatn/, 'WordPress print output uses the site typography');
+const pluginCss = fs.readFileSync(path.join(root, 'wordpress/aryaman-calculator-connector/assets/calculator.css'), 'utf8');
+assert.match(pluginCss, /@font-face[\s\S]*Aryaman Vazirmatn/);
+assert.match(pluginCss, /fonts\/vazirmatn\/vazirmatn-v16-arabic-wght-normal\.woff2/);
+assert.ok(fs.existsSync(path.join(root, 'wordpress/aryaman-calculator-connector/assets/fonts/vazirmatn/OFL.txt')));
 
 console.log('calculator-engine.test.mjs: PASS');

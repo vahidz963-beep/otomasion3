@@ -3,7 +3,7 @@ Contributors: aryaman
 Tags: calculator, woocommerce, supabase, transformer
 Requires at least: 6.2
 Requires PHP: 8.0
-Stable tag: 1.2.0
+Stable tag: 1.2.1
 License: Proprietary
 
 اتصال امن دوطرفه WordPress/WooCommerce به مرکز محاسبه اتوماسیون آریامن.
@@ -37,6 +37,10 @@ License: Proprietary
 Event ID پایدار است؛ تکرار webhook باعث رزرو یا کسر دوباره نمی‌شود.
 
 == تغییرات ==
+
+= 1.2.1 =
+* افزودن فونت محلی و نسخه‌دار Vazirmatn برای رابط و خروجی چاپی
+* هماهنگ‌سازی کامل تایپوگرافی با سایت و حذف وابستگی خروجی به فونت دستگاه کاربر
 
 = 1.2.0 =
 * دسته‌بندی نتیجه به خلاصه ساخت/موجودی/قیمت و پرونده فنی سیم‌پیچی
