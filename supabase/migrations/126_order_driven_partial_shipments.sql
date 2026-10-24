@@ -153,13 +153,17 @@ begin
   loop
     v_shipment_id := null;
 
+    -- The unique warehouse_document_id constraint also covers archived rows.
+    -- Therefore an archived row that already owns this physical document must
+    -- be selected as the canonical row; ignoring it and attaching an inferred
+    -- active row would violate uq_warehouse_shipments_document.
     select s.id into v_shipment_id
     from public.warehouse_shipments s
-    where s.archived_at is null
-      and (s.warehouse_document_id = r.warehouse_document_id
-           or s.finance_document_id = r.finance_document_id)
+    where s.warehouse_document_id = r.warehouse_document_id
+       or s.finance_document_id = r.finance_document_id
     order by (s.warehouse_document_id = r.warehouse_document_id) desc,
              (s.finance_document_id = r.finance_document_id) desc,
+             (s.archived_at is null) desc,
              s.created_at
     limit 1;
 
@@ -203,6 +207,8 @@ begin
           status = 'sent',
           sent_at = coalesce(sent_at, r.finalized_at, updated_at, created_at, now()),
           legacy_stock_issued = true,
+          archived_at = null,
+          archived_by = null,
           notes = concat_ws(E'\n', notes, 'طبقه‌بندی به‌عنوان خروج واقعی سفارش در Migration 126'),
           updated_at = now()
       where id = v_shipment_id;

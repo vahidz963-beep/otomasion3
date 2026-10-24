@@ -15,6 +15,7 @@ const moduleLoaders = {
   office: () => import('./modules/office/OfficeAdminModule'),
   adminUsers: () => import('./components/admin/AdminUserPanel'),
   audit: () => import('./components/admin/AuditLogPanel'),
+  backup: () => import('./modules/backup/BackupCenter'),
 };
 
 const Dashboard = React.lazy(moduleLoaders.dashboard);
@@ -27,6 +28,7 @@ const AccountingModule = React.lazy(moduleLoaders.accounting);
 const OfficeAdminModule = React.lazy(moduleLoaders.office);
 const AdminUserPanel = React.lazy(moduleLoaders.adminUsers);
 const AuditLogPanel = React.lazy(moduleLoaders.audit);
+const BackupCenter = React.lazy(moduleLoaders.backup);
 
 function isAssetPreloadError(error) {
   const message = String(error?.message || error || '').toLowerCase();
@@ -110,6 +112,7 @@ function AppShell() {
     { key: 'calculator', labelFa: 'مرکز محاسبه', labelEn: 'Calculator Center', roles: ['admin', 'sales', 'sales_manager', 'production', 'warehouse'], Component: CalculatorModule, preload: moduleLoaders.calculator },
     { key: 'admin_users', labelFa: 'کاربران', labelEn: 'Users', roles: ['admin'], Component: AdminUserPanel, preload: moduleLoaders.adminUsers },
     { key: 'audit', labelFa: 'تاریخچه', labelEn: 'Audit', roles: ['admin'], Component: AuditLogPanel, preload: moduleLoaders.audit },
+    { key: 'backup', labelFa: 'بکاپ محلی', labelEn: 'Local Backup', roles: ['admin', 'sales', 'sales_manager', 'rnd', 'production', 'warehouse', 'accountant', 'office_admin'], Component: BackupCenter, preload: moduleLoaders.backup },
   ], []);
 
   if (isResetRoute) return <ResetPasswordPage lang="fa" onDone={() => { window.location.href = '/'; }} />;

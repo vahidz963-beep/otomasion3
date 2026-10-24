@@ -45,7 +45,18 @@ export async function createOrUpdateCustomer(input) {
     p_postal_code: input.postal_code || null,
     p_notes: input.finance_notes || input.notes || null,
   });
-  if (!rpcRes.error) return rpcRes.data;
+  if (!rpcRes.error) {
+    const customerId = rpcRes.data;
+    if (customerId && (Object.prototype.hasOwnProperty.call(input, 'credit_limit') || Object.prototype.hasOwnProperty.call(input, 'credit_hold') || Object.prototype.hasOwnProperty.call(input, 'credit_control_note'))) {
+      const creditRes = await supabase.from('customers').update({
+        credit_limit: Math.max(0, Number(input.credit_limit || 0)),
+        credit_hold: !!input.credit_hold,
+        credit_control_note: input.credit_control_note || null,
+      }).eq('id', customerId);
+      assertNoError(creditRes, 'خطا در ذخیره کنترل اعتبار مشتری');
+    }
+    return customerId;
+  }
   if (!isMissingRpc(rpcRes.error)) assertNoError(rpcRes, 'خطا در ثبت/ویرایش مشتری مشترک با حسابداری');
 
   // Fallback until SQL 065 is applied.
@@ -60,6 +71,9 @@ export async function createOrUpdateCustomer(input) {
     crm_status: input.crm_status || 'lead',
     lead_score: Number(input.lead_score || 50),
     next_follow_up_at: nextFollowUpAt,
+    ...(Object.prototype.hasOwnProperty.call(input, 'credit_limit') ? { credit_limit: Math.max(0, Number(input.credit_limit || 0)) } : {}),
+    ...(Object.prototype.hasOwnProperty.call(input, 'credit_hold') ? { credit_hold: !!input.credit_hold } : {}),
+    ...(Object.prototype.hasOwnProperty.call(input, 'credit_control_note') ? { credit_control_note: input.credit_control_note || null } : {}),
   };
   if (Object.prototype.hasOwnProperty.call(input, 'address')) payload.address = input.address || null;
 
@@ -92,7 +106,7 @@ export async function createOrUpdateCustomer(input) {
   return customerId;
 }
 
-export async function createOrderWithItems({ order, items, options = {} }) {
+export async function createOrderWithItems({ order, items, options = {}, requestKey = null }) {
   await currentUserId();
 
   if (order?.customer_id) {
@@ -119,7 +133,7 @@ export async function createOrderWithItems({ order, items, options = {} }) {
       notes: item.notes || null,
     }));
 
-  const res = await supabase.rpc('fn_app_create_order', {
+  const params = {
     p_customer: order.customer || {},
     p_order: order || {},
     p_items: cleanItems,
@@ -127,8 +141,43 @@ export async function createOrderWithItems({ order, items, options = {} }) {
     p_ref_finance: !!options.refFinance,
     p_ref_warehouse: !!options.refWarehouse,
     p_ref_path: !!options.refPath,
+  };
+  let res = await supabase.rpc('fn_app_create_order_idempotent', {
+    p_request_key: requestKey || globalThis.crypto?.randomUUID?.() || `order-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    ...params,
   });
+  if (res.error && isMissingRpc(res.error)) res = await supabase.rpc('fn_app_create_order', params);
   assertNoError(res, 'خطا در ثبت سفارش');
+  return res.data;
+}
+
+export async function updateOrderStageSafe({ orderId, order, items, reason, expectedRevision }) {
+  const cleanItems = (items || [])
+    .filter((item) => item.item_name_fa && Number(item.quantity) > 0)
+    .map((item, index) => ({
+      id: item.id || null,
+      line_no: index + 1,
+      item_name_fa: item.item_name_fa,
+      item_name_en: item.item_name_en || null,
+      warehouse_item_code: item.warehouse_item_code || null,
+      quantity: Number(item.quantity || 1),
+      unit: item.unit || 'عدد',
+      unit_price: Number(item.unit_price || 0),
+      discount_percent: Math.min(100, Math.max(0, Number(item.discount_percent || 0))),
+      discount_amount: Math.max(0, Number(item.discount_amount || 0)),
+      notes: item.notes || null,
+    }));
+  const res = await supabase.rpc('fn_update_order_stage_safe', {
+    p_order_id: orderId,
+    p_order: order || {},
+    p_items: cleanItems,
+    p_reason: reason || null,
+    p_expected_revision: expectedRevision ?? null,
+  });
+  if (res.error) {
+    if (isMissingRpc(res.error)) throw new Error('Migration 131 اجرا نشده است؛ ویرایش مرحله‌ای امن سفارش در دسترس نیست.');
+    throw new Error(res.error.message || 'خطا در ویرایش مرحله‌ای سفارش');
+  }
   return res.data;
 }
 

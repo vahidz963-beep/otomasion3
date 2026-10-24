@@ -97,9 +97,13 @@ export function useOrdersData() {
     if (!silent) setState((s) => ({ ...s, loading: true, error: null }));
 
     // مرحله اول: فقط داده‌های ضروری تا صفحه سفارش‌ها سریع باز شود.
-    const [ordersRes, customersRes, followupsRes, templatesRes, stepsRes] = await Promise.all([
+    const [ordersRes, customersRes, customerCreditRes, followupsRes, templatesRes, stepsRes] = await Promise.all([
       fetchOrdersOverview({ limit: 200 }),
       fetchCustomerContacts({ detailed: false }),
+      supabase
+        .from('customers')
+        .select('id, credit_limit, credit_hold, credit_control_note')
+        .limit(5000),
       supabase
         .from('v_crm_due_followups')
         .select('id, customer_id, company_name, contact_phone, preferred_contact_channel, related_order_id, order_code, title, due_at, is_done, assigned_to, assigned_to_name, is_overdue')
@@ -116,7 +120,8 @@ export function useOrdersData() {
         .order('stage_order', { ascending: true }),
     ]);
 
-    const customerRows = customersRes.error ? [] : (customersRes.data || []);
+    const customerCreditById = Object.fromEntries((customerCreditRes.data || []).map((row) => [row.id, row]));
+    const customerRows = (customersRes.error ? [] : (customersRes.data || [])).map((row) => ({ ...row, ...(customerCreditById[row.id] || {}) }));
     const customerCodeById = Object.fromEntries(customerRows.map((row) => [row.id, row.customer_code]).filter(([, code]) => code));
     const orders = (ordersRes.error ? [] : (ordersRes.data || [])).map((order) => ({
       ...order,
@@ -129,7 +134,7 @@ export function useOrdersData() {
       loading: false,
       error: criticalError,
       orders,
-      customers: customersRes.error ? previous.customers : (customersRes.data || []),
+      customers: customersRes.error ? previous.customers : customerRows,
       dueFollowups: followupsRes.error ? previous.dueFollowups : (followupsRes.data || []),
       templates: templatesRes.error ? previous.templates : (templatesRes.data || []),
       templateSteps: stepsRes.error ? previous.templateSteps : (stepsRes.data || []),
@@ -208,7 +213,7 @@ export function useOrdersData() {
 
       setState((previous) => ({
         ...previous,
-        customers: customersFullRes.error ? previous.customers : (customersFullRes.data || previous.customers),
+        customers: customersFullRes.error ? previous.customers : (customersFullRes.data || previous.customers).map((row) => { const existing = previous.customers.find((item) => item.id === row.id); return { ...row, credit_limit: existing?.credit_limit ?? 0, credit_hold: existing?.credit_hold ?? false, credit_control_note: existing?.credit_control_note ?? null }; }),
         crmInteractions: interactionsRes.error ? previous.crmInteractions : (interactionsRes.data || []),
         crmOpportunities: opportunitiesRes.error ? previous.crmOpportunities : (opportunitiesRes.data || []),
         stock: stockRes.error ? previous.stock : (stockRes.data || []),
@@ -249,7 +254,7 @@ export function useOrdersData() {
 }
 
 export function useOrderDetails(orderId) {
-  const emptyDetails = { loading: false, error: null, stages: [], events: [], stock: [], documents: [], referrals: [], production: [], rnd: [], productionStages: [], rndStages: [], shipments: [], shipmentItems: [] };
+  const emptyDetails = { loading: false, error: null, order: null, orderItems: [], revisions: [], credit: null, stages: [], events: [], stock: [], documents: [], referrals: [], production: [], rnd: [], productionStages: [], rndStages: [], shipments: [], shipmentItems: [] };
   const [state, setState] = useState(emptyDetails);
 
   const fetchDetails = useCallback(async () => {
@@ -259,7 +264,10 @@ export function useOrderDetails(orderId) {
     }
     setState((s) => ({ ...s, loading: true, error: null }));
 
-    const [stagesRes, eventsRes, stockRes, docsRes, referralsRes, productionRes, rndRes, shipmentsRes, shipmentItemsRes] = await Promise.all([
+    const [orderRes, orderItemsRes, revisionsRes, stagesRes, eventsRes, stockRes, docsRes, referralsRes, productionRes, rndRes, shipmentsRes, shipmentItemsRes] = await Promise.all([
+      supabase.from('orders').select('id, order_code, customer_id, sales_path, current_stage, title_fa, title_en, description_fa, description_en, priority, expected_delivery_date, registered_at, workflow_template_id, contact_channel, customer_phone_snapshot, customer_city_snapshot, is_cancelled, edit_revision, last_edited_at, last_edit_reason, created_at, updated_at').eq('id', orderId).maybeSingle(),
+      supabase.from('order_items').select('id, order_id, line_no, item_name_fa, item_name_en, warehouse_item_code, quantity, unit, unit_price, discount_percent, discount_amount, notes, created_at').eq('order_id', orderId).order('line_no', { ascending: true }),
+      supabase.from('order_revision_snapshots').select('id, order_id, revision_no, reason, dependency_snapshot, sync_result, created_by, created_at').eq('order_id', orderId).order('revision_no', { ascending: false }).limit(50),
       supabase.from('order_stage_instances').select('id, stage_key, stage_order, stage_name_fa, stage_name_en, responsible_role, status, started_at, completed_at, notes').eq('order_id', orderId).order('stage_order', { ascending: true }),
       supabase.from('order_events').select('id, event_type, title, description, old_stage, new_stage, metadata, created_at').eq('order_id', orderId).order('created_at', { ascending: false }),
       supabase.from('v_order_stock_status').select('order_item_id, item_name_fa, warehouse_item_code, warehouse_item_id, requested_qty, available_for_sale_qty, current_qty, reserved_qty, stock_unit, stock_status, line_no').eq('order_id', orderId).order('line_no', { ascending: true }),
@@ -270,6 +278,11 @@ export function useOrderDetails(orderId) {
       supabase.from('v_warehouse_shipment_overview').select('id, shipment_number, shipment_date, sent_at, status, total_quantity, carton_count, carrier_name, tracking_code, receiver_name, notes, warehouse_doc_number, reversal_warehouse_doc_number, line_items, cancellation_reason').eq('related_order_id', orderId).order('shipment_date', { ascending: false }),
       supabase.from('v_order_shipment_item_progress').select('order_item_id, item_name_fa, warehouse_item_code, warehouse_item_id, ordered_quantity, sent_quantity, remaining_quantity, reserved_quantity, current_stock_quantity, available_to_this_line, unit, is_warehouse_mapped, has_approved_invoice, line_no').eq('order_id', orderId).order('line_no', { ascending: true }),
     ]);
+
+    let creditRes = { data: null, error: null };
+    if (orderRes.data?.customer_id) {
+      creditRes = await supabase.from('v_customer_credit_control').select('customer_id, company_name, credit_limit, credit_hold, credit_control_note, outstanding_amount, available_credit, requires_credit_review').eq('customer_id', orderRes.data.customer_id).maybeSingle();
+    }
 
     const productionRows = productionRes.error ? [] : (productionRes.data || []);
     const rndRows = rndRes.error ? [] : (rndRes.data || []);
@@ -295,7 +308,11 @@ export function useOrderDetails(orderId) {
 
     setState({
       loading: false,
-      error: firstError([stagesRes, eventsRes, stockRes, docsRes, referralsRes, productionRes, rndRes, shipmentsRes, shipmentItemsRes, productionStagesRes, rndStagesRes]),
+      error: firstError([orderRes, orderItemsRes, revisionsRes, creditRes, stagesRes, eventsRes, stockRes, docsRes, referralsRes, productionRes, rndRes, shipmentsRes, shipmentItemsRes, productionStagesRes, rndStagesRes]),
+      order: orderRes.data || null,
+      orderItems: orderItemsRes.data || [],
+      revisions: revisionsRes.error ? [] : (revisionsRes.data || []),
+      credit: creditRes.error ? null : (creditRes.data || null),
       stages: stagesRes.data || [],
       events: eventsRes.data || [],
       stock: stockRes.data || [],
@@ -321,6 +338,9 @@ export function useOrderDetails(orderId) {
     };
     const channel = supabase
       .channel(`order-detail-live-${orderId}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders', filter: `id=eq.${orderId}` }, scheduleRefetch)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'order_items', filter: `order_id=eq.${orderId}` }, scheduleRefetch)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'order_revision_snapshots', filter: `order_id=eq.${orderId}` }, scheduleRefetch)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'order_events', filter: `order_id=eq.${orderId}` }, scheduleRefetch)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'finance_documents' }, scheduleRefetch)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'warehouse_transactions' }, scheduleRefetch)

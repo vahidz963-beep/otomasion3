@@ -16,6 +16,7 @@ const initialState = {
   error: null,
   dashboard: emptyDashboard,
   documents: [],
+  purchaseInventoryReconciliation: [],
   parties: [],
   partyDetails: [],
   referrals: [],
@@ -76,6 +77,7 @@ export function useAccountingData() {
     const [
       dashboardRes,
       docsRes,
+      purchaseInventoryRes,
       partiesRes,
       partyDetailsRes,
       referralsRes,
@@ -98,6 +100,11 @@ export function useAccountingData() {
         .select('*')
         .order('issue_date', { ascending: false })
         .limit(3000),
+      supabase
+        .from('v_purchase_invoice_inventory_reconciliation')
+        .select('*')
+        .order('issue_date', { ascending: false })
+        .limit(2000),
       fetchAllRows(() => supabase
         .from('v_party_balances')
         .select('party_id, display_name, party_type, phone, email, balance, total_debit, total_credit, customer_code')
@@ -177,6 +184,7 @@ export function useAccountingData() {
     const firstError = softError([
       dashboardRes,
       docsRes,
+      purchaseInventoryRes,
       partiesRes,
       partyDetailsRes,
       referralsRes,
@@ -207,6 +215,7 @@ export function useAccountingData() {
       error: firstError,
       dashboard: dashboardRes.data || emptyDashboard,
       documents: docsRes.data || [],
+      purchaseInventoryReconciliation: purchaseInventoryRes.error ? previous.purchaseInventoryReconciliation : (purchaseInventoryRes.data || []),
       parties,
       partyDetails,
       referrals: referralsRes.data || [],
@@ -251,7 +260,7 @@ export function useAccountingData() {
           .order('gross_profit', { ascending: false })
           .limit(50),
         supabase
-          .from('finance_investments')
+          .from('v_finance_investment_portfolio')
           .select('*')
           .order('acquisition_date', { ascending: false })
           .limit(200),

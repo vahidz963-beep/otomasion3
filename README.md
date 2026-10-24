@@ -4,7 +4,7 @@
 
 ## وضعیت این نسخه
 
-نسخه جاری `135.0.0` است. این نسخه رفتار تایپ تاریخ شمسی را در همه ماژول‌ها یکدست می‌کند، جست‌وجوی حرفه‌ای فاکتورها و اسناد انبار را اضافه می‌کند، ترتیب اقلام سفارش را تا پیش‌فاکتور/فاکتور حفظ می‌کند، چیدمان همگام‌سازی انبار را اصلاح می‌کند و ویرایش فاکتور تأییدشده را بدون لغو سند خروج فیزیکی، اتمیک و قابل‌ردیابی انجام می‌دهد. معماری سفارش‌محور ارسال نسخه ۱۳۴ همچنان حفظ شده و خروج قطعی فقط هنگام ثبت ارسال توسط انبار رخ می‌دهد. راهنمای استقرار در `DEPLOY_VERSION_135_FA.md` است.
+نسخه جاری `136.0.1` است. این Patch علاوه بر چهار گردش یکپارچه نسخه ۱۳۶، چیدمان حرفه‌ای و ضدسرریز PDF صورت‌حساب اشخاص و محل صحیح دکمه پاک‌کردن جست‌وجوی کالا در فرم‌های RTL را ارائه می‌کند. قابلیت‌های اصلی شامل بکاپ کامل، رمزگذاری‌شده و Local-only در پوشه انتخابی بدون نگهداری دائمی آرشیو روی سرور؛ خرید/فروش کامل دارایی سرمایه‌گذاری با حالت «دارایی از قبل موجود»؛ ورود خودکار و Delta-safe انبار از فاکتور خرید؛ و ویرایش Stage-safe سفارش با نسخه‌بندی، کنترل اعتبار و جلوگیری از ثبت تکراری است. معماری سفارش‌محور ارسال نسخه ۱۳۴ و اصلاحات امن نسخه ۱۳۵ حفظ شده‌اند؛ هیچ ارسال فیزیکی یا سند مالی ثبت‌شده‌ای به‌صورت مخرب بازنویسی نمی‌شود. راهنمای استقرار در `DEPLOY_VERSION_136_FA.md` است.
 
 این نسخه، کدهای پراکنده‌ی قبلی را به یک ساختار اجرایی تبدیل کرده است:
 
@@ -90,9 +90,15 @@ Netlify Functions:
 SUPABASE_URL=...
 SUPABASE_ANON_KEY=...
 SUPABASE_SERVICE_ROLE_KEY=...
+SUPABASE_DB_URL=postgresql://...   # اتصال مستقیم/Session Pooler با نقش postgres
+BACKUP_ENCRYPTION_KEY=...         # راز تصادفی طولانی و ثابت؛ خارج از سورس
+BACKUP_LOCAL_MAX_VERSIONS=5
+BACKUP_LOCAL_OVERDUE_HOURS=48
+BACKUP_TRANSFER_TTL_MINUTES=60
+APP_VERSION=136.0.1
 ```
 
-> `SUPABASE_SERVICE_ROLE_KEY` فقط باید در Netlify Function باشد، نه در frontend.
+> `SUPABASE_SERVICE_ROLE_KEY`، رشته اتصال دیتابیس و کلید رمزگذاری فقط باید در Netlify Function باشند و هرگز نباید با پیشوند `VITE_` به مرورگر برسند. تغییر یا گم‌کردن `BACKUP_ENCRYPTION_KEY` باعث غیرقابل‌بازیابی‌شدن آرشیوهای قبلی می‌شود.
 
 ## ترتیب اجرای SQL در Supabase
 
@@ -110,6 +116,13 @@ SUPABASE_SERVICE_ROLE_KEY=...
 10. `supabase/migrations/010_deploy_readiness_hardening.sql`
 11. `supabase/migrations/013_app_order_finance_sync_fix.sql`
 12. `supabase/migrations/014_warehouse_documents_kardex_backend.sql`
+
+در پروژه‌های موجود، همه Migrationها باید به‌ترتیب شماره اجرا شوند. برای ارتقا از نسخه `135.0.1` که Migrationهای 126 و 127 آن قبلاً اجرا شده‌اند، فقط Migrationهای زیر را به‌ترتیب اجرا کنید:
+
+1. `128_professional_backup_center.sql`
+2. `129_investment_full_purchase_sale.sql`
+3. `130_purchase_invoice_inventory_sync.sql`
+4. `131_order_stage_safe_editing.sql`
 
 ## ساخت اولین مدیر کل
 

@@ -70,6 +70,17 @@ assert.match(migration, /insert into public\.warehouse_shipment_lines/u);
 assert.match(migration, /status = 'consumed'/u);
 assert.doesNotMatch(migration, /delete\s+from\s+public\.warehouse_shipments/iu, 'migration must never physically delete shipment history');
 
+// An archived row can still own warehouse_document_id because the historical
+// unique index is not conditional. Migration 126 must reuse/unarchive that row
+// instead of attaching the document to an inferred active row (SQLSTATE 23505).
+const canonicalStart = migration.indexOf('select s.id into v_shipment_id');
+const inferredStart = migration.indexOf('if v_shipment_id is null then', canonicalStart);
+const canonicalLookup = migration.slice(canonicalStart, inferredStart);
+assert.match(canonicalLookup, /s\.warehouse_document_id = r\.warehouse_document_id/u);
+assert.doesNotMatch(canonicalLookup, /where s\.archived_at is null/u);
+assert.match(canonicalLookup, /\(s\.archived_at is null\) desc/u);
+assert.match(migration, /archived_at = null,\s*archived_by = null/u);
+
 const overviewStart = migration.indexOf('create view public.v_warehouse_shipment_overview');
 const progressStart = migration.indexOf('create view public.v_order_shipment_item_progress');
 const overviewSql = migration.slice(overviewStart, progressStart);
@@ -85,6 +96,6 @@ assert.match(warehouseUi, /ثبت دستی مستقل از موجودی/u);
 assert.match(warehouseUi, /اقلام دقیق ارسال‌شده/u);
 assert.doesNotMatch(financeApi, /fn_finance_issue_inventory_for_document/u, 'frontend invoice approval must never call stock issue');
 assert.match(financeApi, /fn_sync_order_reservation_for_finance_document/u);
-assert.equal(packageJson.version, '135.0.0');
+assert.equal(packageJson.version, '136.0.1');
 
 console.log('warehouse shipment model + migration/UI contracts: OK');

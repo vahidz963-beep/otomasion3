@@ -28,6 +28,28 @@ assert.match(accounting, /document\.balance_amount/);
 assert.match(accounting, /document\.item_search_text/);
 assert.equal((accounting.match(/<DocumentsCard title=/g) || []).length >= 3, true);
 assert.equal((accounting.match(/<JalaliMonthInput/g) || []).length >= 2, true);
+assert.match(accounting, /function statementMoneyHtml/);
+assert.match(accounting, /class=\"official-table statement-table\"/);
+assert.match(accounting, /<colgroup><col class=\"col-row\">/);
+assert.match(accounting, /statementMoneyHtml\(Math\.abs\(balance\)\)/);
+assert.match(accounting, /statement-money-unit/);
+
+const financePrint = read('src/lib/financeApi.js');
+assert.match(financePrint, /\.statement-table col\.col-description/);
+assert.match(financePrint, /\.statement-money-cell\{[^}]*overflow:hidden!important/);
+assert.match(financePrint, /\.statement-money-unit\{/);
+assert.match(financePrint, /\.statement-money\.fit-xxs \.statement-money-value,\.statement-money-value\.force-wrap\{[^}]*overflow-wrap:anywhere/);
+assert.match(financePrint, /function fitStatementMoneyCells\(\)/);
+assert.match(financePrint, /while\(value\.scrollWidth>available&&size>6\.4\)/);
+assert.match(financePrint, /window\.addEventListener\('beforeprint',fitStatementMoneyCells\)/);
+
+const sharedStyles = read('src/styles.css');
+const productPicker = read('src/components/ProductPicker.jsx');
+const searchableSelect = read('src/components/SearchableSelect.jsx');
+assert.match(sharedStyles, /\.product-picker-clear,\.searchable-select-clear\{left:7px!important;right:auto!important/);
+assert.match(sharedStyles, /\.product-picker input,\.searchable-select input\{padding-left:38px!important;padding-right:12px!important/);
+assert.match(productPicker, /className=\"product-picker-clear\" aria-label=\"پاک کردن انتخاب کالا\"/);
+assert.match(searchableSelect, /className=\"searchable-select-clear\" aria-label=\"پاک کردن انتخاب\"/);
 
 const warehouse = read('src/modules/warehouse/WarehouseModule.jsx');
 const syncStart = warehouse.indexOf('function SyncSection');
@@ -63,6 +85,47 @@ assert.match(financeApi, /fn_update_confirmed_finance_document/);
 assert.match(financeApi, /if \(syncLinkedDocuments\)/);
 
 const orderHook = read('src/hooks/useOrdersData.js');
-assert.equal((orderHook.match(/\.order\('line_no'/g) || []).length, 2);
+assert.equal((orderHook.match(/\.order\('line_no'/g) || []).length, 3);
+assert.match(orderHook, /v_customer_credit_control/);
+assert.match(orderHook, /order_revision_snapshots/);
+
+const orderUi = read('src/modules/orders/OrdersModule.jsx');
+assert.match(orderUi, /ویرایش Stage-safe/);
+assert.match(orderUi, /دلیل ویرایش \(الزامی\)/);
+assert.match(orderUi, /ثبت نسخه جدید و همگام‌سازی/);
+assert.match(orderUi, /نسخه‌های ویرایش سفارش/);
+assert.match(orderUi, /کنترل اعتبار فروش/);
+assert.match(orderUi, /disabled=\{isEdit\}/);
+
+const orderApi = read('src/lib/orderApi.js');
+assert.match(orderApi, /fn_update_order_stage_safe/);
+assert.match(orderApi, /fn_app_create_order_idempotent/);
+assert.match(orderApi, /p_expected_revision/);
+
+const accountingUi = read('src/modules/accounting/AccountingModule.jsx');
+assert.match(accountingUi, /دارایی از قبل موجود/);
+assert.match(accountingUi, /فروش فقط به‌صورت کامل/);
+assert.match(accountingUi, /فاکتور خرید تاریخی نیازمند تطبیق انبار/);
+assert.match(accountingUi, /احتمال رسید دستی/);
+
+const financeApiNew = read('src/lib/financeApi.js');
+assert.match(financeApiNew, /fn_purchase_finance_investment/);
+assert.match(financeApiNew, /fn_sell_finance_investment_full/);
+assert.match(financeApiNew, /fn_sync_purchase_invoice_inventory/);
+
+const backupUi = read('src/modules/backup/BackupCenter.jsx');
+assert.match(backupUi, /انتخاب پوشه و بکاپ کامل/);
+assert.match(backupUi, /هیچ آرشیو دائمی روی سرور/);
+assert.match(backupUi, /بکاپ ایمنی محلی و اجرای بازیابی/);
+assert.match(backupUi, /localMaxVersions/);
+const backupService = read('netlify/backupService.js');
+assert.match(backupService, /aes-256-gcm/);
+assert.match(backupService, /replace_business/);
+assert.match(backupService, /storageMode: 'local_only'/);
+assert.match(backupService, /بکاپ کامل ساخته نشد/);
+assert.doesNotMatch(backupService, /sha256|SHA-256/i, 'SHA-256 must not be generated unless explicitly requested');
+const netlifyConfig = read('netlify.toml');
+assert.doesNotMatch(netlifyConfig, /scheduled-system-backup/);
+assert.match(netlifyConfig, /scheduled-backup-cleanup/);
 
 console.log('UI_WORKFLOW_REGRESSIONS_OK');

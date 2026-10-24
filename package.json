@@ -1,6 +1,6 @@
 {
   "name": "otomasion2",
-  "version": "135.0.0",
+  "version": "136.0.1",
   "private": true,
   "type": "module",
   "scripts": {
@@ -11,18 +11,23 @@
     "test:shipments": "node tests/warehouse-shipments.test.mjs",
     "test:jalali-input": "node tests/jalali-input.test.mjs",
     "test:ui-workflows": "node tests/ui-workflow-regressions.test.mjs",
-    "check": "npm run test:calculator && npm run test:shipments && npm run test:jalali-input && npm run test:ui-workflows && npm run build"
+    "test:backup": "node tests/backup-center.test.mjs",
+    "test:server-syntax": "node --check netlify/backupService.js && node --check netlify/functions/system-backups.js && node --check netlify/functions/scheduled-backup-cleanup.js",
+    "test:professional-operations": "node tests/professional-operations.integration.test.mjs",
+    "check": "npm run test:calculator && npm run test:shipments && npm run test:jalali-input && npm run test:ui-workflows && npm run test:backup && npm run test:server-syntax && npm run test:professional-operations && npm run build"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",
     "docx": "9.5.1",
     "lucide-react": "^0.468.0",
+    "pg": "^8.23.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "recharts": "^2.12.7",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.3.14",
     "@vitejs/plugin-react": "^4.3.1",
     "vite": "^5.4.6"
   }

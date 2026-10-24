@@ -29,6 +29,20 @@ async function syncReservationForApprovedInvoice(documentId) {
   return res.data || null;
 }
 
+export async function syncPurchaseInvoiceInventory(documentId, reason = 'همگام‌سازی فاکتور خرید با انبار', forceHistorical = false) {
+  if (!documentId) return null;
+  const res = await supabase.rpc('fn_sync_purchase_invoice_inventory', {
+    p_document_id: documentId,
+    p_reason: reason,
+    p_force_historical: !!forceHistorical,
+  });
+  if (res.error) {
+    if (isMissingRpc(res.error)) throw new Error('Migration 130 اجرا نشده است؛ ورود خودکار فاکتور خرید به انبار در دسترس نیست.');
+    throw new Error(res.error.message || 'خطا در همگام‌سازی فاکتور خرید و انبار');
+  }
+  return res.data || null;
+}
+
 export async function convertProformaToInvoice(proformaId) {
   const res = await supabase.rpc('fn_convert_finance_proforma_to_invoice', {
     p_proforma_id: proformaId,
@@ -386,8 +400,11 @@ export async function createFinanceDocument({ document, items }) {
     assertNoError(recalcRes, 'خطا در محاسبه جمع سند');
   }
 
-  if (document.document_type === 'sales_invoice' && ['approved', 'partially_paid', 'paid'].includes(defaultStatus)) {
+  if (document.document_type === 'sales_invoice' && ['approved', 'sent', 'partially_paid', 'paid'].includes(defaultStatus)) {
     await syncReservationForApprovedInvoice(documentId);
+  }
+  if (document.document_type === 'purchase_invoice' && ['approved', 'sent', 'partially_paid', 'paid'].includes(defaultStatus)) {
+    await syncPurchaseInvoiceInventory(documentId, 'ایجاد و تأیید نهایی فاکتور خرید', true);
   }
 
   return docRes.data;
@@ -406,6 +423,7 @@ export async function updateFinanceDocument(documentId, { document, items, syncL
       if (isMissingRpc(safeRes.error)) throw new Error('Migration 127 اجرا نشده است؛ اصلاح اتمیک فاکتور و سند انبار در دسترس نیست.');
       throw new Error(safeRes.error.message || 'خطا در اصلاح اتمیک فاکتور و اسناد مرتبط');
     }
+    await syncPurchaseInvoiceInventory(documentId, edit_reason || 'اصلاح فاکتور خرید تأییدشده', true);
     return safeRes.data;
   }
 
@@ -429,8 +447,11 @@ export async function updateFinanceDocument(documentId, { document, items, syncL
   const recalcRes = await supabase.rpc('fn_finance_recalculate_document_totals', { p_document_id: documentId });
   assertNoError(recalcRes, 'خطا در محاسبه جمع سند');
 
-  if (docRes.data.document_type === 'sales_invoice' && ['approved', 'partially_paid', 'paid'].includes(docRes.data.status)) {
+  if (docRes.data.document_type === 'sales_invoice' && ['approved', 'sent', 'partially_paid', 'paid'].includes(docRes.data.status)) {
     await syncReservationForApprovedInvoice(documentId);
+  }
+  if (docRes.data.document_type === 'purchase_invoice' && ['approved', 'sent', 'partially_paid', 'paid'].includes(docRes.data.status)) {
+    await syncPurchaseInvoiceInventory(documentId, edit_reason || 'ویرایش فاکتور خرید', true);
   }
 
   return docRes.data;
@@ -440,6 +461,7 @@ export async function postFinanceDocument(documentId) {
   const res = await supabase.rpc('fn_post_finance_document', { p_document_id: documentId });
   assertNoError(res, 'خطا در ثبت سند حسابداری فاکتور');
   await syncReservationForApprovedInvoice(documentId);
+  await syncPurchaseInvoiceInventory(documentId, 'تأیید نهایی و ثبت سند حسابداری فاکتور خرید', true);
   return res.data;
 }
 
@@ -817,11 +839,13 @@ export function openOfficialFinancePrint({ title, subtitle = '', body, reportLab
     .official-table{width:100%;border-collapse:collapse;margin:0;font-size:${isInvoice ? (isLandscape ? fs(9.2) : fs(8.6)) : (isLandscape ? fs(13.6) : fs(14))};table-layout:fixed}.official-table thead{display:table-header-group}.official-table tfoot{display:table-footer-group}.official-table tr{page-break-inside:avoid}.official-table th,.official-table td{border:1.15px solid #151515;padding:${isInvoice ? (isLandscape ? '.75mm .65mm' : '.62mm .55mm') : (isLandscape ? '1.6mm 1.25mm' : '2.1mm 1.5mm')};text-align:center;vertical-align:middle;line-height:1.65;word-break:break-word}.official-table th{background:#d9d9d9!important;color:#111;font-weight:950}.official-table td.desc{text-align:right}.official-table tbody tr:nth-child(even) td,.official-table tr.alt td{background:#f7f7f7!important}.official-table .money,.money{direction:ltr;text-align:left;font-family:${ARYAMAN_FONT_FAMILY_CSS}!important;font-weight:850;white-space:nowrap;font-variant-numeric:tabular-nums}.rial-word{font-family:${ARYAMAN_FONT_FAMILY_CSS};font-weight:800;margin-right:2px}.official-table.compact th,.official-table.compact td{padding:${isInvoice ? '.7mm .6mm' : '1.6mm 1.25mm'};font-size:${isInvoice ? fs(9) : fs(13.5)}}
     .totals-wrap{direction:ltr;display:grid;grid-template-columns:${isInvoice ? (isLandscape ? '48mm' : '42mm') : (isLandscape ? '58mm' : '50mm')} 1fr;gap:0;border-bottom:1.6px solid #151515;min-height:${isInvoice ? 'auto' : (isLandscape ? '25mm' : '34mm')}}.totals-table{direction:rtl;width:${isInvoice ? (isLandscape ? '48mm' : '42mm') : (isLandscape ? '58mm' : '50mm')};border-collapse:collapse;font-size:${isInvoice ? fs(10) : fs(14)};margin:0}.totals-table td{border:1.15px solid #151515;padding:${isInvoice ? '.85mm 1.2mm' : '2mm'};line-height:${isInvoice ? '1.22' : '1.5'}}.totals-table td:first-child{font-weight:950;background:#eeeeee;color:#111}.totals-table td.money{direction:ltr;text-align:left;font-family:${ARYAMAN_FONT_FAMILY_CSS};font-weight:950;font-size:${isInvoice ? ns(10.5) : ns(16)};font-variant-numeric:tabular-nums}.amount-words{direction:rtl;border:1.15px solid #151515;border-left:0;padding:${isInvoice ? '1.6mm 2.4mm' : '3.5mm 4mm'};font-size:${isInvoice ? fs(10.5) : fs(15)};line-height:${isInvoice ? '1.45' : '2.05'};display:flex;flex-direction:column;justify-content:center}.amount-words b{font-weight:950}.notes-box{border-bottom:1.6px solid #151515;min-height:${isInvoice ? 'auto' : (isLandscape ? '15mm' : '18mm')};padding:${isInvoice ? '1.4mm 4mm' : '3.5mm 4mm'};font-size:${isInvoice ? fs(10.2) : fs(15)};line-height:${isInvoice ? '1.35' : '2'}}.notes-box b{font-weight:950}.statement-title{text-align:center;border-bottom:1.6px solid #151515;padding:4mm;margin:0}.statement-title h1{font-size:19px;margin:0 0 2mm;font-weight:950}.statement-title h2{font-size:14px;margin:0;font-weight:900}.statement-summary{display:grid;grid-template-columns:repeat(4,1fr);gap:0;border-bottom:1.6px solid #151515}.statement-summary div{border-left:1.15px solid #151515;padding:3mm;font-size:14px;min-height:18mm}.statement-summary div:nth-child(even){background:#f7f7f7}.statement-summary span{display:block;color:#4b5563;font-weight:800}.statement-summary strong{display:block;margin-top:1.5mm;font-size:16px;color:#111;font-weight:950}.status-cell{font-weight:950}.continued{text-align:left;font-size:${isInvoice ? fs(9.5) : fs(13)};padding:${isInvoice ? '.8mm 4mm' : '2mm 4mm'};color:#555}.signatures{display:grid;grid-template-columns:repeat(3,1fr);gap:14mm;min-height:${isInvoice ? (isLandscape ? '13mm' : '16mm') : (isLandscape ? '28mm' : '48mm')};align-items:end;padding:${isInvoice ? (isLandscape ? '4mm 12mm 3mm' : '5mm 10mm 3mm') : (isLandscape ? '12mm 14mm 8mm' : '18mm 12mm 9mm')};text-align:center;font-size:${isInvoice ? fs(10.5) : fs(15)};page-break-inside:avoid}.signatures span{display:block;font-weight:850}.footer-line{position:absolute;left:4mm;right:4mm;bottom:1.8mm;border-top:1px solid #777;padding:1.5mm 0 0;font-size:${isInvoice ? fs(8.5) : fs(11)};text-align:center;color:#444;display:${printSettings.showFooter === false ? 'none' : 'block'}}.soft-row{background:#f7f7f7!important}.no-print{display:none}
     body{font-size:${fs(14)}}.invoice-top .invoice-meta{font-size:${ns(13.5)}}.invoice-top .invoice-title{font-size:${fs(22)}}.invoice-top .invoice-subtitle{font-size:${fs(12.5)}}.page-no{font-size:${ns(14)}}.brand-center h1{font-size:${fs(18)}}.brand-center h2{font-size:${fs(24)}}.brand-center p{font-size:${fs(14)}}.section-label{font-size:${fs(16)}}.field{font-size:${fs(15)}}.official-table{font-size:${fs(isLandscape ? 13.6 : 14)}}.official-table .money,.money{font-size:${ns(15)}}.official-table.compact th,.official-table.compact td{font-size:${fs(13.5)}}.totals-table{font-size:${fs(14)}}.totals-table td.money{font-size:${ns(16)}}.amount-words,.notes-box{font-size:${fs(15)}}.statement-summary div{font-size:${fs(14)}}.statement-summary strong{font-size:${ns(16)}}.continued{font-size:${fs(13)}}.signatures{font-size:${fs(15)}}.footer-line{font-size:${fs(11)}}
+    .statement-table{table-layout:fixed;font-size:clamp(9.5px,${fs(12)},12px)!important}.statement-table col.col-row{width:6%}.statement-table col.col-date{width:12%}.statement-table col.col-description{width:27%}.statement-table col.col-debit,.statement-table col.col-credit,.statement-table col.col-balance{width:15%}.statement-table col.col-status{width:10%}.statement-table th,.statement-table td{padding:1.5mm .65mm;line-height:1.45;overflow:hidden;overflow-wrap:anywhere;word-break:normal;min-width:0}.statement-table td.desc{text-align:right;word-break:break-word}.statement-table td.desc small{font-size:clamp(7.5px,${fs(9)},9px);line-height:1.35}.statement-table .statement-date{white-space:normal;font-size:clamp(8.5px,${fs(10.5)},10.5px)}.statement-table .status-cell{white-space:normal;font-size:clamp(8.5px,${fs(10.5)},10.5px)}.statement-money-cell{direction:rtl!important;text-align:center!important;white-space:normal!important;padding-inline:.5mm!important;overflow:hidden!important}.statement-money{width:100%;max-width:100%;min-width:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.25mm;overflow:hidden;line-height:1.12}.statement-money-value{display:block;max-width:100%;direction:ltr;unicode-bidi:isolate;white-space:nowrap;font-family:${ARYAMAN_FONT_FAMILY_CSS}!important;font-variant-numeric:tabular-nums;font-weight:900;letter-spacing:-.025em}.statement-money.fit-md .statement-money-value{font-size:clamp(9px,${ns(11.5)},11.5px)}.statement-money.fit-sm .statement-money-value{font-size:clamp(8.4px,${ns(10.4)},10.4px)}.statement-money.fit-xs .statement-money-value{font-size:clamp(7.5px,${ns(9.2)},9.2px);letter-spacing:-.045em}.statement-money.fit-xxs .statement-money-value,.statement-money-value.force-wrap{font-size:7.2px;letter-spacing:-.06em;white-space:normal;overflow-wrap:anywhere;word-break:break-word}.statement-money-unit{display:block;max-width:100%;font-size:clamp(7px,${fs(8.3)},8.3px);font-weight:850;line-height:1;color:#222;white-space:nowrap}.statement-table tfoot td{font-weight:900;background:#eeeeee!important}.statement-table tfoot .statement-money-unit{font-weight:900}
     @media print{body{background:#fff;padding:0}.print-btn{display:none}.official-sheet{border:1.5px solid #151515;max-width:${sheetWidth};width:100%;min-height:${printMinHeight};box-shadow:none;break-inside:avoid;page-break-inside:avoid;page-break-after:avoid}.official-inner{break-inside:avoid;page-break-inside:avoid}.official-top{min-height:${isInvoice ? '12mm' : '31mm'}}.official-table th{background:#d9d9d9!important}.official-table tbody tr:nth-child(even) td,.official-table tr.alt td{background:#f7f7f7!important}.totals-wrap,.notes-box,.signatures{break-inside:avoid;page-break-inside:avoid}}
   `;
   const standardHeader = `<header class="official-top"><div class="page-no">صفحه ۱ از ۱</div><div class="brand-center"><h1>${escapeHtml(reportLabel || title)}</h1><h2>${FINANCE_LEGAL_NAME_FA}</h2><p>${escapeHtml(subtitle || 'بوشهر، بهمنی، نخلج فارس، پردیس فناوری')}<br>تلفن‌های تماس: 09173742966</p></div><div class="brand-logo"><img src="${ARYAMAN_LOGO_DATA_URI}" alt="Aryaman"><span>aryaman</span></div></header>`;
   const invoiceHeader = `<header class="official-top invoice-top"><img class="logo-mini" src="${ARYAMAN_LOGO_DATA_URI}" alt="Aryaman"><div class="invoice-meta"><div>شماره: ${escapeHtml(meta.number || '—')}</div><div>تاریخ: ${escapeHtml(meta.date || '—')}</div></div><h1 class="invoice-title">${escapeHtml(reportLabel || title)}</h1>${subtitle ? `<div class="invoice-subtitle">${escapeHtml(subtitle)}</div>` : ''}</header>`;
-  const html = `<!doctype html><html dir="rtl" lang="fa"><head><meta charset="utf-8"><title>${safeTitle}</title><style>${css}</style></head><body><button class="print-btn" onclick="window.print()">چاپ / ذخیره PDF</button><main class="official-sheet"><section class="official-inner">${isInvoice ? invoiceHeader : standardHeader}${body}<div class="footer-line">این برگه توسط سامانه اتوماسیون آریامن تولید شده است.</div></section></main></body></html>`;
+  const autoFitScript = `<script>(function(){function fitStatementMoneyCells(){document.querySelectorAll('.statement-money-value').forEach(function(value){var box=value.closest('.statement-money');if(!box)return;value.style.fontSize='';value.classList.remove('force-wrap');var available=Math.max(24,box.clientWidth-2);var size=parseFloat(getComputedStyle(value).fontSize)||11.5;while(value.scrollWidth>available&&size>6.4){size=Math.max(6.4,size-.4);value.style.fontSize=size+'px'}if(value.scrollWidth>available)value.classList.add('force-wrap')})}window.addEventListener('beforeprint',fitStatementMoneyCells);window.addEventListener('resize',fitStatementMoneyCells);if(document.fonts&&document.fonts.ready)document.fonts.ready.then(fitStatementMoneyCells);requestAnimationFrame(fitStatementMoneyCells)})();<\/script>`;
+  const html = `<!doctype html><html dir="rtl" lang="fa"><head><meta charset="utf-8"><title>${safeTitle}</title><style>${css}</style></head><body><button class="print-btn" onclick="window.print()">چاپ / ذخیره PDF</button><main class="official-sheet"><section class="official-inner">${isInvoice ? invoiceHeader : standardHeader}${body}<div class="footer-line">این برگه توسط سامانه اتوماسیون آریامن تولید شده است.</div></section></main>${autoFitScript}</body></html>`;
   const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const win = window.open(url, '_blank');
@@ -883,41 +907,58 @@ export async function settleFinanceCheck({ checkId, bankAccountId, status = 'cle
 }
 
 export async function createFinanceInvestment(payload) {
-  const res = await supabase.from('finance_investments').insert({
-    asset_type: payload.asset_type || 'other',
-    title_fa: payload.title_fa,
-    acquisition_date: payload.acquisition_date || new Date().toISOString().slice(0, 10),
-    quantity: Number(payload.quantity || 1),
-    unit: payload.unit || 'عدد',
-    purchase_amount: Number(payload.purchase_amount || 0),
-    current_estimated_value: Number(payload.current_estimated_value || payload.purchase_amount || 0),
-    location: payload.location || null,
-    notes: payload.notes || null,
-    status: payload.status || 'active',
-  }).select('id').single();
-  assertNoError(res, 'خطا در ثبت سرمایه‌گذاری');
+  const acquisitionMode = payload.acquisition_mode === 'existing_asset' ? 'existing_asset' : 'paid_purchase';
+  const account = payload.account || {};
+  const res = await supabase.rpc('fn_purchase_finance_investment', {
+    p_asset_type: payload.asset_type || 'other',
+    p_title_fa: payload.title_fa,
+    p_acquisition_date: payload.acquisition_date || new Date().toISOString().slice(0, 10),
+    p_quantity: Number(payload.quantity || 1),
+    p_unit: payload.unit || 'عدد',
+    p_purchase_amount: Number(payload.purchase_amount || 0),
+    p_fee_amount: Number(payload.purchase_fee_amount || 0),
+    p_current_estimated_value: Number(payload.current_estimated_value ?? payload.purchase_amount ?? 0),
+    p_account_kind: acquisitionMode === 'paid_purchase' ? account.account_kind || null : null,
+    p_account_id: acquisitionMode === 'paid_purchase' ? account.account_id || null : null,
+    p_location: payload.location || null,
+    p_notes: payload.notes || null,
+    p_idempotency_key: payload.idempotency_key || globalThis.crypto?.randomUUID?.() || `investment-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    p_acquisition_mode: acquisitionMode,
+  });
+  assertNoError(res, acquisitionMode === 'existing_asset' ? 'خطا در ثبت دارایی از قبل موجود' : 'خطا در ثبت خرید سرمایه‌گذاری');
   return res.data;
 }
 
 export async function updateFinanceInvestment(id, payload) {
-  const res = await supabase.from('finance_investments').update({
-    asset_type: payload.asset_type || 'other',
-    title_fa: payload.title_fa,
-    acquisition_date: payload.acquisition_date || new Date().toISOString().slice(0, 10),
-    quantity: Number(payload.quantity || 1),
-    unit: payload.unit || 'عدد',
-    purchase_amount: Number(payload.purchase_amount || 0),
-    current_estimated_value: Number(payload.current_estimated_value || 0),
-    location: payload.location || null,
-    notes: payload.notes || null,
-    status: payload.status || 'active',
-  }).eq('id', id).select('id').single();
-  assertNoError(res, 'خطا در ویرایش سرمایه‌گذاری');
+  const res = await supabase.rpc('fn_update_finance_investment_metadata', {
+    p_investment_id: id,
+    p_title_fa: payload.title_fa,
+    p_current_estimated_value: Number(payload.current_estimated_value || 0),
+    p_location: payload.location || null,
+    p_notes: payload.notes || null,
+  });
+  assertNoError(res, 'خطا در ویرایش اطلاعات سرمایه‌گذاری');
+  return res.data;
+}
+
+export async function sellFinanceInvestmentFull(id, payload) {
+  const account = payload.account || {};
+  const res = await supabase.rpc('fn_sell_finance_investment_full', {
+    p_investment_id: id,
+    p_sale_date: payload.sale_date || new Date().toISOString().slice(0, 10),
+    p_gross_amount: Number(payload.gross_amount || 0),
+    p_fee_amount: Number(payload.fee_amount || 0),
+    p_account_kind: account.account_kind || null,
+    p_account_id: account.account_id || null,
+    p_notes: payload.notes || null,
+    p_idempotency_key: payload.idempotency_key || globalThis.crypto?.randomUUID?.() || `investment-sale-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+  });
+  assertNoError(res, 'خطا در ثبت فروش کامل سرمایه‌گذاری');
   return res.data;
 }
 
 export async function archiveFinanceInvestment(id) {
-  const res = await supabase.from('finance_investments').update({ status: 'archived' }).eq('id', id).select('id').single();
+  const res = await supabase.rpc('fn_archive_finance_investment', { p_investment_id: id });
   assertNoError(res, 'خطا در آرشیو سرمایه‌گذاری');
   return res.data;
 }

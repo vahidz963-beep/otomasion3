@@ -14,3 +14,8 @@
 # Every day at 04:30 UTC (08:00 Asia/Tehran), fetch USD and CNY market rates.
 [functions."scheduled-exchange-rates"]
   schedule = "30 4 * * *"
+
+# No scheduled backup is stored on the server. This lightweight hourly task only
+# removes interrupted/expired transfer files used while saving a local backup.
+[functions."scheduled-backup-cleanup"]
+  schedule = "17 * * * *"

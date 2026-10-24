@@ -79,7 +79,7 @@ export default function SearchableSelect({
           placeholder={placeholder}
           autoComplete="off"
         />
-        {query && !disabled && <button type="button" className="searchable-select-clear" onClick={clear}>×</button>}
+        {query && !disabled && <button type="button" className="searchable-select-clear" aria-label="پاک کردن انتخاب" title="پاک کردن" onClick={clear}>×</button>}
       </div>
       {open && !disabled && (
         <div className="searchable-select-menu">
