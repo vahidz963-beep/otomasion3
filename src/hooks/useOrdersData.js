@@ -8,6 +8,7 @@ const initialState = {
   customers: [],
   dueFollowups: [],
   stock: [],
+  salesDocuments: [],
   templates: [],
   templateSteps: [],
   referrals: [],
@@ -63,6 +64,54 @@ async function fetchOrdersOverview({ dateFrom = null, dateTo = null, salesPath =
   if (dateTo) query = query.lte('registered_at', dateTo);
   if (salesPath) query = query.eq('sales_path', salesPath);
   return query;
+}
+
+function jsonRows(value) {
+  if (Array.isArray(value)) return value;
+  if (typeof value === 'string') {
+    try { const parsed = JSON.parse(value); return Array.isArray(parsed) ? parsed : []; } catch { return []; }
+  }
+  return [];
+}
+
+async function fetchOrderSalesCatalog() {
+  const rpcRes = await supabase.rpc('fn_get_order_sales_catalog');
+  if (!rpcRes.error) return { data: jsonRows(rpcRes.data), error: null };
+  if (!isMissingRelation(rpcRes.error)) return rpcRes;
+
+  // Compatibility fallback until Migration 134 is deployed. Cost fields are
+  // deliberately not selected even though the legacy shared view contains them.
+  return supabase
+    .from('v_app_inventory_catalog')
+    .select('item_id, item_code, item_name_fa, item_name_en, unit, category, item_group, item_group_label, is_produced_item, current_qty, min_stock_threshold, reserved_qty, available_for_sale_qty, is_low_stock, last_synced_at, effective_sale_price, price_currency, base_sale_price, unit_sale_price_estimate, pricing_updated_at, usd_toman, cny_toman')
+    .order('item_name_fa', { ascending: true })
+    .limit(1000);
+}
+
+async function fetchAccessibleOrderSalesDocuments(limit = 3000) {
+  const rpcRes = await supabase.rpc('fn_get_accessible_order_sales_documents', { p_limit: limit });
+  if (!rpcRes.error) return { data: jsonRows(rpcRes.data), error: null };
+  if (!isMissingRelation(rpcRes.error)) return rpcRes;
+
+  return supabase
+    .from('v_finance_document_summary')
+    .select('id, doc_number, document_type, status, issue_date, due_date, related_order_id, order_code, party_name, subtotal_amount, discount_amount, tax_amount, total_amount, paid_amount, balance_amount')
+    .in('document_type', ['sales_proforma', 'sales_invoice'])
+    .order('issue_date', { ascending: false })
+    .limit(limit);
+}
+
+async function fetchOrderSalesDocuments(orderId) {
+  const rpcRes = await supabase.rpc('fn_get_order_sales_documents', { p_order_id: orderId });
+  if (!rpcRes.error) return { data: jsonRows(rpcRes.data), error: null };
+  if (!isMissingRelation(rpcRes.error)) return rpcRes;
+
+  return supabase
+    .from('v_finance_document_summary')
+    .select('id, doc_number, document_type, status, issue_date, due_date, related_order_id, order_code, party_name, subtotal_amount, discount_amount, tax_amount, total_amount, paid_amount, balance_amount')
+    .eq('related_order_id', orderId)
+    .in('document_type', ['sales_proforma', 'sales_invoice'])
+    .order('issue_date', { ascending: false });
 }
 
 async function fetchCustomerContacts({ detailed = false } = {}) {
@@ -142,7 +191,7 @@ export function useOrdersData() {
 
     // مرحله دوم: CRM کامل، موجودی، ارجاعات، تولید و R&D در پس‌زمینه.
     scheduleIdle(async () => {
-      const [customersFullRes, interactionsRes, opportunitiesRes, stockRes, referralsRes] = await Promise.all([
+      const [customersFullRes, interactionsRes, opportunitiesRes, stockRes, salesDocumentsRes, referralsRes] = await Promise.all([
         fetchCustomerContacts({ detailed: true }),
         supabase
           .from('crm_interactions')
@@ -154,11 +203,8 @@ export function useOrdersData() {
           .select('id, customer_id, related_order_id, title, stage, estimated_amount, probability_percent, expected_close_date, assigned_to, source, lost_reason, created_at, updated_at')
           .order('updated_at', { ascending: false })
           .limit(100),
-        supabase
-          .from('v_app_inventory_catalog')
-          .select('item_id, item_code, item_name_fa, item_name_en, unit, category, item_group, item_group_label, is_produced_item, current_qty, min_stock_threshold, reserved_qty, available_for_sale_qty, is_low_stock, last_synced_at, unit_price_estimate, effective_sale_price, price_currency, base_cost_price, base_sale_price, unit_sale_price_estimate, usd_toman, cny_toman')
-          .order('item_name_fa', { ascending: true })
-          .limit(1000),
+        fetchOrderSalesCatalog(),
+        fetchAccessibleOrderSalesDocuments(3000),
         supabase
           .from('automation_referrals')
           .select('id, referral_number, source_module, target_module, target_role, referral_type, priority, status, title_fa, due_date, related_order_id, related_document_id, created_at')
@@ -217,6 +263,7 @@ export function useOrdersData() {
         crmInteractions: interactionsRes.error ? previous.crmInteractions : (interactionsRes.data || []),
         crmOpportunities: opportunitiesRes.error ? previous.crmOpportunities : (opportunitiesRes.data || []),
         stock: stockRes.error ? previous.stock : (stockRes.data || []),
+        salesDocuments: salesDocumentsRes.error ? previous.salesDocuments : (salesDocumentsRes.data || []),
         referrals: referralsRes.error ? previous.referrals : (referralsRes.data || []),
         production: productionRes.error ? previous.production : (productionRes.data || []),
         rnd: rndRes.error ? previous.rnd : (rndRes.data || []),
@@ -239,9 +286,11 @@ export function useOrdersData() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'customers' }, scheduleRefetch)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'finance_parties' }, scheduleRefetch)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'warehouse_items' }, scheduleRefetch)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'warehouse_exchange_rates' }, scheduleRefetch)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'warehouse_transactions' }, scheduleRefetch)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'warehouse_documents' }, scheduleRefetch)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'finance_documents' }, scheduleRefetch)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'finance_document_items' }, scheduleRefetch)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'production_orders' }, scheduleRefetch)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'production_order_stages' }, scheduleRefetch)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'rnd_projects' }, scheduleRefetch)
@@ -253,7 +302,7 @@ export function useOrdersData() {
   return useMemo(() => ({ ...state, refetch: fetchData }), [state, fetchData]);
 }
 
-export function useOrderDetails(orderId) {
+export function useOrderDetails(orderId, includeSalesDocuments = true) {
   const emptyDetails = { loading: false, error: null, order: null, orderItems: [], revisions: [], credit: null, stages: [], events: [], stock: [], documents: [], referrals: [], production: [], rnd: [], productionStages: [], rndStages: [], shipments: [], shipmentItems: [] };
   const [state, setState] = useState(emptyDetails);
 
@@ -271,7 +320,7 @@ export function useOrderDetails(orderId) {
       supabase.from('order_stage_instances').select('id, stage_key, stage_order, stage_name_fa, stage_name_en, responsible_role, status, started_at, completed_at, notes').eq('order_id', orderId).order('stage_order', { ascending: true }),
       supabase.from('order_events').select('id, event_type, title, description, old_stage, new_stage, metadata, created_at').eq('order_id', orderId).order('created_at', { ascending: false }),
       supabase.from('v_order_stock_status').select('order_item_id, item_name_fa, warehouse_item_code, warehouse_item_id, requested_qty, available_for_sale_qty, current_qty, reserved_qty, stock_unit, stock_status, line_no').eq('order_id', orderId).order('line_no', { ascending: true }),
-      supabase.from('v_finance_document_summary').select('id, doc_number, document_type, status, issue_date, due_date, total_amount, paid_amount, balance_amount').eq('related_order_id', orderId).order('issue_date', { ascending: false }),
+      includeSalesDocuments ? fetchOrderSalesDocuments(orderId) : Promise.resolve({ data: [], error: null }),
       supabase.from('automation_referrals').select('id, referral_number, source_module, target_module, priority, status, title_fa, due_date, created_at').eq('related_order_id', orderId).order('created_at', { ascending: false }),
       supabase.from('v_production_order_overview').select('*').eq('source_order_id', orderId).order('updated_at', { ascending: false }),
       supabase.from('v_rnd_project_overview').select('id, code, title_fa, status, progress_percent, current_stage_name_fa, actual_total_cost, updated_at').eq('source_order_id', orderId).order('updated_at', { ascending: false }),
@@ -325,7 +374,7 @@ export function useOrderDetails(orderId) {
       shipments: shipmentsRes.error ? [] : (shipmentsRes.data || []),
       shipmentItems: shipmentItemsRes.error ? [] : (shipmentItemsRes.data || []),
     });
-  }, [orderId]);
+  }, [orderId, includeSalesDocuments]);
 
   useEffect(() => { fetchDetails(); }, [fetchDetails]);
 
@@ -343,6 +392,7 @@ export function useOrderDetails(orderId) {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'order_revision_snapshots', filter: `order_id=eq.${orderId}` }, scheduleRefetch)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'order_events', filter: `order_id=eq.${orderId}` }, scheduleRefetch)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'finance_documents' }, scheduleRefetch)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'finance_document_items' }, scheduleRefetch)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'warehouse_transactions' }, scheduleRefetch)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'warehouse_shipments', filter: `related_order_id=eq.${orderId}` }, scheduleRefetch)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'warehouse_shipment_lines' }, scheduleRefetch)
@@ -356,4 +406,111 @@ export function useOrderDetails(orderId) {
   }, [orderId, fetchDetails]);
 
   return useMemo(() => ({ ...state, refetch: fetchDetails }), [state, fetchDetails]);
+}
+
+const emptySalesDocumentBundle = {
+  loading: false,
+  error: null,
+  document: null,
+  items: [],
+  party: null,
+  order: null,
+  allocations: [],
+  payments: [],
+  events: [],
+  referrals: [],
+  ioDocuments: [],
+  access: { mode: 'sales_read_only', can_edit: false, can_post: false, can_void: false, can_pay: false },
+};
+
+export function useOrderSalesDocumentBundle(documentId) {
+  const [state, setState] = useState(emptySalesDocumentBundle);
+
+  const fetchBundle = useCallback(async () => {
+    if (!documentId) {
+      setState(emptySalesDocumentBundle);
+      return;
+    }
+    setState((previous) => ({ ...previous, loading: true, error: null }));
+
+    const rpcRes = await supabase.rpc('fn_get_order_sales_document_bundle', { p_document_id: documentId });
+    if (!rpcRes.error) {
+      const bundle = rpcRes.data || {};
+      setState({
+        ...emptySalesDocumentBundle,
+        ...bundle,
+        loading: false,
+        error: null,
+        items: Array.isArray(bundle.items) ? bundle.items : [],
+        allocations: [],
+        payments: [],
+        events: [],
+        referrals: [],
+        ioDocuments: [],
+      });
+      return;
+    }
+    if (!isMissingRelation(rpcRes.error)) {
+      setState({ ...emptySalesDocumentBundle, error: rpcRes.error });
+      return;
+    }
+
+    // Safe compatibility fallback: only printable header/items/party/order are
+    // loaded; payment accounts, journals, cost snapshots and finance events are
+    // never requested by the Orders module.
+    const [documentRes, itemsRes] = await Promise.all([
+      supabase
+        .from('finance_documents')
+        .select('id, doc_number, document_type, status, party_id, related_order_id, issue_date, due_date, currency, exchange_rate, description, subtotal_amount, discount_amount, tax_amount, total_amount, paid_amount, balance_amount, is_official, print_note, created_at, updated_at')
+        .eq('id', documentId)
+        .in('document_type', ['sales_proforma', 'sales_invoice'])
+        .maybeSingle(),
+      supabase
+        .from('finance_document_items')
+        .select('id, document_id, line_no, item_type, description_fa, description_en, quantity, unit, unit_price, discount_amount, tax_rate, tax_amount, line_total, warehouse_item_id, order_item_id')
+        .eq('document_id', documentId)
+        .order('line_no', { ascending: true }),
+    ]);
+    if (documentRes.error || itemsRes.error || !documentRes.data) {
+      setState({ ...emptySalesDocumentBundle, error: documentRes.error || itemsRes.error || new Error('سند فروش پیدا نشد.') });
+      return;
+    }
+
+    const [partyRes, orderRes] = await Promise.all([
+      documentRes.data.party_id
+        ? supabase.from('finance_parties').select('id, display_name, party_type, customer_code, phone, email, address, national_id, economic_code, registration_number, postal_code').eq('id', documentRes.data.party_id).maybeSingle()
+        : Promise.resolve({ data: null, error: null }),
+      documentRes.data.related_order_id
+        ? supabase.from('v_order_tracking').select('id, order_code, customer_name, contact_phone, customer_city, title_fa').eq('id', documentRes.data.related_order_id).maybeSingle()
+        : Promise.resolve({ data: null, error: null }),
+    ]);
+    setState({
+      ...emptySalesDocumentBundle,
+      loading: false,
+      error: partyRes.error || orderRes.error || null,
+      document: documentRes.data,
+      items: itemsRes.data || [],
+      party: partyRes.data || null,
+      order: orderRes.data || null,
+    });
+  }, [documentId]);
+
+  useEffect(() => { fetchBundle(); }, [fetchBundle]);
+
+  useEffect(() => {
+    if (!documentId) return undefined;
+    let timer;
+    const scheduleRefetch = () => {
+      clearTimeout(timer);
+      timer = setTimeout(fetchBundle, 350);
+    };
+    const channel = supabase
+      .channel(`order-sales-document-${documentId}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'finance_documents', filter: `id=eq.${documentId}` }, scheduleRefetch)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'finance_document_items', filter: `document_id=eq.${documentId}` }, scheduleRefetch)
+      .subscribe();
+    return () => { clearTimeout(timer); supabase.removeChannel(channel); };
+  }, [documentId, fetchBundle]);
+
+  return useMemo(() => ({ ...state, refetch: fetchBundle }), [state, fetchBundle]);
 }

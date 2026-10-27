@@ -7,8 +7,10 @@ import {
   Edit3,
   FileText,
   ListChecks,
+  LockKeyhole,
   PackageCheck,
   PhoneCall,
+  Printer,
   RefreshCcw,
   Search,
   Settings,
@@ -18,13 +20,14 @@ import {
   UserPlus,
   Users,
 } from 'lucide-react';
-import { useOrdersData, useOrderDetails } from '../../hooks/useOrdersData';
+import { useOrdersData, useOrderDetails, useOrderSalesDocumentBundle } from '../../hooks/useOrdersData';
 import { useAuth } from '../../auth/AuthProvider';
 import ReferralPanel from '../../components/referrals/ReferralPanel';
 import JalaliDateInput from '../../components/JalaliDateInput';
 import ProductPicker from '../../components/ProductPicker';
 import SearchableSelect from '../../components/SearchableSelect';
 import MoneyInput from '../../components/MoneyInput';
+import { printFinanceDocument } from '../accounting/FinanceDocumentDetails';
 import { formatJalaliDate, formatJalaliDateTime, formatNumber, formatToman } from '../../lib/formatters';
 import {
   cancelOrder,
@@ -54,14 +57,21 @@ const PATH_LABELS = { trading: 'بازرگانی', rnd: 'R&D', production: 'تو
 const DELIVERY_LABELS = { cancelled: 'لغو شده', closed: 'بسته‌شده', late: 'عقب‌افتاده', due_soon: 'نزدیک تحویل', on_track: 'طبق برنامه' };
 const STOCK_LABELS = { available: 'کافی', short: 'کمبود', unknown: 'نامشخص' };
 const FINANCE_LABELS = { none: 'بدون فاکتور', proforma: 'پیش‌فاکتور', invoiced: 'فاکتور شده', partial: 'بخشی تسویه', paid: 'تسویه کامل' };
+const SALES_DOCUMENT_LABELS = { sales_proforma: 'پیش‌فاکتور فروش', sales_invoice: 'فاکتور فروش' };
+const SALES_DOCUMENT_STATUS_LABELS = { draft: 'پیش‌نویس', pending_approval: 'در انتظار تأیید', approved: 'تأیید شده', sent: 'ارسال شده', partially_paid: 'بخشی تسویه', paid: 'تسویه شده', cancelled: 'لغو شده', void: 'باطل شده' };
 const CHANNEL_LABELS = { phone: 'تلفن', website: 'سایت', whatsapp: 'واتساپ', telegram: 'تلگرام', instagram: 'اینستاگرام', in_person: 'حضوری', email: 'ایمیل', other: 'سایر' };
 const CRM_STATUS_LABELS = { lead: 'سرنخ', active_customer: 'مشتری فعال', vip: 'VIP', at_risk: 'در معرض ریزش', inactive: 'غیرفعال' };
 const ACTIVITY_LABELS = { call: 'تماس', message: 'پیام', email: 'ایمیل', meeting: 'جلسه', visit: 'بازدید', note: 'یادداشت', follow_up: 'پیگیری', complaint: 'شکایت', other: 'سایر' };
 const OPPORTUNITY_STAGE_LABELS = { new: 'جدید', follow_up: 'پیگیری', proposal: 'پیشنهاد', negotiation: 'مذاکره', won: 'برد', lost: 'باخت' };
 
+function catalogSalePrice(item) {
+  return Number(item?.sale_price_rial ?? item?.effective_sale_price ?? item?.unit_sale_price_estimate ?? 0);
+}
+
 export default function OrdersModule({ lang = 'fa' }) {
   const [tab, setTab] = useState('overview');
   const [selectedOrderId, setSelectedOrderId] = useState(null);
+  const [selectedSalesDocumentId, setSelectedSalesDocumentId] = useState(null);
   const [pathFilter, setPathFilter] = useState('all');
   const [deliveryFilter, setDeliveryFilter] = useState('all');
   const [query, setQuery] = useState('');
@@ -73,14 +83,17 @@ export default function OrdersModule({ lang = 'fa' }) {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
   const { hasRole } = useAuth();
-  const canDispatchShipments = hasRole('admin', 'warehouse');
-  const canManageCredit = hasRole('admin', 'sales_manager');
+  const hasFullOrderAccess = hasRole('admin', 'sales', 'sales_manager');
+  const canDispatchShipments = hasFullOrderAccess;
+  const canManageCredit = hasFullOrderAccess;
+  const canViewSalesDocuments = hasRole('admin', 'accountant', 'sales', 'sales_manager');
 
   const data = useOrdersData();
   const activeOrders = useMemo(() => data.orders.filter((o) => o.delivery_status !== 'cancelled'), [data.orders]);
   const activeOrderIds = useMemo(() => new Set(activeOrders.map((o) => o.id)), [activeOrders]);
   const activeDueFollowups = useMemo(() => data.dueFollowups.filter((f) => !f.related_order_id || activeOrderIds.has(f.related_order_id)), [data.dueFollowups, activeOrderIds]);
-  const details = useOrderDetails(selectedOrderId);
+  const details = useOrderDetails(selectedOrderId, canViewSalesDocuments);
+  const salesDocumentBundle = useOrderSalesDocumentBundle(canViewSalesDocuments ? selectedSalesDocumentId : null);
   const selectedOrder = useMemo(() => activeOrders.find((o) => o.id === selectedOrderId), [activeOrders, selectedOrderId]);
 
   useEffect(() => {
@@ -163,12 +176,14 @@ export default function OrdersModule({ lang = 'fa' }) {
   function confirmCancelOrder(order) {
     const id = typeof order === 'string' ? order : order?.id;
     const code = typeof order === 'string' ? '' : order?.order_code;
-    const reason = window.prompt(`دلیل لغو سفارش ${code || ''}:`, 'لغو/اصلاح سفارش');
-    if (!reason || !id) return;
+    const reason = window.prompt(`دلیل لغو کامل سفارش ${code || ''}:`, 'لغو سفارش توسط فروش');
+    if (!reason?.trim() || !id) return;
+    const confirmed = window.confirm('لغو کامل، رزروهای فعال و مراحل/پیگیری‌های باز سفارش را می‌بندد. اسناد مالی ثبت‌شده، تولید انجام‌شده و ارسال‌های فیزیکی حذف یا بازنویسی نمی‌شوند. ادامه می‌دهید؟');
+    if (!confirmed) return;
     runAction(async () => {
-      await cancelOrder(id, reason);
+      await cancelOrder(id, reason.trim());
       if (selectedOrderId === id) setSelectedOrderId(null);
-    }, 'سفارش لغو شد و از تمام لیست‌های فعال حذف شد.');
+    }, 'لغو کامل سفارش ثبت شد؛ رزروها و گردش‌های باز سفارش بسته شدند و سوابق نهایی محفوظ ماندند.');
   }
 
   function exportOrders(kind = 'csv') {
@@ -201,7 +216,7 @@ export default function OrdersModule({ lang = 'fa' }) {
         <div>
           <div className="eyebrow">Order Lifecycle · Aryaman CRM Sync</div>
           <h1>سفارش‌ها و CRM فروش</h1>
-          <p>پیگیری سفارش از ثبت تا تحویل و تسویه، همراه با پرونده مشتری، پیگیری واقعی CRM، موجودی انبار و وضعیت مالی.</p>
+          <p>پیگیری سفارش از ثبت تا تحویل و تسویه، همراه با پرونده مشتری، CRM، موجودی و وضعیت مالی. مدیر کل، مدیر فروش و فروشنده در این ماژول دسترسی عملیاتی کامل و یکسان دارند.</p>
         </div>
         <div className="orders-actions">
           <button onClick={() => openOrderModal()} className="primary"><FileText size={16} /> سفارش جدید</button>
@@ -218,18 +233,20 @@ export default function OrdersModule({ lang = 'fa' }) {
       {modal === 'order' && <OrderModal templates={data.templates} templateSteps={data.templateSteps} customers={data.customers} stock={data.stock} busy={busy} initialCustomerId={orderPrefill.customerId} initialOrder={orderPrefill.editing ? orderPrefill.order : null} initialItems={orderPrefill.editing ? orderPrefill.items : []} onClose={() => setModal(null)} onSubmit={(payload) => orderPrefill.editing ? runAction(() => updateOrderStageSafe({ orderId: orderPrefill.order.id, ...payload, expectedRevision: orderPrefill.order.edit_revision }), 'نسخه جدید سفارش ثبت و پیش‌فاکتور، رزرو و وابستگی‌های مجاز همگام شدند.') : runAction(() => createOrderWithItems(payload), 'سفارش جدید ثبت شد.')} />}
       {modal === 'followup' && <FollowupModal customers={data.customers} orders={activeOrders} busy={busy} initial={followupPrefill} onClose={() => setModal(null)} onSubmit={(payload) => runAction(() => createCrmFollowup(payload), 'پیگیری CRM ثبت شد و در فهرست پیگیری‌های باز قرار گرفت.')} />}
       {modal === 'customer' && <CustomerModal initialCustomer={editingCustomer} canManageCredit={canManageCredit} busy={busy} onClose={() => { setModal(null); setEditingCustomer(null); }} onSubmit={(payload) => runAction(() => createOrUpdateCustomer(payload), editingCustomer ? 'اطلاعات مشتری ویرایش شد.' : 'مشتری/سرنخ ثبت شد.')} />}
+      {selectedSalesDocumentId && canViewSalesDocuments && <SalesDocumentViewer bundle={salesDocumentBundle} onClose={() => setSelectedSalesDocumentId(null)} />}
 
       <nav className="orders-tabs">
         {[
-          ['overview', 'نمای کلی'], ['crm', 'CRM مشتریان'], ['flow', 'مراحل سفارش'], ['list', 'لیست سفارش‌ها'], ['stock', 'موجودی انبار'], ['referrals', 'ارجاع و اسناد'], ['settings', 'تنظیم مراحل']
+          ['overview', 'نمای کلی'], ['crm', 'CRM مشتریان'], ['flow', 'مراحل سفارش'], ['list', 'لیست سفارش‌ها'], ['stock', 'موجودی انبار'], ...(canViewSalesDocuments ? [['documents', 'فاکتور و پیش‌فاکتور']] : []), ['referrals', 'ارجاع و اسناد'], ['settings', 'تنظیم مراحل']
         ].map(([key, label]) => <button key={key} className={tab === key ? 'active' : ''} onClick={() => setTab(key)}>{label}</button>)}
       </nav>
 
       {!data.loading && tab === 'overview' && <Overview kpis={kpis} followups={activeDueFollowups} orders={activeOrders} onOpenOrder={setSelectedOrderId} onNewFollowup={openFollowup} setTab={setTab} />}
       {!data.loading && tab === 'crm' && <CrmSection customers={data.customers} followups={activeDueFollowups} interactions={data.crmInteractions} opportunities={data.crmOpportunities} orders={activeOrders} busy={busy} onNewFollowup={openFollowup} onNewCustomer={() => openCustomerModal()} onQuickOrder={(customer) => openOrderModal({ customerId: customer.id })} onEditCustomer={(customer) => openCustomerModal(customer)} onDeactivateCustomer={(customer) => { if (window.confirm(`مشتری «${customer.company_name}» غیرفعال شود؟`)) runAction(() => deactivateCustomer(customer.id), 'مشتری غیرفعال شد.'); }} onMarkDone={(followup) => runAction(() => markCrmFollowupDone(followup.id), 'پیگیری انجام شد و از فهرست باز حذف شد.')} onExport={() => exportCrm('excel')} onPrint={printCrm} />}
-      {!data.loading && tab === 'flow' && <FlowSection orders={filteredOrders} templateSteps={data.templateSteps} production={data.production} rnd={data.rnd} productionStages={data.productionStages} rndStages={data.rndStages} details={details} selectedOrder={selectedOrder} busy={busy} canDispatchShipments={canDispatchShipments} onSelect={setSelectedOrderId} onEdit={openOrderEdit} onSetStage={(stage) => selectedOrder && runAction(() => setOrderStage(selectedOrder.id, stage, 'تغییر مرحله از ماژول سفارش'), 'مرحله سفارش تغییر کرد.')} onDispatch={(payload) => selectedOrder && runAction(() => dispatchOrderShipment(selectedOrder.id, payload), 'ارسال سفارش، سند خروج، کاردکس و مصرف رزرو با موفقیت ثبت شد.')} onProforma={(id) => runAction(() => createSalesProformaFromOrder(id), 'پیش‌فاکتور سفارش ساخته شد.')} onReserve={(id) => runAction(() => reserveOrderInventory(id), 'موجودی سفارش رزرو شد.')} onReferral={(id, targetModule, targetRole, label) => runAction(() => createOrderReferral({ orderId: id, targetModule, targetRole, title: `ارجاع سفارش به ${label}`, priority: 2 }), `ارجاع به ${label} ثبت شد.`)} onCancelOrder={(id) => confirmCancelOrder(activeOrders.find((o) => o.id === id) || id)} onCloseDetails={() => setSelectedOrderId(null)} />}
+      {!data.loading && tab === 'flow' && <FlowSection orders={filteredOrders} templateSteps={data.templateSteps} production={data.production} rnd={data.rnd} productionStages={data.productionStages} rndStages={data.rndStages} details={details} selectedOrder={selectedOrder} busy={busy} canDispatchShipments={canDispatchShipments} canViewSalesDocuments={canViewSalesDocuments} onOpenSalesDocument={setSelectedSalesDocumentId} onSelect={setSelectedOrderId} onEdit={openOrderEdit} onSetStage={(stage) => selectedOrder && runAction(() => setOrderStage(selectedOrder.id, stage, 'تغییر مرحله از ماژول سفارش'), 'مرحله سفارش تغییر کرد.')} onDispatch={(payload) => selectedOrder && runAction(() => dispatchOrderShipment(selectedOrder.id, payload), 'ارسال سفارش، سند خروج، کاردکس و مصرف رزرو با موفقیت ثبت شد.')} onProforma={(id) => runAction(() => createSalesProformaFromOrder(id), 'پیش‌فاکتور سفارش ساخته شد.')} onReserve={(id) => runAction(() => reserveOrderInventory(id), 'موجودی سفارش رزرو شد.')} onReferral={(id, targetModule, targetRole, label) => runAction(() => createOrderReferral({ orderId: id, targetModule, targetRole, title: `ارجاع سفارش به ${label}`, priority: 2 }), `ارجاع به ${label} ثبت شد.`)} onCancelOrder={(id) => confirmCancelOrder(activeOrders.find((o) => o.id === id) || id)} onCloseDetails={() => setSelectedOrderId(null)} />}
       {!data.loading && tab === 'list' && <ListSection orders={filteredOrders} query={query} setQuery={setQuery} pathFilter={pathFilter} setPathFilter={setPathFilter} deliveryFilter={deliveryFilter} setDeliveryFilter={setDeliveryFilter} onSelect={(id) => { setSelectedOrderId(id); setTab('flow'); }} onEdit={openOrderEdit} onCancel={confirmCancelOrder} onExcel={() => exportOrders('excel')} onPrint={printOrders} />}
-      {!data.loading && tab === 'stock' && <StockSection stock={data.stock} />}
+      {!data.loading && tab === 'stock' && <StockSection stock={data.stock} onRefresh={() => data.refetch({ silent: true })} />}
+      {!data.loading && tab === 'documents' && canViewSalesDocuments && <SalesDocumentsSection documents={data.salesDocuments} onOpen={setSelectedSalesDocumentId} onRefresh={() => data.refetch({ silent: true })} />}
       {!data.loading && tab === 'referrals' && <div className="orders-grid"><ReferralPanel sourceModule="orders" title="ارجاع و اسناد سفارش‌ها" defaultTarget="accounting" /></div>}
       {!data.loading && tab === 'settings' && <TemplateSection templates={data.templates} steps={data.templateSteps} busy={busy} onUpdateTemplate={(id, patch) => runAction(() => updateWorkflowTemplate(id, patch), 'قالب مراحل ذخیره شد.')} onUpdateStep={(id, patch) => runAction(() => updateWorkflowStep(id, patch), 'مرحله ذخیره شد.')} onCreateStep={(payload) => runAction(() => createWorkflowStep(payload), 'مرحله جدید اضافه شد.')} onCreateTemplate={(payload) => runAction(() => createWorkflowTemplateWithSteps(payload), 'قالب جدید ساخته شد و در ثبت سفارش قابل انتخاب است.')} />}
     </div>
@@ -352,7 +369,7 @@ function Pipeline({ opportunities, customers }) {
   return <div className="crm-pipeline">{stages.map((s) => <div key={s.key} className="pipeline-stage"><span>{s.label}</span><b>{formatNumber(s.count)}</b><small>{formatMoney(s.amount)}</small></div>)}</div>;
 }
 
-function FlowSection({ orders, templateSteps = [], production = [], rnd = [], productionStages = [], rndStages = [], selectedOrder, details, busy, canDispatchShipments, onSelect, onEdit, onCloseDetails, onSetStage, onDispatch, onProforma, onReserve, onReferral, onCancelOrder }) {
+function FlowSection({ orders, templateSteps = [], production = [], rnd = [], productionStages = [], rndStages = [], selectedOrder, details, busy, canDispatchShipments, canViewSalesDocuments, onOpenSalesDocument, onSelect, onEdit, onCloseDetails, onSetStage, onDispatch, onProforma, onReserve, onReferral, onCancelOrder }) {
   const [flowPath, setFlowPath] = useState('all');
   const [flowStatus, setFlowStatus] = useState('all');
   const [flowFromDate, setFlowFromDate] = useState('');
@@ -445,7 +462,7 @@ function FlowSection({ orders, templateSteps = [], production = [], rnd = [], pr
 
     {selectedOrder && <div className="order-drawer-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onCloseDetails?.()}>
       <aside className="order-detail-drawer-left">
-        <OrderDetailPanel order={selectedOrder} details={details} busy={busy} canDispatchShipments={canDispatchShipments} onEdit={onEdit} onClose={onCloseDetails} onSetStage={onSetStage} onDispatch={onDispatch} onProforma={onProforma} onReserve={onReserve} onReferral={onReferral} onCancelOrder={onCancelOrder} />
+        <OrderDetailPanel order={selectedOrder} details={details} busy={busy} canDispatchShipments={canDispatchShipments} canViewSalesDocuments={canViewSalesDocuments} onOpenSalesDocument={onOpenSalesDocument} onEdit={onEdit} onClose={onCloseDetails} onSetStage={onSetStage} onDispatch={onDispatch} onProforma={onProforma} onReserve={onReserve} onReferral={onReferral} onCancelOrder={onCancelOrder} />
       </aside>
     </div>}
   </section>;
@@ -484,7 +501,7 @@ function stageStepsForOrder(order, templateSteps, linkedInfo = null, linkedStage
 
 
 
-function OrderDetailPanel({ order, details, busy, canDispatchShipments, onEdit, onClose, onSetStage, onDispatch, onProforma, onReserve, onReferral, onCancelOrder }) {
+function OrderDetailPanel({ order, details, busy, canDispatchShipments, canViewSalesDocuments, onOpenSalesDocument, onEdit, onClose, onSetStage, onDispatch, onProforma, onReserve, onReferral, onCancelOrder }) {
   const [shipmentModalOpen, setShipmentModalOpen] = useState(false);
   if (!order) return <section className="orders-card"><div className="orders-empty">یک سفارش را انتخاب کنید.</div></section>;
   const hasProforma = Number(order.proforma_count || 0) > 0 || details.documents.some((d) => d.document_type === 'sales_proforma' && d.status !== 'void');
@@ -515,12 +532,12 @@ function OrderDetailPanel({ order, details, busy, canDispatchShipments, onEdit, 
     <CardTitle icon={FileText} title={`جزئیات ${order.order_code}`} action={onClose ? <button onClick={onClose}>بستن ×</button> : null} />
     <div className="detail-mini-grid"><Info label="مشتری" value={order.customer_name} /><Info label="مرحله" value={isDelegated ? (linkedInfo?.current_stage_name_fa || order.current_stage_name_fa) : order.current_stage_name_fa} /><Info label="تاریخ ثبت" value={formatDate(order.registered_at)} /><Info label="پیشرفت" value={`${formatNumber(isDelegated ? (linkedInfo?.progress_percent ?? order.progress_percent) : (order.progress_percent || 0))}٪`} /><Info label="تحویل" value={daysText(order.days_to_delivery, order.delivery_status)} /><Info label="مالی" value={FINANCE_LABELS[order.financial_status] || order.financial_status} /><Info label="انبار" value={STOCK_LABELS[order.stock_status] || order.stock_status} /><Info label="مانده" value={formatMoney(order.balance_amount)} /></div>
     {details.credit?.requires_credit_review && <div className="order-credit-warning"><TriangleAlert size={18}/><div><b>نیاز به بررسی اعتبار مشتری</b><span>{details.credit.credit_hold ? 'حساب مشتری در توقف اعتباری است.' : `مانده باز ${formatMoney(details.credit.outstanding_amount)} از سقف اعتبار ${formatMoney(details.credit.credit_limit)} عبور کرده است.`}{details.credit.credit_control_note ? ` · ${details.credit.credit_control_note}` : ''}</span></div></div>}
-    <div className="detail-actions"><button className="primary-edit" disabled={busy || details.loading} onClick={() => onEdit?.(order)}><Edit3 size={15}/> ویرایش مرحله‌ای</button><button disabled={busy || hasProforma} title={hasProforma ? 'برای این سفارش قبلاً پیش‌فاکتور صادر شده است.' : ''} onClick={() => onProforma(order.id)}>{hasProforma ? 'پیش‌فاکتور صادر شده' : 'صدور پیش‌فاکتور'}</button><button disabled={busy} onClick={() => onReserve(order.id)}>رزرو انبار</button><button disabled={busy} onClick={() => onReferral(order.id, 'accounting', 'accountant', 'مالی')}>ارجاع مالی</button><button disabled={busy} onClick={() => onReferral(order.id, 'warehouse', 'warehouse', 'انبار')}>ارجاع انبار</button><button disabled={busy} onClick={() => onReferral(order.id, 'admin', 'admin', 'مدیر کل')}>ارجاع مدیر کل</button><button className="danger" disabled={busy || order.delivery_status === 'cancelled'} onClick={() => onCancelOrder(order.id)}>لغو سفارش</button></div>
+    <div className="detail-actions"><button className="primary-edit" disabled={busy || details.loading} onClick={() => onEdit?.(order)}><Edit3 size={15}/> ویرایش مرحله‌ای</button><button disabled={busy || hasProforma} title={hasProforma ? 'برای این سفارش قبلاً پیش‌فاکتور صادر شده است.' : ''} onClick={() => onProforma(order.id)}>{hasProforma ? 'پیش‌فاکتور صادر شده' : 'صدور پیش‌فاکتور'}</button><button disabled={busy} onClick={() => onReserve(order.id)}>رزرو انبار</button><button disabled={busy} onClick={() => onReferral(order.id, 'accounting', 'accountant', 'مالی')}>ارجاع مالی</button><button disabled={busy} onClick={() => onReferral(order.id, 'warehouse', 'warehouse', 'انبار')}>ارجاع انبار</button><button disabled={busy} onClick={() => onReferral(order.id, 'admin', 'admin', 'مدیر کل')}>ارجاع مدیر کل</button><button className="danger" disabled={busy || order.delivery_status === 'cancelled'} onClick={() => onCancelOrder(order.id)}>لغو کامل سفارش</button></div>
 
     <section className="detail-block order-shipment-center">
       <div className="order-shipment-head">
         <div><h3>ارسال از سفارش</h3><p>هر بار فقط تعداد واقعی تحویلی را ثبت کنید؛ سند خروج، کاردکس و مصرف رزرو هم‌زمان و قطعی ثبت می‌شوند.</p></div>
-        <button className="dispatch-order-btn" disabled={busy || !canOpenDispatch} title={!canDispatchShipments ? 'ثبت قطعی فقط برای مدیر یا انبار مجاز است' : ''} onClick={() => setShipmentModalOpen(true)}><PackageCheck size={16} />{remainingItems.length === 0 && shipmentItems.length > 0 ? 'ارسال کامل شده' : !canDispatchShipments ? 'در انتظار تأیید انبار' : 'ثبت ارسال جدید'}</button>
+        <button className="dispatch-order-btn" disabled={busy || !canOpenDispatch} title={!canDispatchShipments ? 'این حساب دسترسی عملیاتی ماژول سفارش‌ها را ندارد' : 'ارسال قطعی از RPC اتمیک سفارش ثبت می‌شود'} onClick={() => setShipmentModalOpen(true)}><PackageCheck size={16} />{remainingItems.length === 0 && shipmentItems.length > 0 ? 'ارسال کامل شده' : !canDispatchShipments ? 'دسترسی ارسال ندارید' : 'ثبت ارسال جدید'}</button>
       </div>
       {!hasApprovedInvoice && <p className="shipment-gate-note">برای ثبت ارسال، ابتدا فاکتور فروش نهایی این سفارش باید تأیید شود.</p>}
       {shipmentItems.length === 0 ? <p className="muted">قلم ساختاریافته‌ای برای ارسال پیدا نشد.</p> : <div className="shipment-progress-list">{shipmentItems.map((item) => <article key={item.order_item_id} className={Number(item.remaining_quantity || 0) <= 0 ? 'complete' : !item.is_warehouse_mapped ? 'blocked' : ''}>
@@ -537,6 +554,7 @@ function OrderDetailPanel({ order, details, busy, canDispatchShipments, onEdit, 
       {shipment.status === 'cancelled' && shipment.cancellation_reason && <p>{shipment.cancellation_reason}</p>}
     </article>)}</div></section>}
 
+    {canViewSalesDocuments && <section className="detail-block order-sales-documents"><div className="order-sales-documents-head"><div><h3>فاکتور و پیش‌فاکتور این سفارش</h3><p>دسترسی این بخش فقط مشاهده و دریافت خروجی رسمی/غیررسمی است؛ عملیات حسابداری از اینجا در دسترس نیست.</p></div></div>{details.loading ? <p className="muted">در حال دریافت اسناد فروش...</p> : details.documents.length === 0 ? <p className="muted">هنوز فاکتور یا پیش‌فاکتوری برای این سفارش ثبت نشده است.</p> : <div className="order-sales-document-list">{details.documents.map((document) => <article key={document.id}><div><span className={`sales-doc-kind ${document.document_type}`}>{SALES_DOCUMENT_LABELS[document.document_type] || document.document_type}</span><b dir="ltr">{document.doc_number}</b><small>{formatDate(document.issue_date)} · {SALES_DOCUMENT_STATUS_LABELS[document.status] || document.status}</small></div><div><strong>{formatMoney(document.total_amount)}</strong><small>مانده: {formatMoney(document.balance_amount)}</small></div><button type="button" onClick={() => onOpenSalesDocument?.(document.id)}><Eye size={15}/> مشاهده و خروجی</button></article>)}</div>}</section>}
     {hasProforma && <p className="orders-info-note">برای این سفارش پیش‌فاکتور قبلاً صادر شده است؛ صدور مجدد از بخش سفارش‌ها مجاز نیست.</p>}
     {isDelegated && <p className="orders-info-note delegated">این سفارش بعد از ورود به {isDelegatedToProduction ? 'تولید' : 'R&D'}، مراحلش از همان بخش کنترل می‌شود و فروش فقط روند را مشاهده می‌کند. پایان تولید/R&D به‌تنهایی محموله مشتری ایجاد نمی‌کند.</p>}
     {isDelegated ? <section className="detail-block delegated-stage-block"><h3>{delegatedTitle}</h3><p className="orders-info-note delegated">نوار اصلی این سفارش از مراحل زنده {isDelegatedToProduction ? 'تولید' : 'R&D'} در کارت روند سفارش نمایش داده می‌شود. فروش/مدیر فروش برای تغییر مرحله این سفارش دسترسی ندارد.</p></section> : <section className="detail-block"><h3>تغییر مرحله فروش/سفارش</h3>{details.stages.length === 0 ? <p className="muted">مرحله‌ای ثبت نشده است.</p> : <div className="stage-buttons">{details.stages.map((s) => <button key={s.id} disabled={busy || s.status === 'current' || order.delivery_status === 'cancelled'} className={s.status} onClick={() => onSetStage(s.stage_key)}>{s.stage_order}. {s.stage_name_fa}</button>)}</div>}</section>}
@@ -623,17 +641,62 @@ function ListSection({ orders, query, setQuery, pathFilter, setPathFilter, deliv
   const [sort, setSort] = useState({ key: 'registered_at', dir: 'desc' });
   const sortedOrders = useMemo(() => [...orders].sort((a, b) => compareOrderValues(a, b, sort)), [orders, sort]);
   const th = (key, label) => <th><button type="button" className="sort-th" onClick={() => setSort(nextSort(sort, key))}>{label}<span>{sort.key === key ? (sort.dir === 'asc' ? '▲' : '▼') : '↕'}</span></button></th>;
-  return <section className="orders-card"><div className="section-head"><CardTitle icon={Search} title="لیست سفارش‌ها" /><div><button onClick={onExcel}>Excel</button><button onClick={onPrint}>PDF</button></div></div><div className="filters"><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="جست‌وجو..." /><select value={pathFilter} onChange={(e) => setPathFilter(e.target.value)}><option value="all">همه مسیرها</option><option value="trading">بازرگانی</option><option value="rnd">R&D</option><option value="production">تولید</option></select><select value={deliveryFilter} onChange={(e) => setDeliveryFilter(e.target.value)}><option value="all">همه وضعیت تحویل</option><option value="late">عقب‌افتاده</option><option value="due_soon">تحویل نزدیک</option><option value="on_track">طبق برنامه</option><option value="closed">بسته‌شده</option></select></div><div className="orders-table-wrap orders-list-scroll"><table className="has-row-numbers"><thead><tr><th className="row-number-column">ردیف</th>{th('order_code','کد')}{th('registered_at','تاریخ')}{th('customer_name','مشتری')}{th('customer_code','کد مشتری')}{th('contact_phone','تلفن')}{th('customer_city','شهر')}{th('preferred_contact_channel','روش ارتباط')}{th('sales_path','مسیر')}{th('current_stage_name_fa','مرحله')}{th('progress_percent','پیشرفت')}{th('days_to_delivery','روز مانده')}{th('financial_status','مالی')}{th('stock_status','انبار')}<th>عملیات</th></tr></thead><tbody>{sortedOrders.map((o, index) => <tr key={o.id}><td className="row-number-column">{index + 1}</td><td dir="ltr">{o.order_code}</td><td>{formatDate(o.registered_at)}</td><td>{o.customer_name}</td><td dir="ltr">{o.customer_code || '—'}</td><td dir="ltr">{o.contact_phone || '—'}</td><td>{o.customer_city || '—'}</td><td>{CHANNEL_LABELS[o.preferred_contact_channel] || o.preferred_contact_channel || '—'}</td><td>{PATH_LABELS[o.sales_path]}</td><td>{o.current_stage_name_fa}</td><td>{formatNumber(o.progress_percent || 0)}٪</td><td>{daysText(o.days_to_delivery, o.delivery_status)}</td><td>{FINANCE_LABELS[o.financial_status] || o.financial_status}</td><td>{STOCK_LABELS[o.stock_status] || o.stock_status}</td><td><div className="row-actions"><button onClick={() => onSelect(o.id)}>جزئیات</button><button onClick={() => onEdit?.(o)}><Edit3 size={14}/> ویرایش</button><button className="danger" disabled={o.delivery_status === 'cancelled'} onClick={() => onCancel(o)}>لغو</button></div></td></tr>)}</tbody></table></div></section>;
+  return <section className="orders-card"><div className="section-head"><CardTitle icon={Search} title="لیست سفارش‌ها" /><div><button onClick={onExcel}>Excel</button><button onClick={onPrint}>PDF</button></div></div><div className="filters"><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="جست‌وجو..." /><select value={pathFilter} onChange={(e) => setPathFilter(e.target.value)}><option value="all">همه مسیرها</option><option value="trading">بازرگانی</option><option value="rnd">R&D</option><option value="production">تولید</option></select><select value={deliveryFilter} onChange={(e) => setDeliveryFilter(e.target.value)}><option value="all">همه وضعیت تحویل</option><option value="late">عقب‌افتاده</option><option value="due_soon">تحویل نزدیک</option><option value="on_track">طبق برنامه</option><option value="closed">بسته‌شده</option></select></div><div className="orders-table-wrap orders-list-scroll"><table className="has-row-numbers"><thead><tr><th className="row-number-column">ردیف</th>{th('order_code','کد')}{th('registered_at','تاریخ')}{th('customer_name','مشتری')}{th('customer_code','کد مشتری')}{th('contact_phone','تلفن')}{th('customer_city','شهر')}{th('preferred_contact_channel','روش ارتباط')}{th('sales_path','مسیر')}{th('current_stage_name_fa','مرحله')}{th('progress_percent','پیشرفت')}{th('days_to_delivery','روز مانده')}{th('financial_status','مالی')}{th('stock_status','انبار')}<th>عملیات</th></tr></thead><tbody>{sortedOrders.map((o, index) => <tr key={o.id}><td className="row-number-column">{index + 1}</td><td dir="ltr">{o.order_code}</td><td>{formatDate(o.registered_at)}</td><td>{o.customer_name}</td><td dir="ltr">{o.customer_code || '—'}</td><td dir="ltr">{o.contact_phone || '—'}</td><td>{o.customer_city || '—'}</td><td>{CHANNEL_LABELS[o.preferred_contact_channel] || o.preferred_contact_channel || '—'}</td><td>{PATH_LABELS[o.sales_path]}</td><td>{o.current_stage_name_fa}</td><td>{formatNumber(o.progress_percent || 0)}٪</td><td>{daysText(o.days_to_delivery, o.delivery_status)}</td><td>{FINANCE_LABELS[o.financial_status] || o.financial_status}</td><td>{STOCK_LABELS[o.stock_status] || o.stock_status}</td><td><div className="row-actions"><button onClick={() => onSelect(o.id)}>جزئیات</button><button onClick={() => onEdit?.(o)}><Edit3 size={14}/> ویرایش</button><button className="danger" disabled={o.delivery_status === 'cancelled'} onClick={() => onCancel(o)}>لغو کامل</button></div></td></tr>)}</tbody></table></div></section>;
 }
 
 
-function StockSection({ stock }) {
+function StockSection({ stock, onRefresh }) {
   const [stockQuery, setStockQuery] = useState('');
   const filtered = useMemo(() => stock.filter((s) => {
     const text = `${s.item_code || ''} ${s.item_name_fa || ''} ${s.item_name_en || ''} ${s.category || ''}`.toLowerCase();
     return !stockQuery || text.includes(stockQuery.toLowerCase());
   }), [stock, stockQuery]);
-  return <section className="orders-card"><div className="section-head"><CardTitle icon={PackageCheck} title="موجودی قابل مشاهده برای فروش" /></div><div className="filters"><input value={stockQuery} onChange={(e) => setStockQuery(e.target.value)} placeholder="جست‌وجوی کد، نام کالا، گروه..." /></div>{filtered.length === 0 ? <Empty text="کالایی با این جست‌وجو پیدا نشد." /> : <div className="orders-table-wrap"><table><thead><tr><th>کد</th><th>کالا</th><th>موجودی</th><th>رزروشده</th><th>قابل فروش</th><th>حداقل</th><th>وضعیت</th></tr></thead><tbody>{filtered.map((s) => <tr key={s.item_id}><td dir="ltr">{s.item_code}</td><td>{s.item_name_fa}</td><td>{formatNumber(s.current_qty)} {s.unit}</td><td>{formatNumber(s.reserved_qty)}</td><td>{formatNumber(s.available_for_sale_qty)}</td><td>{formatNumber(s.min_stock_threshold)}</td><td>{s.is_low_stock ? 'کمبود' : 'قابل فروش'}</td></tr>)}</tbody></table></div>}</section>;
+  const latestUpdate = useMemo(() => stock.reduce((latest, item) => {
+    const value = item.pricing_updated_at || item.rate_checked_at || item.last_synced_at;
+    return value && (!latest || new Date(value) > new Date(latest)) ? value : latest;
+  }, null), [stock]);
+  return <section className="orders-card order-live-stock"><div className="section-head"><div><CardTitle icon={PackageCheck} title="موجودی و قیمت فروش آنلاین انبار" /><p className="live-stock-note"><i/>همگام زنده با موجودی، رزرو، قیمت فروش و نرخ ارز انبار · آخرین داده: {latestUpdate ? formatDateTime(latestUpdate) : 'در انتظار همگام‌سازی'}</p></div><button type="button" onClick={onRefresh}><RefreshCcw size={15}/> به‌روزرسانی الآن</button></div><div className="filters"><input value={stockQuery} onChange={(e) => setStockQuery(e.target.value)} placeholder="جست‌وجوی کد، نام کالا، گروه..." /></div>{filtered.length === 0 ? <Empty text="کالایی با این جست‌وجو پیدا نشد." /> : <div className="orders-table-wrap order-live-stock-table"><table><thead><tr><th>کد</th><th>کالا</th><th>موجودی</th><th>رزروشده</th><th>قابل فروش</th><th>قیمت فروش روز</th><th>مبنای قیمت</th><th>حداقل</th><th>وضعیت</th></tr></thead><tbody>{filtered.map((s) => { const salePrice = Number(s.sale_price_rial ?? s.effective_sale_price ?? s.unit_sale_price_estimate ?? 0); const basePrice = Number(s.base_sale_price || 0); const currency = s.price_currency; return <tr key={s.item_id}><td dir="ltr">{s.item_code}</td><td><b>{s.item_name_fa}</b><small>{s.item_group_label || s.item_group || s.category || '—'}</small></td><td>{formatNumber(s.current_qty)} {s.unit}</td><td>{formatNumber(s.reserved_qty)}</td><td className={Number(s.available_for_sale_qty) > 0 ? 'positive' : 'negative'}><b>{formatNumber(s.available_for_sale_qty)}</b></td><td className="online-sale-price">{salePrice > 0 ? <><b>{formatMoney(salePrice)}</b><small>قیمت جاری قابل استفاده در سفارش جدید</small></> : <span>فاقد قیمت فروش</span>}</td><td>{['USD','CNY'].includes(currency) && basePrice > 0 ? <><b dir="ltr">{currency === 'USD' ? '$' : '¥'}{formatPriceNumber(basePrice)}</b><small>{currency === 'USD' ? 'دلار' : 'یوان'} · نرخ روز</small></> : <span>ریالی</span>}</td><td>{formatNumber(s.min_stock_threshold)}</td><td>{s.is_low_stock ? <span className="stock-sale-status low">کمبود</span> : <span className="stock-sale-status ok">قابل فروش</span>}</td></tr>;})}</tbody></table></div>}</section>;
+}
+
+function SalesDocumentsSection({ documents = [], onOpen, onRefresh }) {
+  const [query, setQuery] = useState('');
+  const [type, setType] = useState('all');
+  const filtered = useMemo(() => documents.filter((document) => {
+    const text = `${document.doc_number || ''} ${document.order_code || ''} ${document.party_name || document.customer_name || ''}`.toLowerCase();
+    return (type === 'all' || document.document_type === type) && (!query || text.includes(query.toLowerCase()));
+  }), [documents, query, type]);
+  const invoices = documents.filter((document) => document.document_type === 'sales_invoice').length;
+  const proformas = documents.filter((document) => document.document_type === 'sales_proforma').length;
+
+  return <>
+    <section className="orders-grid sales-document-kpis">
+      <article><span>اسناد مرتبط قابل مشاهده</span><b>{formatNumber(documents.length)}</b><small>فقط اسناد فروش متصل به سفارش‌های مجاز</small></article>
+      <article><span>فاکتور فروش</span><b>{formatNumber(invoices)}</b><small>مشاهده و دریافت خروجی</small></article>
+      <article><span>پیش‌فاکتور فروش</span><b>{formatNumber(proformas)}</b><small>مشاهده و دریافت خروجی</small></article>
+    </section>
+    <section className="orders-card sales-documents-card">
+      <div className="section-head"><div><CardTitle icon={FileText} title="فاکتورها و پیش‌فاکتورهای مرتبط"/><p className="muted">این فهرست فقط‌خواندنی است و هیچ دسترسی به خزانه، حساب‌ها، ثبت پرداخت، ویرایش، ابطال یا تبدیل سند ایجاد نمی‌کند.</p></div><button type="button" onClick={onRefresh}><RefreshCcw size={15}/> به‌روزرسانی</button></div>
+      <div className="filters"><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="جست‌وجوی شماره سند، سفارش یا مشتری..."/><select value={type} onChange={(event) => setType(event.target.value)}><option value="all">همه اسناد</option><option value="sales_invoice">فاکتور فروش</option><option value="sales_proforma">پیش‌فاکتور فروش</option></select></div>
+      {filtered.length === 0 ? <Empty text="سند فروش مرتبطی پیدا نشد."/> : <div className="orders-table-wrap sales-documents-table"><table><thead><tr><th>نوع سند</th><th>شماره سند</th><th>تاریخ</th><th>سفارش مرتبط</th><th>مشتری</th><th>وضعیت</th><th>مبلغ کل</th><th>مانده</th><th>عملیات مجاز</th></tr></thead><tbody>{filtered.map((document) => <tr key={document.id}><td><span className={`sales-doc-kind ${document.document_type}`}>{SALES_DOCUMENT_LABELS[document.document_type] || document.document_type}</span></td><td dir="ltr"><b>{document.doc_number}</b></td><td>{formatDate(document.issue_date)}</td><td dir="ltr">{document.order_code || '—'}</td><td>{document.party_name || document.customer_name || '—'}</td><td><span className="status-pill">{SALES_DOCUMENT_STATUS_LABELS[document.status] || document.status}</span></td><td><b>{formatMoney(document.total_amount)}</b></td><td>{formatMoney(document.balance_amount)}</td><td><button type="button" className="sales-document-open" onClick={() => onOpen(document.id)}><Eye size={15}/> مشاهده و خروجی</button></td></tr>)}</tbody></table></div>}
+    </section>
+  </>;
+}
+
+function SalesDocumentViewer({ bundle, onClose }) {
+  const document = bundle.document;
+  return <div className="orders-modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><div className="orders-modal sales-document-viewer"><header><div><h3>مشاهده محدود سند فروش</h3><small>{document ? `${SALES_DOCUMENT_LABELS[document.document_type] || document.document_type} · ${document.doc_number}` : 'در حال دریافت سند...'}</small></div><button type="button" aria-label="بستن" onClick={onClose}>×</button></header><div>
+    <div className="sales-document-readonly-note"><Eye size={18}/><div><b>حالت فقط‌خواندنی سفارش‌ها</b><span>تنها مشاهده سند و خروجی رسمی/غیررسمی مجاز است؛ اطلاعات پرداخت، حساب بانکی/صندوق، دفتر روزنامه و عملیات مالی در این نما بارگذاری نمی‌شوند.</span></div></div>
+    {bundle.loading && <p className="orders-message">در حال دریافت نسخه امن سند...</p>}
+    {bundle.error && <p className="orders-message error">دریافت سند ممکن نشد: {bundle.error.message}</p>}
+    {!bundle.loading && document && <>
+      <div className="sales-document-viewer-actions"><button type="button" onClick={() => printFinanceDocument(bundle, 'company')}><Printer size={16}/> خروجی غیررسمی / شرکتی</button><button type="button" className="primary-soft" onClick={() => printFinanceDocument(bundle, 'official')}><Printer size={16}/> خروجی رسمی</button></div>
+      <section className="sales-document-summary"><div><span>نوع سند</span><b>{SALES_DOCUMENT_LABELS[document.document_type] || document.document_type}</b></div><div><span>شماره</span><b dir="ltr">{document.doc_number}</b></div><div><span>تاریخ صدور</span><b>{formatDate(document.issue_date)}</b></div><div><span>وضعیت</span><b>{SALES_DOCUMENT_STATUS_LABELS[document.status] || document.status}</b></div><div><span>سفارش</span><b dir="ltr">{bundle.order?.order_code || '—'}</b></div><div><span>خریدار</span><b>{bundle.party?.display_name || bundle.order?.customer_name || '—'}</b></div></section>
+      <div className="orders-table-wrap sales-document-items"><table><thead><tr><th>ردیف</th><th>شرح</th><th>تعداد</th><th>واحد</th><th>مبلغ واحد</th><th>تخفیف</th><th>مالیات</th><th>مبلغ نهایی</th></tr></thead><tbody>{bundle.items.length === 0 ? <tr><td colSpan="8">ردیفی ثبت نشده است.</td></tr> : bundle.items.map((item, index) => <tr key={item.id || index}><td>{index + 1}</td><td>{item.description_fa || '—'}</td><td>{formatNumber(item.quantity)}</td><td>{item.unit || '—'}</td><td>{formatMoney(item.unit_price)}</td><td>{formatMoney(item.discount_amount)}</td><td>{formatMoney(item.tax_amount)}</td><td><b>{formatMoney(item.line_total)}</b></td></tr>)}</tbody></table></div>
+      <section className="sales-document-totals"><div><span>جمع قبل از تخفیف</span><b>{formatMoney(document.subtotal_amount)}</b></div><div><span>تخفیف</span><b>{formatMoney(document.discount_amount)}</b></div><div><span>مالیات</span><b>{formatMoney(document.tax_amount)}</b></div><div className="grand"><span>قابل پرداخت</span><b>{formatMoney(document.total_amount)}</b></div></section>
+      {(document.description || document.print_note) && <section className="sales-document-notes"><b>توضیحات سند</b><p>{document.description || '—'}</p>{document.print_note && <p>{document.print_note}</p>}</section>}
+      <footer className="sales-document-locked-capabilities"><LockKeyhole size={16}/><span>ویرایش، ثبت/تأیید، تبدیل، ابطال، پرداخت و عملیات خزانه در این نما غیرفعال و غیرقابل دسترسی‌اند.</span></footer>
+    </>}
+  </div></div></div>;
 }
 
 function TemplateSection({ templates, steps, busy, onUpdateTemplate, onUpdateStep, onCreateStep, onCreateTemplate }) {
@@ -764,6 +827,22 @@ function OrderModal({ templates, templateSteps = [], customers, stock, busy, ini
     searchText: `${c.company_name || ''} ${c.contact_person_name || ''} ${c.contact_phone || ''} ${c.city || ''} ${c.acquisition_source || ''} ${c.economic_code || ''} ${c.registration_number || ''} ${c.national_id || ''} ${c.postal_code || ''}`,
   })), [customers]);
   const [items, setItems] = useState(initialItems.length ? initialItems.map((item) => ({ ...item })) : [{ item_name_fa: 'قلم سفارش', warehouse_item_code: '', quantity: 1, unit: 'عدد', unit_price: 0, discount_percent: 0, discount_amount: 0 }]);
+  const liveStockByCode = useMemo(() => new Map(stock.filter((item) => item.item_code).map((item) => [item.item_code, item])), [stock]);
+
+  useEffect(() => {
+    if (isEdit) return;
+    setItems((rows) => rows.map((row) => {
+      const liveItem = liveStockByCode.get(row.warehouse_item_code);
+      if (!liveItem) return row;
+      const nextPrice = catalogSalePrice(liveItem);
+      if (Number(row.unit_price || 0) === nextPrice) return row;
+      const discountPercent = Number(row.discount_percent || 0);
+      const discountAmount = discountPercent > 0
+        ? Math.round(Number(row.quantity || 0) * nextPrice * discountPercent / 100)
+        : Number(row.discount_amount || 0);
+      return { ...row, unit_price: nextPrice, discount_amount: discountAmount };
+    }));
+  }, [isEdit, liveStockByCode]);
 
   function chooseCustomer(id) {
     const customer = customers.find((c) => c.id === id);
@@ -847,6 +926,8 @@ function OrderModal({ templates, templateSteps = [], customers, stock, busy, ini
         <label><input type="checkbox" checked={options.refPath} onChange={(e) => setOptions({ ...options, refPath: e.target.checked })} /> ارجاع به تولید/R&D بر اساس مسیر</label>
       </div>}
 
+      {!isEdit && <div className="order-live-price-note"><RefreshCcw size={16}/><span>قیمت اقلام متصل به انبار از کاتالوگ فروش امن خوانده می‌شود و با تغییر نرخ ارز یا قیمت کالا، تا پیش از ثبت سفارش به‌صورت زنده به‌روزرسانی خواهد شد.</span></div>}
+      {isEdit && <div className="order-snapshot-price-note"><LockKeyhole size={16}/><span>قیمت سفارش ثبت‌شده Snapshot است و هنگام ویرایش Stage-safe با نرخ روز جایگزین نمی‌شود.</span></div>}
       <ItemEditor items={items} setItems={setItems} stock={stock} />
       {isEdit && <label className="order-edit-reason"><span>دلیل ویرایش (الزامی)</span><textarea value={editReason} onChange={(e)=>setEditReason(e.target.value)} placeholder="مثلاً اصلاح تعداد طبق درخواست مشتری، تغییر موعد تحویل یا افزودن قلم..." required/></label>}
       <div className="modal-actions"><button type="button" onClick={onClose}>انصراف</button><button type="submit" disabled={busy || items.length===0 || (isEdit && !editReason.trim())}>{busy ? 'در حال ثبت...' : isEdit ? 'ثبت نسخه جدید و همگام‌سازی' : 'ثبت سفارش'}</button></div>
@@ -862,7 +943,7 @@ function ItemEditor({ items, setItems, stock }) {
       item_name_fa: selected?.item_name_fa || items[i]?.item_name_fa || '',
       item_name_en: selected?.item_name_en || items[i]?.item_name_en || null,
       unit: selected?.unit || items[i]?.unit || 'عدد',
-      unit_price: selected?.effective_sale_price ?? selected?.unit_price_estimate ?? items[i]?.unit_price ?? 0,
+      unit_price: selected ? catalogSalePrice(selected) : (items[i]?.unit_price ?? 0),
     });
   }
   return <div className="item-editor searchable-items"><table><thead><tr><th>کد/نام کالا</th><th>شرح کالا</th><th>تعداد</th><th>واحد</th><th>فی ریال / تومان</th><th>تخفیف٪</th><th>تخفیف ریال</th><th></th></tr></thead><tbody>{items.map((item, i) => <tr key={i}><td><ProductPicker items={stock} value={item.warehouse_item_code || ''} onSelect={(selected) => selectStock(i, selected)} placeholder="کد یا نام کالا را بنویس..." /></td><td><input value={item.item_name_fa} onChange={(e) => update(i, { item_name_fa: e.target.value })} placeholder="شرح کالا / خدمت" /></td><td><input type="number" value={item.quantity} onChange={(e) => update(i, { quantity: e.target.value })} /></td><td><input value={item.unit} onChange={(e) => update(i, { unit: e.target.value })} /></td><td><MoneyInput value={item.unit_price} onChange={(value) => update(i, { unit_price: value })} /></td><td><input type="number" min="0" max="100" value={item.discount_percent || 0} onChange={(e) => { const percent = Number(e.target.value || 0); const base = Number(item.quantity || 0) * Number(item.unit_price || 0); update(i, { discount_percent: percent, discount_amount: Math.round(base * percent / 100) }); }} /></td><td><input type="number" min="0" value={item.discount_amount || 0} onChange={(e) => { const amount = Number(e.target.value || 0); const base = Number(item.quantity || 0) * Number(item.unit_price || 0); update(i, { discount_amount: amount, discount_percent: base ? Math.min(100, amount * 100 / base) : 0 }); }} /></td><td><button type="button" onClick={() => setItems((rows) => rows.filter((_, idx) => idx !== i))}>×</button></td></tr>)}</tbody></table><button type="button" onClick={() => setItems((rows) => [...rows, { item_name_fa: 'ردیف جدید', warehouse_item_code: '', quantity: 1, unit: 'عدد', unit_price: 0, discount_percent: 0, discount_amount: 0 }])}>＋ افزودن قلم</button></div>;
@@ -958,4 +1039,5 @@ function daysUntil(value) { if (!value) return 999; const diff = new Date(value)
 function formatDate(value) { return formatJalaliDate(value); }
 function formatDateTime(value) { return formatJalaliDateTime(value); }
 function formatMoney(value) { return formatToman(value, 'fa'); }
+function formatPriceNumber(value) { return new Intl.NumberFormat('en-US', { maximumFractionDigits: 4 }).format(Number(value || 0)); }
 function safe(value) { return String(value ?? '').replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch])); }

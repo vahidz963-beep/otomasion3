@@ -160,111 +160,315 @@ export function FinanceDocumentForm({ parties, orders = [], stock = [], initialD
   </form>;
 }
 
-export function FinancePaymentForm({ parties, documents, accounts, cashboxes = [], loans = [], categories = [], initialDocumentId, initialDirection = 'receipt', initialPayment = null, categoryMode = false, onCancel, onSubmit, busy }) {
-  const initialDoc = documents.find((d) => d.id === initialDocumentId);
+export function FinancePaymentForm({
+  parties,
+  documents,
+  accounts,
+  cashboxes = [],
+  loans = [],
+  categories = [],
+  initialDocumentId,
+  initialDirection = 'receipt',
+  initialMethod = '',
+  initialPayment = null,
+  initialDirectLines = [],
+  categoryMode = false,
+  onCancel,
+  onSubmit,
+  busy,
+}) {
+  const directRevision = Boolean(initialPayment?.direct_settlement_id);
+  const initialDirectMethod = initialPayment?.method === 'direct_expense_offset' || initialMethod === 'direct_expense_offset';
   const [payment, setPayment] = useState({
-    id: initialPayment?.id || null,
-    direction: initialPayment?.method === 'loan_payment' ? 'payment' : (initialPayment?.direction || (initialDoc ? 'receipt' : initialDirection)),
-    method: initialPayment?.method || 'bank_transfer',
-    loan_id: initialPayment?.loan_id || initialPayment?.source_record_id || '',
-    account_kind: initialPayment?.cashbox_id ? 'cashbox' : 'bank',
-    party_id: initialPayment?.party_id || initialDoc?.party_id || '',
+    direction: initialDirectMethod ? 'receipt' : (initialPayment?.direction || initialDirection),
+    method: initialPayment?.method || initialMethod || 'bank_transfer',
+    party_id: initialPayment?.party_id || '',
     payment_date: initialPayment?.payment_date || today(),
-    amount: initialPayment?.amount || initialDoc?.balance_amount || '',
+    amount: initialPayment?.amount || 0,
+    currency: initialPayment?.currency || 'IRR',
     bank_account_id: initialPayment?.bank_account_id || accounts[0]?.id || '',
     cashbox_id: initialPayment?.cashbox_id || '',
     transfer_to_bank_account_id: initialPayment?.transfer_to_bank_account_id || '',
-    source_module: initialPayment?.source_module || '',
-    description: initialPayment?.description || (initialDoc ? `تسویه سند ${initialDoc.doc_number}` : ''),
-    document_id: initialPayment?.document_id || initialDocumentId || '',
+    description: initialPayment?.description || '',
+    loan_id: initialPayment?.loan_id || '',
     category_id: initialPayment?.category_id || '',
     category_note: initialPayment?.category_note || '',
+    direct_settlement_id: initialPayment?.direct_settlement_id || '',
+    revision_reason: '',
   });
-  const [paymentRows, setPaymentRows] = useState([{ amount: initialPayment?.amount || initialDoc?.balance_amount || '', description: initialPayment?.description || '' }]);
+  const [documentId, setDocumentId] = useState(initialPayment?.document_id || initialDocumentId || '');
+  const [multiMode, setMultiMode] = useState(false);
+  const [paymentRows, setPaymentRows] = useState([{ amount: initialPayment?.amount || 0, description: initialPayment?.description || '' }]);
+  const [directExpenseRows, setDirectExpenseRows] = useState(
+    initialDirectLines.length
+      ? initialDirectLines.map((line) => ({
+          category_id: line.category_id || '',
+          amount: line.line_amount ?? line.amount ?? 0,
+          description: line.line_description ?? line.description ?? '',
+        }))
+      : [{ category_id: '', amount: 0, description: '' }]
+  );
+  const [idempotencyKey] = useState(() => globalThis.crypto?.randomUUID?.() || `direct-expense-${Date.now()}-${Math.random().toString(16).slice(2)}`);
 
-  const partyOptions = useMemo(() => parties.map((p) => ({
-    value: p.party_id || p.id,
-    label: `${p.customer_code ? `${p.customer_code} · ` : ''}${p.display_name || p.party_name || 'بدون نام'}`,
-    description: `${p.phone || ''}${p.economic_code ? ` · کد اقتصادی ${p.economic_code}` : ''}${p.national_id ? ` · شناسه ${p.national_id}` : ''}`.trim(),
-    searchText: `${p.display_name || ''} ${p.phone || ''} ${p.economic_code || ''} ${p.registration_number || ''} ${p.national_id || ''} ${p.postal_code || ''}`,
-  })), [parties]);
+  const isDirectExpense = payment.method === 'direct_expense_offset';
+  const payableDocs = useMemo(() => documents.filter((doc) => {
+    if (payment.party_id && doc.party_id !== payment.party_id) return false;
+    if (isDirectExpense && !['sales_invoice', 'debit_note', 'purchase_return'].includes(doc.document_type)) return false;
+    const revisionRestoredAmount = directRevision && doc.id === initialPayment?.document_id ? Number(initialPayment?.amount || 0) : 0;
+    return Number(doc.balance_amount || 0) + revisionRestoredAmount > 0 && !['void', 'cancelled', 'draft', 'pending_approval'].includes(doc.status);
+  }), [documents, payment.party_id, isDirectExpense, directRevision, initialPayment?.document_id, initialPayment?.amount]);
+  const selectedDoc = payableDocs.find((doc) => doc.id === documentId) || documents.find((doc) => doc.id === documentId);
+  const selectedParty = parties.find((party) => (party.party_id || party.id) === payment.party_id);
+  const selectedLoan = loans.find((loan) => loan.id === payment.loan_id);
+  const categoryType = isDirectExpense ? 'expense' : (payment.direction === 'receipt' ? 'income' : 'expense');
+  const categoryOptions = categories.filter((item) => item.category_type === categoryType && item.is_active !== false);
+  const selectedCategory = categories.find((item) => item.id === payment.category_id);
+  const directTotal = directExpenseRows.reduce((sum, row) => sum + Number(row.amount || 0), 0);
+  const existingDirectAmount = directRevision && initialPayment?.party_id === payment.party_id ? Number(initialPayment?.amount || 0) : 0;
+  const availableDebt = Number(selectedParty?.balance || 0) + existingDirectAmount;
+  const debtAfter = Math.max(availableDebt - directTotal, 0);
+  const directRowsAreValid = directExpenseRows.length > 0 && directExpenseRows.every((row) => row.category_id && Number(row.amount) > 0);
+  const totalAmount = multiMode
+    ? paymentRows.reduce((sum, row) => sum + Number(row.amount || 0), 0)
+    : Number(payment.amount || 0);
 
-  const categoryOptions = useMemo(() => {
-    const wantedType = payment.direction === 'receipt' ? 'income' : 'expense';
-    return (categories || []).filter((c) => c.category_type === wantedType && c.is_active !== false).map((c) => ({
-      value: c.id,
-      label: c.parent_name_fa ? `${c.parent_name_fa} / ${c.name_fa}` : c.name_fa,
-      description: c.notes || c.code || '',
-      searchText: `${c.name_fa || ''} ${c.parent_name_fa || ''} ${c.code || ''} ${c.notes || ''}`,
+  function changeMethod(method) {
+    if (method === 'direct_expense_offset') {
+      setPayment((current) => ({
+        ...current,
+        method,
+        direction: 'receipt',
+        amount: 0,
+        bank_account_id: '',
+        cashbox_id: '',
+        transfer_to_bank_account_id: '',
+        loan_id: '',
+        category_id: '',
+        category_note: '',
+      }));
+      setMultiMode(false);
+      setDocumentId('');
+      return;
+    }
+    setPayment((current) => ({
+      ...current,
+      method,
+      cashbox_id: method === 'cash' ? (current.cashbox_id || cashboxes[0]?.id || '') : '',
+      bank_account_id: method === 'cash' ? '' : (current.bank_account_id || accounts[0]?.id || ''),
+      transfer_to_bank_account_id: method === 'bank_transfer' ? current.transfer_to_bank_account_id : '',
+      loan_id: method === 'loan_payment' ? current.loan_id : '',
     }));
-  }, [categories, payment.direction]);
-
-  const payableDocs = documents.filter((d) => (Number(d.balance_amount) > 0 || d.id === payment.document_id)
-    && !['void', 'cancelled'].includes(d.status)
-    && (!payment.party_id || d.party_id === payment.party_id || d.id === payment.document_id));
-
-  function selectParty(id) {
-    const keepDocument = payment.document_id && documents.find((d) => d.id === payment.document_id && (!id || d.party_id === id));
-    setPayment({ ...payment, party_id: id, document_id: keepDocument ? payment.document_id : '' });
   }
 
-  function selectDocument(id) {
-    const doc = documents.find((d) => d.id === id);
-    setPayment({ ...payment, document_id: id, party_id: doc?.party_id || payment.party_id, amount: doc?.balance_amount || payment.amount });
+  function changeDirection(direction) {
+    const wantedType = direction === 'receipt' ? 'income' : 'expense';
+    const categoryStillValid = categories.some((item) => item.id === payment.category_id && item.category_type === wantedType);
+    setPayment({ ...payment, direction, category_id: categoryStillValid ? payment.category_id : '' });
+  }
+
+  function updateDirectRow(index, patch) {
+    setDirectExpenseRows((rows) => rows.map((row, rowIndex) => rowIndex === index ? { ...row, ...patch } : row));
+  }
+
+  function addDirectRow() {
+    setDirectExpenseRows((rows) => [...rows, { category_id: '', amount: 0, description: '' }]);
+  }
+
+  function removeDirectRow(index) {
+    setDirectExpenseRows((rows) => rows.length === 1 ? rows : rows.filter((_, rowIndex) => rowIndex !== index));
   }
 
   function submit(e) {
     e.preventDefault();
-    if (payment.method === 'loan_payment' && (!payment.loan_id || (payment.account_kind === 'bank' && !payment.bank_account_id) || (payment.account_kind === 'cashbox' && !payment.cashbox_id))) {
-      window.alert('برای پرداخت وام، وام و منبع پرداخت را انتخاب کنید.');
+    if (isDirectExpense) {
+      const relatedOrderId = selectedDoc?.related_order_id || initialPayment?.related_order_id || null;
+      onSubmit({
+        paymentId: null,
+        payment: {
+          direction: 'receipt',
+          method: 'direct_expense_offset',
+          party_id: payment.party_id,
+          payment_date: payment.payment_date,
+          amount: directTotal,
+          currency: 'IRR',
+          bank_account_id: null,
+          cashbox_id: null,
+          related_order_id: relatedOrderId,
+          description: payment.description,
+          direct_settlement_id: payment.direct_settlement_id || null,
+          revision_reason: payment.revision_reason,
+          idempotency_key: idempotencyKey,
+        },
+        allocations: documentId ? [{ document_id: documentId, amount: directTotal }] : [],
+        directExpenseLines: directExpenseRows.map((row) => ({
+          category_id: row.category_id,
+          amount: Number(row.amount || 0),
+          description: row.description,
+        })),
+        rows: [],
+      });
       return;
     }
-    if (payment.method === 'account_transfer' && (!payment.bank_account_id || !payment.transfer_to_bank_account_id || payment.bank_account_id === payment.transfer_to_bank_account_id)) {
-      window.alert('برای انتقال بین حساب‌ها، حساب مبدأ و مقصد متفاوت را انتخاب کنید.');
-      return;
-    }
-    const allocation = payment.document_id ? [{ document_id: payment.document_id, amount: Number(payment.amount || 0) }] : [];
+
+    const cleanPayment = {
+      ...payment,
+      loan_id: payment.method === 'loan_payment' ? payment.loan_id || null : null,
+      bank_account_id: payment.method === 'cash' ? null : payment.bank_account_id || null,
+      cashbox_id: payment.method === 'cash' ? payment.cashbox_id || null : null,
+      transfer_to_bank_account_id: payment.method === 'bank_transfer' ? payment.transfer_to_bank_account_id || null : null,
+      category_id: payment.category_id || null,
+      category_note: payment.category_note || null,
+      amount: totalAmount,
+    };
     onSubmit({
-      paymentId: payment.id || null,
-      payment: {
-        direction: payment.direction,
-        method: payment.method,
-        party_id: payment.party_id || null,
-        payment_date: payment.payment_date,
-        amount: Number(payment.amount || 0),
-        bank_account_id: payment.bank_account_id || null,
-        cashbox_id: (payment.method === 'loan_payment' || payment.method === 'account_transfer' || payment.bank_account_id) ? (payment.method === 'loan_payment' && payment.account_kind === 'cashbox' ? (payment.cashbox_id || null) : null) : (payment.cashbox_id || null),
-        transfer_to_bank_account_id: payment.method === 'account_transfer' ? (payment.transfer_to_bank_account_id || null) : null,
-        loan_id: payment.method === 'loan_payment' ? (payment.loan_id || null) : null,
-        source_record_id: payment.method === 'loan_payment' ? (payment.loan_id || null) : null,
-        category_id: payment.method === 'loan_payment' ? null : (payment.category_id || null),
-        category_note: payment.category_note || null,
-        source_module: payment.source_module || (categoryMode ? 'accounting' : 'manual'),
-        description: payment.description,
-      },
-      allocations: allocation,
-      rows: paymentRows.map((row) => ({ amount: Number(row.amount || 0), description: row.description || payment.description })),
+      paymentId: initialPayment?.id || null,
+      payment: cleanPayment,
+      allocations: documentId ? [{ document_id: documentId, amount: totalAmount }] : [],
+      rows: multiMode ? paymentRows : [],
     });
   }
 
-  return <form onSubmit={submit}>
-    <div className="finance-form-grid">
-      <Field label="نوع"><select value={payment.direction} disabled={payment.method === 'loan_payment'} onChange={(e) => setPayment({ ...payment, direction: e.target.value, category_id: '' })}><option value="receipt">دریافت</option><option value="payment">پرداخت</option></select></Field>
-      {payment.method !== 'loan_payment' && <Field label={payment.direction === 'receipt' ? 'دسته درآمد' : 'دسته هزینه'}><SearchableSelect options={categoryOptions} value={payment.category_id} onChange={(value) => setPayment({ ...payment, category_id: value })} placeholder={payment.direction === 'receipt' ? 'دسته درآمد را انتخاب کن...' : 'دسته هزینه را انتخاب کن...'} emptyText="دسته‌ای پیدا نشد." /></Field>}
-      <Field label="روش"><select value={payment.method} onChange={(e) => setPayment({ ...payment, method: e.target.value, direction: e.target.value === 'loan_payment' ? 'payment' : payment.direction, transfer_to_bank_account_id: '' })}><option value="bank_transfer">حواله بانکی</option><option value="account_transfer">انتقال بین حساب‌های شرکت</option><option value="loan_payment">پرداخت وام‌ها</option><option value="cash">نقد</option><option value="pos">پوز</option><option value="check">چک</option><option value="offset">تهاتر</option></select></Field>
-      {payment.method === 'loan_payment' && <Field label="منبع پرداخت"><select value={payment.account_kind} onChange={(e) => setPayment({ ...payment, account_kind: e.target.value, bank_account_id: '', cashbox_id: '' })}><option value="bank">بانک / کارت</option><option value="cashbox">صندوق</option></select></Field>}
-      {payment.method === 'loan_payment' && payment.account_kind === 'cashbox' ? <Field label="صندوق پرداخت"><select value={payment.cashbox_id} onChange={(e) => setPayment({ ...payment, cashbox_id: e.target.value })}><option value="">انتخاب صندوق</option>{cashboxes.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></Field> : <Field label={payment.method === 'account_transfer' ? 'حساب مبدأ (کاهش)' : 'حساب'}><select value={payment.bank_account_id} onChange={(e) => setPayment({ ...payment, bank_account_id: e.target.value })}><option value="">انتخاب حساب</option>{accounts.map((a) => <option key={a.id} value={a.id}>{a.account_name} - {a.bank_name}</option>)}</select></Field>}
-      {payment.method === 'loan_payment' && <Field label="وام موردنظر"><select value={payment.loan_id} onChange={(e) => { const loan = loans.find((l) => l.id === e.target.value); setPayment({ ...payment, loan_id: e.target.value, description: loan ? `پرداخت قسط وام ${loan.loan_number || loan.title_fa} از ${payment.account_kind === 'cashbox' ? 'صندوق' : 'بانک'}` : payment.description }); }}><option value="">انتخاب وام</option>{loans.filter((l) => l.status !== 'archived').map((l) => <option key={l.id} value={l.id}>{l.loan_number || '—'} · {l.title_fa} · وضعیت {l.status === 'closed' ? 'پایان‌یافته' : l.status === 'cancelled' ? 'لغوشده' : 'فعال'} · مانده {Number(l.remaining_debt || 0).toLocaleString('fa-IR')}</option>)}</select></Field>}
-      {payment.method === 'account_transfer' && <Field label="حساب مقصد (افزایش)"><select value={payment.transfer_to_bank_account_id} onChange={(e) => setPayment({ ...payment, transfer_to_bank_account_id: e.target.value })}><option value="">انتخاب حساب مقصد</option>{accounts.filter((a) => a.id !== payment.bank_account_id).map((a) => <option key={a.id} value={a.id}>{a.account_name} - {a.bank_name}</option>)}</select></Field>}
-      <Field label="شخص"><SearchableSelect options={partyOptions} value={payment.party_id} onChange={(value) => selectParty(value)} placeholder="نام یا تلفن شخص را بنویس..." emptyText="شخصی پیدا نشد." /></Field>
-      {!categoryMode && <Field label="فاکتور مرتبط"><select value={payment.document_id} onChange={(e) => selectDocument(e.target.value)}><option value="">بدون فاکتور</option>{payableDocs.map((d) => <option key={d.id} value={d.id}>{d.doc_number} · {d.party_name} · مانده {Number(d.balance_amount).toLocaleString('fa-IR')}</option>)}</select></Field>}
-      <Field label="تاریخ شمسی"><JalaliDateInput value={payment.payment_date} onChange={(value) => setPayment({ ...payment, payment_date: value })} /></Field>
-      <Field label="مبلغ ریال"><MoneyInput value={payment.amount} onChange={(value) => setPayment({ ...payment, amount: value })} required /></Field>
-      <div className="finance-field full payment-lines-editor"><span>ردیف‌های سند دریافت/پرداخت</span>{paymentRows.map((row, index) => <div className="payment-line-row" key={index}><b>{index + 1}</b><MoneyInput value={row.amount} onChange={(value) => setPaymentRows((rows) => rows.map((r, i) => i === index ? { ...r, amount: value } : r))} /><input value={row.description} placeholder="شرح این ردیف" onChange={(e) => setPaymentRows((rows) => rows.map((r, i) => i === index ? { ...r, description: e.target.value } : r))} />{paymentRows.length > 1 && <button type="button" onClick={() => setPaymentRows((rows) => rows.filter((_, i) => i !== index))}>×</button>}</div>)}<button type="button" className="mini-btn" onClick={() => setPaymentRows((rows) => [...rows, { amount: '', description: payment.description || '' }])}>＋ افزودن ردیف</button><small>همه ردیف‌ها با نوع، حساب و تاریخ همین سند ثبت می‌شوند.</small></div>
-      <Field label="یادداشت دسته" full><textarea value={payment.category_note} onChange={(e) => setPayment({ ...payment, category_note: e.target.value })} placeholder="توضیح مرتبط با دسته هزینه/درآمد..." /></Field><Field label="شرح سند" full><textarea value={payment.description} onChange={(e) => setPayment({ ...payment, description: e.target.value })} /></Field>
-    </div>
-    <HiddenSubmit busy={busy} onCancel={onCancel} label={initialPayment ? 'ذخیره ویرایش' : 'ثبت'} />
-  </form>;
+  const targetRequired = payment.method === 'cash' ? payment.cashbox_id : payment.bank_account_id;
+  const transferIsValid = payment.method !== 'bank_transfer'
+    || !payment.transfer_to_bank_account_id
+    || payment.transfer_to_bank_account_id !== payment.bank_account_id;
+  const loanIsValid = payment.method !== 'loan_payment' || payment.loan_id;
+  const categoryIsValid = !categoryMode || payment.category_id;
+  const directIsValid = !isDirectExpense || (
+    payment.party_id
+    && directRowsAreValid
+    && directTotal > 0
+    && availableDebt > 0
+    && directTotal <= availableDebt
+    && (!directRevision || payment.revision_reason.trim())
+  );
+  const canSubmit = isDirectExpense
+    ? directIsValid
+    : (totalAmount > 0 && targetRequired && transferIsValid && loanIsValid && categoryIsValid);
+
+  return (
+    <form className="finance-form" onSubmit={submit}>
+      {directRevision && (
+        <div className="finance-alert direct-expense-revision-note">
+          این ویرایش، نسخه قبلی را حذف نمی‌کند؛ سند قبلی با دلیل ثبت‌شده باطل و یک نسخه جایگزین ایجاد می‌شود.
+        </div>
+      )}
+      {isDirectExpense && (
+        <div className="finance-alert direct-expense-info">
+          <b>تسویه غیرنقدی بدهی با پرداخت مستقیم هزینه</b>
+          <span>شخص بدهکار هزینه‌های شرکت را مستقیماً پرداخت کرده است. این سند بدهی شخص را کم می‌کند، اما هیچ وجهی وارد بانک یا صندوق شرکت نمی‌شود.</span>
+        </div>
+      )}
+
+      <div className="finance-form-grid">
+        {!categoryMode && !isDirectExpense && <Field label="نوع"><select value={payment.direction} onChange={(e) => changeDirection(e.target.value)}><option value="receipt">دریافت</option><option value="payment">پرداخت</option></select></Field>}
+        {isDirectExpense && <Field label="نوع اثر حسابداری"><input readOnly value="هزینه غیرنقدی + کاهش بدهی شخص" /></Field>}
+        <Field label="روش">
+          <select value={payment.method} disabled={directRevision} onChange={(e) => changeMethod(e.target.value)}>
+            <option value="bank_transfer">واریز / انتقال بانکی</option>
+            <option value="card">کارت</option>
+            <option value="pos">کارت‌خوان</option>
+            <option value="cash">نقدی / صندوق</option>
+            <option value="check">چک</option>
+            <option value="offset">تهاتر</option>
+            {!categoryMode && <option value="direct_expense_offset">تسویه مستقیم هزینه توسط شخص (غیرنقدی)</option>}
+            {payment.direction === 'payment' && !categoryMode && <option value="loan_payment">پرداخت وام</option>}
+            <option value="other">سایر</option>
+          </select>
+        </Field>
+
+        {categoryMode && !isDirectExpense && <Field label={payment.direction === 'receipt' ? 'دسته درآمد' : 'دسته هزینه'}><select value={payment.category_id} onChange={(e) => setPayment({ ...payment, category_id: e.target.value })}><option value="">انتخاب دسته</option>{categoryOptions.map((item) => <option key={item.id} value={item.id}>{item.parent_name_fa ? `${item.parent_name_fa} / ` : ''}{item.name_fa}</option>)}</select></Field>}
+        {categoryMode && !isDirectExpense && <Field label="نوع عملیات"><select value={payment.direction} onChange={(e) => changeDirection(e.target.value)}><option value="payment">ثبت هزینه</option><option value="receipt">ثبت درآمد</option></select></Field>}
+
+        <Field label={isDirectExpense ? 'شخص بدهکار' : 'شخص'}>
+          <SearchableSelect
+            value={payment.party_id}
+            onChange={(value) => { setPayment({ ...payment, party_id: value }); setDocumentId(''); }}
+            options={parties.map((party) => ({
+              value: party.party_id || party.id,
+              label: `${party.display_name}${Number(party.balance || 0) > 0 ? ` · بدهکار ${new Intl.NumberFormat('fa-IR').format(Number(party.balance))} ریال` : ''}`,
+              searchText: `${party.display_name || ''} ${party.phone || ''} ${party.national_id || ''}`,
+            }))}
+            placeholder={isDirectExpense ? 'جست‌وجو و انتخاب شخص بدهکار' : 'جست‌وجو و انتخاب شخص'}
+            emptyText="شخصی یافت نشد"
+          />
+        </Field>
+        <Field label="تاریخ"><JalaliDateInput value={payment.payment_date} onChange={(value) => setPayment({ ...payment, payment_date: value })} /></Field>
+
+        {isDirectExpense && (
+          <Field label="فاکتور مرتبط (اختیاری)" full>
+            <select value={documentId} onChange={(e) => setDocumentId(e.target.value)}>
+              <option value="">بدون تخصیص به فاکتور</option>
+              {payableDocs.map((doc) => { const restored = directRevision && doc.id === initialPayment?.document_id ? Number(initialPayment?.amount || 0) : 0; return <option key={doc.id} value={doc.id}>{doc.doc_number} · مانده قابل تخصیص {new Intl.NumberFormat('fa-IR').format(Number(doc.balance_amount || 0) + restored)} ریال{doc.order_code ? ` · سفارش ${doc.order_code}` : ''}</option>; })}
+            </select>
+          </Field>
+        )}
+
+        {!isDirectExpense && payment.method === 'loan_payment' && <Field label="وام"><select value={payment.loan_id} onChange={(e) => { const loanId = e.target.value; const loan = loans.find((item) => item.id === loanId); setPayment({ ...payment, loan_id: loanId, amount: Number(loan?.remaining_debt || payment.amount || 0) }); }}><option value="">انتخاب وام</option>{loans.filter((loan) => !['closed', 'cancelled', 'archived'].includes(loan.status)).map((loan) => <option key={loan.id} value={loan.id}>{loan.loan_number} · {loan.title_fa} · مانده {Number(loan.remaining_debt || 0).toLocaleString('fa-IR')} ریال</option>)}</select>{selectedLoan && <small className="field-help">پرداخت از اولین قسط باز وام اعمال می‌شود.</small>}</Field>}
+        {!isDirectExpense && payment.method === 'cash'
+          ? <Field label="صندوق"><select value={payment.cashbox_id} onChange={(e) => setPayment({ ...payment, cashbox_id: e.target.value })}><option value="">انتخاب صندوق</option>{cashboxes.map((cashbox) => <option key={cashbox.id} value={cashbox.id}>{cashbox.name}</option>)}</select></Field>
+          : !isDirectExpense && <Field label="حساب بانک / کارت"><select value={payment.bank_account_id} onChange={(e) => setPayment({ ...payment, bank_account_id: e.target.value })}><option value="">انتخاب حساب/کارت</option>{accounts.map((account) => <option key={account.id} value={account.id}>{account.account_name} · {account.bank_name || ''}{account.card_number ? ` · ${account.card_number}` : ''}</option>)}</select></Field>}
+        {!isDirectExpense && payment.method === 'bank_transfer' && <Field label="حساب مقصد انتقال (اختیاری)"><select value={payment.transfer_to_bank_account_id} onChange={(e) => setPayment({ ...payment, transfer_to_bank_account_id: e.target.value })}><option value="">انتقال داخلی نیست / بدون مقصد</option>{accounts.filter((account) => account.id !== payment.bank_account_id).map((account) => <option key={account.id} value={account.id}>{account.account_name} · {account.bank_name || ''}</option>)}</select></Field>}
+
+        {!isDirectExpense && !multiMode && <Field label="مبلغ"><MoneyInput value={payment.amount} onChange={(value) => setPayment({ ...payment, amount: value })} /></Field>}
+        {!isDirectExpense && !categoryMode && <Field label="تخصیص به فاکتور"><select value={documentId} onChange={(e) => { const value = e.target.value; setDocumentId(value); const doc = payableDocs.find((item) => item.id === value); if (doc && !multiMode) setPayment({ ...payment, party_id: doc.party_id, amount: doc.balance_amount }); }}><option value="">بدون تخصیص</option>{payableDocs.map((doc) => <option key={doc.id} value={doc.id}>{doc.doc_number} · {Number(doc.balance_amount).toLocaleString('fa-IR')} ریال</option>)}</select></Field>}
+        {!isDirectExpense && <Field label="ارز"><select value={payment.currency} onChange={(e) => setPayment({ ...payment, currency: e.target.value })}><option value="IRR">ریال</option><option value="USD">دلار</option><option value="EUR">یورو</option><option value="AED">درهم</option></select></Field>}
+        {!isDirectExpense && categoryMode && <Field label="جزئیات دسته" full><input value={payment.category_note} onChange={(e) => setPayment({ ...payment, category_note: e.target.value })} placeholder={selectedCategory ? `جزئیات ${selectedCategory.name_fa}` : 'مثلاً شماره رسید، نام فروشنده یا علت هزینه'} /></Field>}
+        <Field label={isDirectExpense ? 'شرح کلی سند' : 'شرح'} full><textarea value={payment.description} onChange={(e) => setPayment({ ...payment, description: e.target.value })} placeholder={isDirectExpense ? 'توضیح کلی درباره هزینه‌هایی که شخص مستقیماً پرداخت کرده است' : ''} /></Field>
+        {directRevision && <Field label="دلیل اصلاح نسخه‌دار" full><textarea value={payment.revision_reason} onChange={(e) => setPayment({ ...payment, revision_reason: e.target.value })} placeholder="دلیل تغییر مبلغ، ردیف‌ها یا اطلاعات سند را دقیق بنویسید" required /></Field>}
+      </div>
+
+      {isDirectExpense && (
+        <section className="direct-expense-lines-editor">
+          <div className="payment-rows-header">
+            <div><b>ردیف‌های هزینه</b><small>جمع این ردیف‌ها عیناً از بدهی شخص کسر می‌شود.</small></div>
+            <button type="button" className="mini-btn" onClick={addDirectRow}>＋ افزودن ردیف هزینه</button>
+          </div>
+          <div className="direct-expense-lines-head" aria-hidden="true"><span>ردیف</span><span>دسته هزینه</span><span>مبلغ ریال</span><span>شرح ردیف</span><span>عملیات</span></div>
+          {directExpenseRows.map((row, index) => (
+            <div className="direct-expense-line" key={`direct-expense-${index}`}>
+              <span className="direct-expense-line-number">{new Intl.NumberFormat('fa-IR').format(index + 1)}</span>
+              <SearchableSelect
+                value={row.category_id}
+                onChange={(value) => updateDirectRow(index, { category_id: value })}
+                options={categoryOptions.map((item) => ({
+                  value: item.id,
+                  label: `${item.parent_name_fa ? `${item.parent_name_fa} / ` : ''}${item.name_fa}`,
+                  searchText: `${item.name_fa || ''} ${item.parent_name_fa || ''} ${item.code || ''}`,
+                }))}
+                placeholder="انتخاب دسته هزینه"
+                emptyText="دسته هزینه‌ای یافت نشد"
+              />
+              <MoneyInput value={row.amount} onChange={(value) => updateDirectRow(index, { amount: value })} />
+              <input value={row.description} onChange={(e) => updateDirectRow(index, { description: e.target.value })} placeholder="شرح این هزینه" />
+              <button type="button" className="mini-btn danger" disabled={directExpenseRows.length === 1} onClick={() => removeDirectRow(index)}>حذف</button>
+            </div>
+          ))}
+          <div className="direct-expense-summary">
+            <div><span>مانده بدهکار قابل تسویه</span><b>{new Intl.NumberFormat('fa-IR').format(Math.max(availableDebt, 0))} ریال</b></div>
+            <div className="primary"><span>جمع هزینه‌ها / مبلغ تسویه</span><b>{new Intl.NumberFormat('fa-IR').format(directTotal)} ریال</b></div>
+            <div className={directTotal > availableDebt ? 'danger' : ''}><span>مانده بدهکار پس از ثبت</span><b>{directTotal > availableDebt ? 'مبلغ بیش از بدهی است' : `${new Intl.NumberFormat('fa-IR').format(debtAfter)} ریال`}</b></div>
+          </div>
+          <div className="finance-note">این سند با روش «غیرنقدی» ثبت می‌شود: حساب هزینه هر ردیف بدهکار و حساب دریافتنی شخص بستانکار خواهد شد؛ هیچ حساب بانک یا صندوق درگیر نمی‌شود.</div>
+        </section>
+      )}
+
+      {!isDirectExpense && (
+        <div className="payment-rows-editor">
+          <label className="checkbox-row"><input type="checkbox" checked={multiMode} disabled={Boolean(initialPayment)} onChange={(e) => setMultiMode(e.target.checked)} /> ثبت چند دریافت/پرداخت مستقل با تاریخ، حساب و شخص مشترک</label>
+          {multiMode && paymentRows.map((row, index) => <div className="payment-row" key={index}><MoneyInput value={row.amount} onChange={(value) => setPaymentRows(paymentRows.map((item, rowIndex) => rowIndex === index ? { ...item, amount: value } : item))} /><input value={row.description} placeholder="شرح ردیف" onChange={(e) => setPaymentRows(paymentRows.map((item, rowIndex) => rowIndex === index ? { ...item, description: e.target.value } : item))} /><button type="button" className="mini-btn" onClick={() => setPaymentRows(paymentRows.length === 1 ? paymentRows : paymentRows.filter((_, rowIndex) => rowIndex !== index))}>حذف</button></div>)}
+          {multiMode && <button type="button" className="mini-btn" onClick={() => setPaymentRows([...paymentRows, { amount: 0, description: '' }])}>＋ ردیف جدید</button>}
+        </div>
+      )}
+
+      <div className="finance-form-actions">
+        <button type="button" onClick={onCancel}>انصراف</button>
+        <button type="submit" disabled={busy || !canSubmit}>
+          {busy ? 'در حال ثبت...' : directRevision ? 'ثبت نسخه اصلاح‌شده' : isDirectExpense ? 'ثبت تسویه غیرنقدی' : initialPayment ? 'ذخیره ویرایش دریافت/پرداخت' : categoryMode ? (payment.direction === 'receipt' ? 'ثبت درآمد' : 'ثبت هزینه') : 'ثبت و صدور سند حسابداری'}
+        </button>
+      </div>
+    </form>
+  );
 }
 
 export function FinanceCheckForm({ parties, onCancel, onSubmit, busy }) {

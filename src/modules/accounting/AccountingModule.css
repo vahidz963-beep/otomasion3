@@ -575,3 +575,33 @@
   .document-search-row > span { grid-column: 2; grid-row: 2; }
   .document-search-row > button { grid-column: 3; grid-row: 1; }
 }
+
+/* Direct expense debt offset ------------------------------------------------ */
+.finance-alert.direct-expense-info,
+.finance-alert.direct-expense-revision-note{
+  display:flex;flex-direction:column;gap:5px;margin:0 0 14px;padding:13px 15px;
+  border:1px solid #b8ddd1;border-radius:14px;background:linear-gradient(135deg,#f0faf7,#f8fcfb);
+  color:#174b3f;font-size:12.5px;line-height:1.8
+}
+.finance-alert.direct-expense-revision-note{border-color:#efd29b;background:#fff9eb;color:#725318}
+.direct-expense-lines-editor{margin-top:14px;padding:14px;border:1px solid #dce9e5;border-radius:16px;background:#fbfefd}
+.payment-rows-header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:11px}
+.payment-rows-header>div{display:flex;flex-direction:column;gap:3px}.payment-rows-header small{color:#6d7b78}
+.direct-expense-lines-head,.direct-expense-line{display:grid;grid-template-columns:54px minmax(190px,1.15fr) minmax(150px,.75fr) minmax(180px,1fr) 72px;gap:9px;align-items:center}
+.direct-expense-lines-head{padding:0 8px 6px;color:#667875;font-size:11px;font-weight:900}
+.direct-expense-line{padding:9px 8px;border-top:1px solid #e6efec}
+.direct-expense-line-number{display:flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:50%;background:#e6f4ef;color:#146652;font-weight:950}
+.direct-expense-line input{width:100%;min-height:40px;border:1px solid #d5dfdc;border-radius:10px;padding:8px 10px;background:#fff;color:#10243d}
+.direct-expense-line .searchable-select{min-width:0}.direct-expense-line .searchable-select-menu{z-index:40}
+.direct-expense-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px;margin-top:13px}
+.direct-expense-summary>div{display:flex;flex-direction:column;gap:5px;padding:11px 13px;border:1px solid #dce6e3;border-radius:12px;background:#fff;color:#64716f}
+.direct-expense-summary b{color:#10243d;font-size:14px}.direct-expense-summary .primary{border-color:#9fd1c2;background:#eef9f5}.direct-expense-summary .primary b{color:#0f7258}.direct-expense-summary .danger{border-color:#efb8b8;background:#fff4f4}.direct-expense-summary .danger b{color:#a72929}
+.direct-expense-noncash-banner{display:flex;align-items:center;gap:10px;margin:13px 0;padding:11px 13px;border:1px solid #a9d7c9;border-radius:13px;background:#eef9f5;color:#145c49}
+.direct-expense-noncash-banner>div{display:flex;flex-direction:column;gap:2px}.direct-expense-noncash-banner span{font-size:12px;line-height:1.7}
+.direct-expense-detail-modal{max-width:min(1080px,96vw)!important}.direct-expense-detail-modal .finance-table tfoot th{background:#eff8f5;color:#124f40;border-top:2px solid #aad5c8}
+.direct-expense-version-history{border-color:#e8d5a7!important;background:#fffaf0!important}.direct-expense-void-history{border-color:#ecc6c6!important;background:#fff6f6!important}
+.direct-expense-safe-actions{margin-top:14px;padding-top:13px;border-top:1px solid #e1e8e6}.direct-expense-safe-actions textarea{min-height:74px}
+.direct-expense-ledger-row td{background:#fbfefc}.noncash-badge{display:inline-flex;align-items:center;border:1px solid #afd7ca;background:#eef9f5;color:#17644f;border-radius:999px;padding:5px 8px;font-size:10.5px;font-weight:900;white-space:nowrap}
+@media(max-width:900px){.direct-expense-lines-head{display:none}.direct-expense-line{grid-template-columns:42px 1fr 1fr}.direct-expense-line .searchable-select{grid-column:2/-1}.direct-expense-line>input{grid-column:2/-1}.direct-expense-summary{grid-template-columns:1fr}}
+@media(max-width:600px){.payment-rows-header{align-items:stretch;flex-direction:column}.direct-expense-line{grid-template-columns:38px 1fr}.direct-expense-line .searchable-select,.direct-expense-line>input,.direct-expense-line>.mini-btn{grid-column:2}.direct-expense-line .money-input{grid-column:2}.direct-expense-detail-modal{max-width:100%!important}}
+.direct-expense-history-card{grid-column:1/-1}.direct-expense-history-card .finance-table{min-width:1050px}.direct-expense-history-card .status-badge{white-space:nowrap}

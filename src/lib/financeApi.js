@@ -2,6 +2,7 @@ import { supabase } from './supabaseClient';
 import { ARYAMAN_BRAND_FA, ARYAMAN_LOGO_DATA_URI, brandedExcelTableHtml } from './reporting';
 import { jalaliToGregorian, toPersianDigits } from './formatters';
 import { ARYAMAN_FONT_FAMILY_CSS, buildAryamanFontFaceCss } from './typography';
+import { calculateSinglePageScale } from './printLayout';
 
 const FINANCE_LEGAL_NAME_FA = 'پیشرو الکترونیک آریامن پارس';
 
@@ -503,7 +504,84 @@ export async function getFinancePaymentForEdit(paymentId) {
   };
 }
 
-export async function createFinancePayment({ payment, allocations = [], rows = [], post = true }) {
+function createFinanceIdempotencyKey(prefix) {
+  return globalThis.crypto?.randomUUID?.() || `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function normalizeDirectExpenseLines(lines = []) {
+  return lines.map((line) => ({
+    category_id: line.category_id,
+    amount: Number(line.amount || 0),
+    description: String(line.description || '').trim() || null,
+  }));
+}
+
+export async function createDirectExpenseOffset(payload) {
+  const result = await supabase.rpc('fn_create_direct_expense_offset', {
+    p_party_id: payload.partyId,
+    p_settlement_date: payload.settlementDate,
+    p_lines: normalizeDirectExpenseLines(payload.lines),
+    p_description: String(payload.description || '').trim() || null,
+    p_related_document_id: payload.documentId || null,
+    p_related_order_id: payload.relatedOrderId || null,
+    p_idempotency_key: payload.idempotencyKey || createFinanceIdempotencyKey('direct-expense-offset'),
+  });
+  if (result.error) {
+    if (isMissingRpc(result.error)) throw new Error('Migrationهای 132 و 133 اجرا نشده‌اند؛ ثبت تسویه مستقیم هزینه در دسترس نیست.');
+    throw new Error(result.error.message || 'خطا در ثبت تسویه مستقیم هزینه');
+  }
+  return result.data;
+}
+
+export async function reviseDirectExpenseOffset(payload) {
+  const result = await supabase.rpc('fn_revise_direct_expense_offset', {
+    p_settlement_id: payload.settlementId,
+    p_party_id: payload.partyId,
+    p_settlement_date: payload.settlementDate,
+    p_lines: normalizeDirectExpenseLines(payload.lines),
+    p_reason: String(payload.reason || '').trim(),
+    p_description: String(payload.description || '').trim() || null,
+    p_related_document_id: payload.documentId || null,
+    p_related_order_id: payload.relatedOrderId || null,
+    p_idempotency_key: payload.idempotencyKey || createFinanceIdempotencyKey('direct-expense-revision'),
+  });
+  if (result.error) {
+    if (isMissingRpc(result.error)) throw new Error('Migration 133 اجرا نشده است؛ اصلاح نسخه‌دار تسویه مستقیم هزینه در دسترس نیست.');
+    throw new Error(result.error.message || 'خطا در اصلاح امن تسویه مستقیم هزینه');
+  }
+  return result.data;
+}
+
+export async function voidDirectExpenseOffset(settlementId, reason) {
+  const result = await supabase.rpc('fn_void_direct_expense_offset', {
+    p_settlement_id: settlementId,
+    p_reason: String(reason || '').trim(),
+  });
+  if (result.error) {
+    if (isMissingRpc(result.error)) throw new Error('Migration 133 اجرا نشده است؛ ابطال امن تسویه مستقیم هزینه در دسترس نیست.');
+    throw new Error(result.error.message || 'خطا در ابطال تسویه مستقیم هزینه');
+  }
+  return result.data;
+}
+
+export async function createFinancePayment({ payment, allocations = [], rows = [], directExpenseLines = [], post = true }) {
+  if (payment?.method === 'direct_expense_offset') {
+    const directPayload = {
+      settlementId: payment.direct_settlement_id || null,
+      partyId: payment.party_id,
+      settlementDate: payment.payment_date,
+      lines: directExpenseLines,
+      description: payment.description,
+      documentId: allocations.find((item) => item.document_id)?.document_id || null,
+      relatedOrderId: payment.related_order_id || null,
+      reason: payment.revision_reason,
+      idempotencyKey: payment.idempotency_key,
+    };
+    return directPayload.settlementId
+      ? reviseDirectExpenseOffset(directPayload)
+      : createDirectExpenseOffset(directPayload);
+  }
+
   const normalizedRows = rows.length ? rows : [{ amount: payment.amount, description: payment.description }];
   const batchId = normalizedRows.length > 1 ? crypto.randomUUID() : null;
   let firstResult = null;
@@ -551,7 +629,10 @@ async function recalculateAffectedFinanceDocuments(documentIds = []) {
 }
 
 export async function updateFinancePayment(paymentId, { payment, allocations = [], post = true, reason = '' }) {
-  await getEditableFinancePayment(paymentId);
+  const existingPayment = await getEditableFinancePayment(paymentId);
+  if (existingPayment.method === 'direct_expense_offset') {
+    throw new Error('این سند فقط از فرم تخصصی «تسویه مستقیم هزینه توسط شخص» و به‌صورت اصلاح نسخه‌دار قابل ویرایش است.');
+  }
 
   const oldAllocationsRes = await supabase
     .from('finance_payment_allocations')
@@ -596,6 +677,17 @@ export async function updateFinancePayment(paymentId, { payment, allocations = [
 
 export async function voidFinancePayment(paymentId, reason = '') {
   const existing = await getEditableFinancePayment(paymentId, true);
+
+  if (existing.method === 'direct_expense_offset') {
+    const settlementRes = await supabase
+      .from('finance_direct_expense_offsets')
+      .select('id')
+      .eq('payment_id', paymentId)
+      .maybeSingle();
+    assertNoError(settlementRes, 'خطا در یافتن سند تسویه مستقیم هزینه');
+    if (!settlementRes.data?.id) throw new Error('سند مادر تسویه مستقیم هزینه یافت نشد.');
+    return voidDirectExpenseOffset(settlementRes.data.id, reason || 'ابطال از دریافت/پرداخت');
+  }
 
   // Payroll deletion must stay atomic: the payroll payment, cash/bank payment,
   // journal entry and slip balance are voided/recalculated in one database RPC.
@@ -820,8 +912,9 @@ export function openOfficialFinancePrint({ title, subtitle = '', body, reportLab
   const numberScale = clampNumber(printSettings.numberScale, 0.85, 1.6, 1);
   const pageSize = isLandscape ? 'A4 landscape' : 'A4 portrait';
   const sheetWidth = `${(isLandscape ? 297 : 210) - (marginMm * 2)}mm`;
-  const sheetMinHeight = `${(isLandscape ? 210 : 297) - (marginMm * 2)}mm`;
-  const printMinHeight = sheetMinHeight;
+  const sheetHeight = `${(isLandscape ? 210 : 297) - (marginMm * 2)}mm`;
+  const sheetMinHeight = sheetHeight;
+  const printMinHeight = sheetHeight;
   const fs = (value) => `${(Number(value) * fontScale).toFixed(2)}px`;
   const ns = (value) => `${(Number(value) * numberScale).toFixed(2)}px`;
   const css = `
@@ -832,20 +925,80 @@ export function openOfficialFinancePrint({ title, subtitle = '', body, reportLab
     .print-btn{margin:0 auto 3mm;display:flex;align-items:center;justify-content:center;background:#10243d;color:#fff;border:0;border-radius:10px;padding:8px 14px;font-weight:900;cursor:pointer;box-shadow:0 8px 22px rgba(16,36,61,.20)}
     .official-sheet{width:100%;max-width:${sheetWidth};min-height:${sheetMinHeight};margin:0 auto;background:#fff;border:1.6px solid #151515;padding:0;position:relative;box-shadow:0 12px 34px rgba(15,23,32,.16);overflow:hidden}
     .official-inner{padding:0 0 ${isInvoice ? '2mm' : '7mm'};min-height:inherit;position:relative}
+    .official-sheet.invoice-sheet{height:${sheetHeight};min-height:${sheetHeight};max-height:${sheetHeight};overflow:hidden;contain:layout paint}
+    .invoice-sheet .official-inner.invoice-content{width:100%;min-height:0;padding-bottom:0;transform-origin:top center;will-change:transform;overflow:visible}
+    .invoice-sheet .invoice-fit-status{position:absolute;left:2mm;bottom:2mm;font-size:7px;color:#666;display:none}
+    .invoice-sheet .official-top.invoice-top{min-height:15.2mm;box-sizing:border-box}.invoice-sheet .invoice-top .logo-mini{top:1.2mm;height:12mm}.invoice-sheet .invoice-top .invoice-meta{left:2mm;top:1mm;width:38mm;max-width:30%;padding:.45mm .8mm;border:.65px solid #a8a8a8;border-radius:1mm;text-align:center;line-height:1.35;overflow-wrap:anywhere}.invoice-sheet .invoice-top .invoice-title{max-width:52%;margin-inline:auto;line-height:1.2;overflow-wrap:anywhere}.invoice-sheet .invoice-top .invoice-subtitle{max-width:52%;margin-inline:auto;line-height:1.25;overflow-wrap:anywhere}
     .official-top{direction:ltr;display:grid;grid-template-columns:38mm 1fr 42mm;align-items:start;gap:4mm;border-bottom:1.6px solid #151515;padding:${isInvoice ? '1.4mm 4mm 1.8mm' : '3mm 4mm 4mm'};min-height:${isInvoice ? '10mm' : '34mm'}}
     .official-top.invoice-top{display:block;min-height:10mm;padding:1.1mm 4mm 1.4mm;position:relative;text-align:center;direction:rtl}.invoice-top .invoice-meta{position:absolute;left:4mm;top:1.6mm;text-align:right;line-height:1.9;font-size:${isInvoice ? ns(11.5) : ns(13.5)};font-weight:850}.invoice-top .invoice-title{font-size:${isInvoice ? fs(17) : fs(22)};font-weight:950;margin:0;text-decoration:underline;text-underline-offset:2px}.invoice-top .invoice-subtitle{font-size:${isInvoice ? fs(9.5) : fs(12.5)};color:#444;margin-top:.8mm}.invoice-top .logo-mini{position:absolute;right:4mm;top:1.6mm;width:28mm;height:13mm;object-fit:contain}
     .page-no{grid-column:1;text-align:left;direction:rtl;font-size:14px;font-weight:850;color:#111;white-space:nowrap;padding-top:1mm}.brand-center{grid-column:2;text-align:center;direction:rtl;padding-top:1mm}.brand-center h1{font-size:18px;margin:0 0 2mm;font-weight:950}.brand-center h2{font-size:24px;margin:0 0 2.5mm;font-weight:950;letter-spacing:-.02em}.brand-center p{font-size:14px;margin:0;line-height:1.75;font-weight:750}.brand-logo{grid-column:3;text-align:center;direction:ltr}.brand-logo img{width:32mm;height:21mm;object-fit:contain;display:block;margin:0 auto .5mm}.brand-logo span{display:block;font-size:${fs(14)};margin-top:0;color:#333;letter-spacing:.03em}
     .section-label{display:block;text-align:center;background:#dddddd;border-top:1.25px solid #151515;border-bottom:1.25px solid #151515;padding:${isInvoice ? '1mm 4mm' : '1.8mm 4mm'};font-size:${isInvoice ? fs(12.2) : fs(16)};font-weight:950;line-height:1.1;color:#111;margin:0}.box-row{border-bottom:1.45px solid #151515;padding:${isInvoice ? '1.5mm 4mm' : '3mm 4mm'};min-height:${isInvoice ? 'auto' : '22mm'}}.compact-box{border-bottom:1.45px solid #151515;padding:${isInvoice ? '1.15mm 4mm' : '2mm 4mm'}}.box-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:1.4mm 5mm}.box-grid.two{grid-template-columns:1fr 1fr}.box-grid.four{grid-template-columns:repeat(4,1fr)}.info-grid{display:grid;grid-template-columns:${isLandscape ? '1.15fr 1fr 1fr 1fr' : '1fr 1fr'};gap:${isInvoice ? '.25mm 3mm' : '.7mm 4mm'};align-items:center}.field{font-size:${isInvoice ? fs(11.3) : fs(15)};line-height:${isInvoice ? '1.28' : '2'};min-height:${isInvoice ? '3.7mm' : '6mm'}}.compact-box .field{line-height:${isInvoice ? '1.22' : '1.55'};min-height:${isInvoice ? '3.4mm' : '5mm'}}.field.full{grid-column:1/-1}.field b{font-weight:950;color:#111}.field span[dir="ltr"],.field[dir="ltr"]{font-family:${ARYAMAN_FONT_FAMILY_CSS};font-weight:850;font-variant-numeric:tabular-nums}.highlight-number span,.highlight-number{font-size:${isInvoice ? fs(12.5) : fs(17)};font-weight:950;color:#111}
+    .invoice-sheet .compact-box{padding:.8mm 2mm}.invoice-sheet .info-grid{grid-template-columns:${isLandscape ? 'minmax(0,1.15fr) repeat(3,minmax(0,1fr))' : 'repeat(2,minmax(0,1fr))'};gap:.65mm;align-items:stretch;min-width:0}.invoice-sheet .field{display:flex;align-items:center;justify-content:center;align-content:center;gap:.65mm;flex-wrap:wrap;text-align:center!important;min-width:0;min-height:5.2mm;padding:.45mm .8mm;border:.65px solid #a8a8a8;background:#fff;overflow-wrap:anywhere;word-break:normal}.invoice-sheet .field.full{justify-content:center;text-align:center!important}.invoice-sheet .field b{flex:0 0 auto}.invoice-sheet .field br{display:none}.invoice-sheet .field span[dir="ltr"]{max-width:100%;overflow-wrap:anywhere;white-space:normal}.invoice-sheet .official-table td.desc{text-align:center}.invoice-sheet .official-table th,.invoice-sheet .official-table td{text-align:center;vertical-align:middle;overflow-wrap:anywhere;word-break:normal;min-width:0}.invoice-sheet .official-table .money,.invoice-sheet .money{text-align:center!important;white-space:normal}.invoice-sheet .totals-table td{text-align:center;vertical-align:middle;overflow-wrap:anywhere}.invoice-sheet .notes-box,.invoice-sheet .amount-words{text-align:center;align-items:center;overflow-wrap:anywhere}.invoice-sheet .signatures{justify-items:center}
     .official-table{width:100%;border-collapse:collapse;margin:0;font-size:${isInvoice ? (isLandscape ? fs(9.2) : fs(8.6)) : (isLandscape ? fs(13.6) : fs(14))};table-layout:fixed}.official-table thead{display:table-header-group}.official-table tfoot{display:table-footer-group}.official-table tr{page-break-inside:avoid}.official-table th,.official-table td{border:1.15px solid #151515;padding:${isInvoice ? (isLandscape ? '.75mm .65mm' : '.62mm .55mm') : (isLandscape ? '1.6mm 1.25mm' : '2.1mm 1.5mm')};text-align:center;vertical-align:middle;line-height:1.65;word-break:break-word}.official-table th{background:#d9d9d9!important;color:#111;font-weight:950}.official-table td.desc{text-align:right}.official-table tbody tr:nth-child(even) td,.official-table tr.alt td{background:#f7f7f7!important}.official-table .money,.money{direction:ltr;text-align:left;font-family:${ARYAMAN_FONT_FAMILY_CSS}!important;font-weight:850;white-space:nowrap;font-variant-numeric:tabular-nums}.rial-word{font-family:${ARYAMAN_FONT_FAMILY_CSS};font-weight:800;margin-right:2px}.official-table.compact th,.official-table.compact td{padding:${isInvoice ? '.7mm .6mm' : '1.6mm 1.25mm'};font-size:${isInvoice ? fs(9) : fs(13.5)}}
+    .invoice-money{width:100%;max-width:100%;min-width:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.15mm;line-height:1.05;overflow:hidden}.invoice-money-value{display:block;max-width:100%;direction:ltr;unicode-bidi:isolate;white-space:nowrap;font-family:${ARYAMAN_FONT_FAMILY_CSS}!important;font-weight:900;font-variant-numeric:tabular-nums;letter-spacing:-.035em}.invoice-money-unit{display:block;max-width:100%;direction:rtl;unicode-bidi:isolate;font-size:${fs(7.2)};font-weight:850;line-height:1;color:#222;white-space:nowrap}.totals-table .invoice-money-value{font-size:${ns(10.2)}}.official-table .invoice-money-value{font-size:${ns(8.8)}}.invoice-money-value.force-wrap{font-size:5.6px!important;letter-spacing:-.055em;white-space:normal;overflow-wrap:anywhere;word-break:break-all}
     .totals-wrap{direction:ltr;display:grid;grid-template-columns:${isInvoice ? (isLandscape ? '48mm' : '42mm') : (isLandscape ? '58mm' : '50mm')} 1fr;gap:0;border-bottom:1.6px solid #151515;min-height:${isInvoice ? 'auto' : (isLandscape ? '25mm' : '34mm')}}.totals-table{direction:rtl;width:${isInvoice ? (isLandscape ? '48mm' : '42mm') : (isLandscape ? '58mm' : '50mm')};border-collapse:collapse;font-size:${isInvoice ? fs(10) : fs(14)};margin:0}.totals-table td{border:1.15px solid #151515;padding:${isInvoice ? '.85mm 1.2mm' : '2mm'};line-height:${isInvoice ? '1.22' : '1.5'}}.totals-table td:first-child{font-weight:950;background:#eeeeee;color:#111}.totals-table td.money{direction:ltr;text-align:left;font-family:${ARYAMAN_FONT_FAMILY_CSS};font-weight:950;font-size:${isInvoice ? ns(10.5) : ns(16)};font-variant-numeric:tabular-nums}.amount-words{direction:rtl;border:1.15px solid #151515;border-left:0;padding:${isInvoice ? '1.6mm 2.4mm' : '3.5mm 4mm'};font-size:${isInvoice ? fs(10.5) : fs(15)};line-height:${isInvoice ? '1.45' : '2.05'};display:flex;flex-direction:column;justify-content:center}.amount-words b{font-weight:950}.notes-box{border-bottom:1.6px solid #151515;min-height:${isInvoice ? 'auto' : (isLandscape ? '15mm' : '18mm')};padding:${isInvoice ? '1.4mm 4mm' : '3.5mm 4mm'};font-size:${isInvoice ? fs(10.2) : fs(15)};line-height:${isInvoice ? '1.35' : '2'}}.notes-box b{font-weight:950}.statement-title{text-align:center;border-bottom:1.6px solid #151515;padding:4mm;margin:0}.statement-title h1{font-size:19px;margin:0 0 2mm;font-weight:950}.statement-title h2{font-size:14px;margin:0;font-weight:900}.statement-summary{display:grid;grid-template-columns:repeat(4,1fr);gap:0;border-bottom:1.6px solid #151515}.statement-summary div{border-left:1.15px solid #151515;padding:3mm;font-size:14px;min-height:18mm}.statement-summary div:nth-child(even){background:#f7f7f7}.statement-summary span{display:block;color:#4b5563;font-weight:800}.statement-summary strong{display:block;margin-top:1.5mm;font-size:16px;color:#111;font-weight:950}.status-cell{font-weight:950}.continued{text-align:left;font-size:${isInvoice ? fs(9.5) : fs(13)};padding:${isInvoice ? '.8mm 4mm' : '2mm 4mm'};color:#555}.signatures{display:grid;grid-template-columns:repeat(3,1fr);gap:14mm;min-height:${isInvoice ? (isLandscape ? '13mm' : '16mm') : (isLandscape ? '28mm' : '48mm')};align-items:end;padding:${isInvoice ? (isLandscape ? '4mm 12mm 3mm' : '5mm 10mm 3mm') : (isLandscape ? '12mm 14mm 8mm' : '18mm 12mm 9mm')};text-align:center;font-size:${isInvoice ? fs(10.5) : fs(15)};page-break-inside:avoid}.signatures span{display:block;font-weight:850}.footer-line{position:absolute;left:4mm;right:4mm;bottom:1.8mm;border-top:1px solid #777;padding:1.5mm 0 0;font-size:${isInvoice ? fs(8.5) : fs(11)};text-align:center;color:#444;display:${printSettings.showFooter === false ? 'none' : 'block'}}.soft-row{background:#f7f7f7!important}.no-print{display:none}
-    body{font-size:${fs(14)}}.invoice-top .invoice-meta{font-size:${ns(13.5)}}.invoice-top .invoice-title{font-size:${fs(22)}}.invoice-top .invoice-subtitle{font-size:${fs(12.5)}}.page-no{font-size:${ns(14)}}.brand-center h1{font-size:${fs(18)}}.brand-center h2{font-size:${fs(24)}}.brand-center p{font-size:${fs(14)}}.section-label{font-size:${fs(16)}}.field{font-size:${fs(15)}}.official-table{font-size:${fs(isLandscape ? 13.6 : 14)}}.official-table .money,.money{font-size:${ns(15)}}.official-table.compact th,.official-table.compact td{font-size:${fs(13.5)}}.totals-table{font-size:${fs(14)}}.totals-table td.money{font-size:${ns(16)}}.amount-words,.notes-box{font-size:${fs(15)}}.statement-summary div{font-size:${fs(14)}}.statement-summary strong{font-size:${ns(16)}}.continued{font-size:${fs(13)}}.signatures{font-size:${fs(15)}}.footer-line{font-size:${fs(11)}}
+    ${isInvoice ? `body{font-size:${fs(10.5)}}.invoice-sheet .invoice-meta{font-size:${ns(10.8)}}.invoice-sheet .invoice-title{font-size:${fs(17)}}.invoice-sheet .invoice-subtitle{font-size:${fs(9.2)}}.invoice-sheet .section-label{font-size:${fs(11.4)}}.invoice-sheet .field{font-size:${fs(10.5)}}.invoice-sheet .official-table{font-size:${isLandscape ? fs(9.2) : fs(8.6)}}.invoice-sheet .totals-table{font-size:${fs(9.6)}}.invoice-sheet .amount-words,.invoice-sheet .notes-box{font-size:${fs(9.7)}}.invoice-sheet .signatures{font-size:${fs(9.8)}}.invoice-sheet .footer-line{font-size:${fs(8)}}` : `body{font-size:${fs(14)}}.invoice-top .invoice-meta{font-size:${ns(13.5)}}.invoice-top .invoice-title{font-size:${fs(22)}}.invoice-top .invoice-subtitle{font-size:${fs(12.5)}}.page-no{font-size:${ns(14)}}.brand-center h1{font-size:${fs(18)}}.brand-center h2{font-size:${fs(24)}}.brand-center p{font-size:${fs(14)}}.section-label{font-size:${fs(16)}}.field{font-size:${fs(15)}}.official-table{font-size:${fs(isLandscape ? 13.6 : 14)}}.official-table .money,.money{font-size:${ns(15)}}.official-table.compact th,.official-table.compact td{font-size:${fs(13.5)}}.totals-table{font-size:${fs(14)}}.totals-table td.money{font-size:${ns(16)}}.amount-words,.notes-box{font-size:${fs(15)}}.statement-summary div{font-size:${fs(14)}}.statement-summary strong{font-size:${ns(16)}}.continued{font-size:${fs(13)}}.signatures{font-size:${fs(15)}}.footer-line{font-size:${fs(11)}}`}
     .statement-table{table-layout:fixed;font-size:clamp(9.5px,${fs(12)},12px)!important}.statement-table col.col-row{width:6%}.statement-table col.col-date{width:12%}.statement-table col.col-description{width:27%}.statement-table col.col-debit,.statement-table col.col-credit,.statement-table col.col-balance{width:15%}.statement-table col.col-status{width:10%}.statement-table th,.statement-table td{padding:1.5mm .65mm;line-height:1.45;overflow:hidden;overflow-wrap:anywhere;word-break:normal;min-width:0}.statement-table td.desc{text-align:right;word-break:break-word}.statement-table td.desc small{font-size:clamp(7.5px,${fs(9)},9px);line-height:1.35}.statement-table .statement-date{white-space:normal;font-size:clamp(8.5px,${fs(10.5)},10.5px)}.statement-table .status-cell{white-space:normal;font-size:clamp(8.5px,${fs(10.5)},10.5px)}.statement-money-cell{direction:rtl!important;text-align:center!important;white-space:normal!important;padding-inline:.5mm!important;overflow:hidden!important}.statement-money{width:100%;max-width:100%;min-width:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.25mm;overflow:hidden;line-height:1.12}.statement-money-value{display:block;max-width:100%;direction:ltr;unicode-bidi:isolate;white-space:nowrap;font-family:${ARYAMAN_FONT_FAMILY_CSS}!important;font-variant-numeric:tabular-nums;font-weight:900;letter-spacing:-.025em}.statement-money.fit-md .statement-money-value{font-size:clamp(9px,${ns(11.5)},11.5px)}.statement-money.fit-sm .statement-money-value{font-size:clamp(8.4px,${ns(10.4)},10.4px)}.statement-money.fit-xs .statement-money-value{font-size:clamp(7.5px,${ns(9.2)},9.2px);letter-spacing:-.045em}.statement-money.fit-xxs .statement-money-value,.statement-money-value.force-wrap{font-size:7.2px;letter-spacing:-.06em;white-space:normal;overflow-wrap:anywhere;word-break:break-word}.statement-money-unit{display:block;max-width:100%;font-size:clamp(7px,${fs(8.3)},8.3px);font-weight:850;line-height:1;color:#222;white-space:nowrap}.statement-table tfoot td{font-weight:900;background:#eeeeee!important}.statement-table tfoot .statement-money-unit{font-weight:900}
-    @media print{body{background:#fff;padding:0}.print-btn{display:none}.official-sheet{border:1.5px solid #151515;max-width:${sheetWidth};width:100%;min-height:${printMinHeight};box-shadow:none;break-inside:avoid;page-break-inside:avoid;page-break-after:avoid}.official-inner{break-inside:avoid;page-break-inside:avoid}.official-top{min-height:${isInvoice ? '12mm' : '31mm'}}.official-table th{background:#d9d9d9!important}.official-table tbody tr:nth-child(even) td,.official-table tr.alt td{background:#f7f7f7!important}.totals-wrap,.notes-box,.signatures{break-inside:avoid;page-break-inside:avoid}}
+    @media print{html,body{background:#fff;padding:0;margin:0;-webkit-print-color-adjust:exact;print-color-adjust:exact}.print-btn{display:none}.official-sheet{border:1.5px solid #151515;max-width:${sheetWidth};width:100%;min-height:${printMinHeight};box-shadow:none;break-inside:avoid;page-break-inside:avoid;page-break-after:avoid}.official-inner{break-inside:avoid;page-break-inside:avoid}.official-top{min-height:${isInvoice ? '12mm' : '31mm'}}.official-table th{background:#d9d9d9!important}.official-table tbody tr:nth-child(even) td,.official-table tr.alt td{background:#f7f7f7!important}.totals-wrap,.notes-box,.signatures{break-inside:avoid;page-break-inside:avoid}body.invoice-print{width:${sheetWidth};height:${sheetHeight};max-height:${sheetHeight};overflow:hidden}.official-sheet.invoice-sheet{width:${sheetWidth};height:${sheetHeight};min-height:${sheetHeight};max-height:${sheetHeight};overflow:hidden;box-sizing:border-box}.invoice-sheet .official-inner.invoice-content{min-height:0;break-inside:avoid;page-break-inside:avoid;page-break-after:avoid}}
   `;
   const standardHeader = `<header class="official-top"><div class="page-no">صفحه ۱ از ۱</div><div class="brand-center"><h1>${escapeHtml(reportLabel || title)}</h1><h2>${FINANCE_LEGAL_NAME_FA}</h2><p>${escapeHtml(subtitle || 'بوشهر، بهمنی، نخلج فارس، پردیس فناوری')}<br>تلفن‌های تماس: 09173742966</p></div><div class="brand-logo"><img src="${ARYAMAN_LOGO_DATA_URI}" alt="Aryaman"><span>aryaman</span></div></header>`;
   const invoiceHeader = `<header class="official-top invoice-top"><img class="logo-mini" src="${ARYAMAN_LOGO_DATA_URI}" alt="Aryaman"><div class="invoice-meta"><div>شماره: ${escapeHtml(meta.number || '—')}</div><div>تاریخ: ${escapeHtml(meta.date || '—')}</div></div><h1 class="invoice-title">${escapeHtml(reportLabel || title)}</h1>${subtitle ? `<div class="invoice-subtitle">${escapeHtml(subtitle)}</div>` : ''}</header>`;
-  const autoFitScript = `<script>(function(){function fitStatementMoneyCells(){document.querySelectorAll('.statement-money-value').forEach(function(value){var box=value.closest('.statement-money');if(!box)return;value.style.fontSize='';value.classList.remove('force-wrap');var available=Math.max(24,box.clientWidth-2);var size=parseFloat(getComputedStyle(value).fontSize)||11.5;while(value.scrollWidth>available&&size>6.4){size=Math.max(6.4,size-.4);value.style.fontSize=size+'px'}if(value.scrollWidth>available)value.classList.add('force-wrap')})}window.addEventListener('beforeprint',fitStatementMoneyCells);window.addEventListener('resize',fitStatementMoneyCells);if(document.fonts&&document.fonts.ready)document.fonts.ready.then(fitStatementMoneyCells);requestAnimationFrame(fitStatementMoneyCells)})();<\/script>`;
-  const html = `<!doctype html><html dir="rtl" lang="fa"><head><meta charset="utf-8"><title>${safeTitle}</title><style>${css}</style></head><body><button class="print-btn" onclick="window.print()">چاپ / ذخیره PDF</button><main class="official-sheet"><section class="official-inner">${isInvoice ? invoiceHeader : standardHeader}${body}<div class="footer-line">این برگه توسط سامانه اتوماسیون آریامن تولید شده است.</div></section></main>${autoFitScript}</body></html>`;
+  const autoFitScript = `<script>(function(){
+    var calculateSinglePageScale=${calculateSinglePageScale.toString()};
+    var resizeTimer=null;
+    function fitMoneyValues(valueSelector,boxSelector,minSize,step){
+      document.querySelectorAll(valueSelector).forEach(function(value){
+        var box=value.closest(boxSelector);
+        if(!box)return;
+        value.style.fontSize='';
+        value.classList.remove('force-wrap');
+        var available=Math.max(18,box.clientWidth-2);
+        var size=parseFloat(getComputedStyle(value).fontSize)||11;
+        while(value.scrollWidth>available&&size>minSize){
+          size=Math.max(minSize,size-step);
+          value.style.fontSize=size+'px';
+        }
+        if(value.scrollWidth>available)value.classList.add('force-wrap');
+      });
+    }
+    function fitStatementMoneyCells(){fitMoneyValues('.statement-money-value','.statement-money',6.4,.4)}
+    function fitInvoiceMoneyCells(){fitMoneyValues('.invoice-money-value','.invoice-money',5.6,.35)}
+    function fitInvoiceToSinglePage(){
+      var sheet=document.querySelector('.invoice-sheet');
+      var content=sheet&&sheet.querySelector('.invoice-content');
+      if(!sheet||!content)return 1;
+      content.style.transform='none';
+      var footer=sheet.querySelector('.footer-line');
+      var footerVisible=footer&&getComputedStyle(footer).display!=='none';
+      var footerReserve=footerVisible?footer.offsetHeight+8:4;
+      var availableWidth=Math.max(1,sheet.clientWidth-4);
+      var availableHeight=Math.max(1,sheet.clientHeight-footerReserve-4);
+      var naturalWidth=Math.max(content.offsetWidth,content.scrollWidth);
+      var naturalHeight=Math.max(content.offsetHeight,content.scrollHeight);
+      var scale=calculateSinglePageScale(availableWidth,availableHeight,naturalWidth,naturalHeight);
+      if(scale<.999)scale=Math.max(.01,scale*.992);else scale=1;
+      content.style.transform='scale('+scale.toFixed(5)+')';
+      sheet.setAttribute('data-fit-scale',scale.toFixed(5));
+      sheet.setAttribute('data-single-page','true');
+      return scale;
+    }
+    function fitAll(){fitStatementMoneyCells();fitInvoiceMoneyCells();fitInvoiceToSinglePage()}
+    window.__fitInvoiceToSinglePage=fitInvoiceToSinglePage;
+    window.__printFinanceDocument=function(){
+      var ready=document.fonts&&document.fonts.ready?document.fonts.ready:Promise.resolve();
+      ready.then(function(){fitAll();requestAnimationFrame(function(){fitAll();window.print()})});
+    };
+    window.addEventListener('beforeprint',fitAll);
+    window.addEventListener('resize',function(){clearTimeout(resizeTimer);resizeTimer=setTimeout(fitAll,60)});
+    window.addEventListener('load',fitAll);
+    document.querySelectorAll('img').forEach(function(img){if(!img.complete)img.addEventListener('load',fitAll,{once:true})});
+    if(document.fonts&&document.fonts.ready)document.fonts.ready.then(function(){requestAnimationFrame(fitAll)});
+    requestAnimationFrame(function(){requestAnimationFrame(fitAll)});
+  })();<\/script>`;
+  const bodyClass = isInvoice ? 'invoice-print' : 'report-print';
+  const sheetClass = isInvoice ? 'official-sheet invoice-sheet' : 'official-sheet';
+  const innerClass = isInvoice ? 'official-inner invoice-content' : 'official-inner';
+  const html = `<!doctype html><html dir="rtl" lang="fa"><head><meta charset="utf-8"><title>${safeTitle}</title><style>${css}</style></head><body class="${bodyClass}"><button class="print-btn" onclick="window.__printFinanceDocument()">چاپ / ذخیره PDF</button><main class="${sheetClass}" data-print-layout="${isInvoice ? 'single-page-invoice' : 'report'}"><section class="${innerClass}">${isInvoice ? invoiceHeader : standardHeader}${body}</section><div class="footer-line">این برگه توسط سامانه اتوماسیون آریامن تولید شده است.</div></main>${autoFitScript}</body></html>`;
   const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const win = window.open(url, '_blank');

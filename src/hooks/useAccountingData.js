@@ -45,6 +45,7 @@ const initialState = {
   payrollPayments: [],
   incomeExpenseCategories: [],
   incomeExpenseLedger: [],
+  directExpenseDetails: [],
 };
 
 function softError(results) {
@@ -147,7 +148,7 @@ export function useAccountingData() {
         .limit(3000),
       supabase
         .from('finance_payments')
-        .select('id, payment_number, direction, method, status, party_id, payment_date, amount, currency, bank_account_id, cashbox_id, related_order_id, description, created_at')
+        .select('id, payment_number, direction, method, status, party_id, payment_date, amount, currency, bank_account_id, cashbox_id, related_order_id, source_module, source_record_id, description, created_at')
         .order('payment_date', { ascending: false })
         .limit(80),
       supabase
@@ -253,6 +254,7 @@ export function useAccountingData() {
         payrollPaymentsRes,
         incomeExpenseCategoriesRes,
         incomeExpenseLedgerRes,
+        directExpenseDetailsRes,
       ] = await Promise.all([
         supabase
           .from('v_order_profitability')
@@ -322,6 +324,12 @@ export function useAccountingData() {
           .select('*')
           .order('payment_date', { ascending: false })
           .limit(3000),
+        supabase
+          .from('v_finance_direct_expense_offset_details')
+          .select('*')
+          .order('settlement_date', { ascending: false })
+          .order('line_no', { ascending: true })
+          .limit(3000),
       ]);
 
       setState((previous) => ({
@@ -339,6 +347,7 @@ export function useAccountingData() {
         payrollPayments: payrollPaymentsRes.error ? previous.payrollPayments : (payrollPaymentsRes.data || []),
         incomeExpenseCategories: incomeExpenseCategoriesRes.error ? previous.incomeExpenseCategories : (incomeExpenseCategoriesRes.data || []),
         incomeExpenseLedger: incomeExpenseLedgerRes.error ? previous.incomeExpenseLedger : (incomeExpenseLedgerRes.data || []),
+        directExpenseDetails: directExpenseDetailsRes.error ? previous.directExpenseDetails : (directExpenseDetailsRes.data || []),
       }));
     }, 80);
   }, []);
@@ -358,6 +367,8 @@ export function useAccountingData() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'finance_documents' }, scheduleRefetch)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'finance_document_items' }, scheduleRefetch)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'finance_payments' }, scheduleRefetch)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'finance_direct_expense_offsets' }, scheduleRefetch)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'finance_direct_expense_offset_lines' }, scheduleRefetch)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'warehouse_items' }, scheduleRefetch)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'warehouse_transactions' }, scheduleRefetch)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'warehouse_documents' }, scheduleRefetch)

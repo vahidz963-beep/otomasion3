@@ -1,6 +1,6 @@
 {
   "name": "otomasion2",
-  "version": "136.0.1",
+  "version": "138.0.1",
   "private": true,
   "type": "module",
   "scripts": {
@@ -8,13 +8,15 @@
     "build": "vite build",
     "preview": "vite preview",
     "test:calculator": "node tests/calculator-engine.test.mjs",
+    "test:inventory-valuation": "node tests/inventory-valuation.test.mjs",
     "test:shipments": "node tests/warehouse-shipments.test.mjs",
     "test:jalali-input": "node tests/jalali-input.test.mjs",
     "test:ui-workflows": "node tests/ui-workflow-regressions.test.mjs",
+    "test:finance-print": "node tests/finance-print-layout.test.mjs",
     "test:backup": "node tests/backup-center.test.mjs",
     "test:server-syntax": "node --check netlify/backupService.js && node --check netlify/functions/system-backups.js && node --check netlify/functions/scheduled-backup-cleanup.js",
     "test:professional-operations": "node tests/professional-operations.integration.test.mjs",
-    "check": "npm run test:calculator && npm run test:shipments && npm run test:jalali-input && npm run test:ui-workflows && npm run test:backup && npm run test:server-syntax && npm run test:professional-operations && npm run build"
+    "check": "npm run test:calculator && npm run test:inventory-valuation && npm run test:shipments && npm run test:jalali-input && npm run test:ui-workflows && npm run test:finance-print && npm run test:backup && npm run test:server-syntax && npm run test:professional-operations && npm run build"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",

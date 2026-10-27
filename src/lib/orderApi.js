@@ -48,11 +48,13 @@ export async function createOrUpdateCustomer(input) {
   if (!rpcRes.error) {
     const customerId = rpcRes.data;
     if (customerId && (Object.prototype.hasOwnProperty.call(input, 'credit_limit') || Object.prototype.hasOwnProperty.call(input, 'credit_hold') || Object.prototype.hasOwnProperty.call(input, 'credit_control_note'))) {
-      const creditRes = await supabase.from('customers').update({
-        credit_limit: Math.max(0, Number(input.credit_limit || 0)),
-        credit_hold: !!input.credit_hold,
-        credit_control_note: input.credit_control_note || null,
-      }).eq('id', customerId);
+      const creditRes = await supabase.rpc('fn_orders_full_update_customer_credit', {
+        p_customer_id: customerId,
+        p_credit_limit: Math.max(0, Number(input.credit_limit || 0)),
+        p_credit_hold: !!input.credit_hold,
+        p_credit_control_note: input.credit_control_note || null,
+      });
+      if (creditRes.error && isMissingRpc(creditRes.error)) throw new Error('Migration 135 اجرا نشده است؛ کنترل اعتبار Audit‌شده سفارش‌ها فعال نیست.');
       assertNoError(creditRes, 'خطا در ذخیره کنترل اعتبار مشتری');
     }
     return customerId;
@@ -142,11 +144,11 @@ export async function createOrderWithItems({ order, items, options = {}, request
     p_ref_warehouse: !!options.refWarehouse,
     p_ref_path: !!options.refPath,
   };
-  let res = await supabase.rpc('fn_app_create_order_idempotent', {
+  const res = await supabase.rpc('fn_orders_full_create_order', {
     p_request_key: requestKey || globalThis.crypto?.randomUUID?.() || `order-${Date.now()}-${Math.random().toString(16).slice(2)}`,
     ...params,
   });
-  if (res.error && isMissingRpc(res.error)) res = await supabase.rpc('fn_app_create_order', params);
+  if (res.error && isMissingRpc(res.error)) throw new Error('Migration 135 اجرا نشده است؛ دسترسی کامل فروش در ماژول سفارش‌ها فعال نیست.');
   assertNoError(res, 'خطا در ثبت سفارش');
   return res.data;
 }
@@ -167,7 +169,7 @@ export async function updateOrderStageSafe({ orderId, order, items, reason, expe
       discount_amount: Math.max(0, Number(item.discount_amount || 0)),
       notes: item.notes || null,
     }));
-  const res = await supabase.rpc('fn_update_order_stage_safe', {
+  const res = await supabase.rpc('fn_orders_full_update_stage_safe', {
     p_order_id: orderId,
     p_order: order || {},
     p_items: cleanItems,
@@ -175,18 +177,19 @@ export async function updateOrderStageSafe({ orderId, order, items, reason, expe
     p_expected_revision: expectedRevision ?? null,
   });
   if (res.error) {
-    if (isMissingRpc(res.error)) throw new Error('Migration 131 اجرا نشده است؛ ویرایش مرحله‌ای امن سفارش در دسترس نیست.');
+    if (isMissingRpc(res.error)) throw new Error('Migration 135 اجرا نشده است؛ ویرایش مرحله‌ای با دسترسی کامل فروش فعال نیست.');
     throw new Error(res.error.message || 'خطا در ویرایش مرحله‌ای سفارش');
   }
   return res.data;
 }
 
 export async function setOrderStage(orderId, stageKey, note = '') {
-  const res = await supabase.rpc('fn_set_order_stage', {
+  const res = await supabase.rpc('fn_orders_full_set_stage', {
     p_order_id: orderId,
     p_stage_key: stageKey,
     p_note: note || null,
   });
+  if (res.error && isMissingRpc(res.error)) throw new Error('Migration 135 اجرا نشده است؛ تغییر مرحله با دسترسی کامل سفارش‌ها فعال نیست.');
   assertNoError(res, 'خطا در تغییر مرحله سفارش');
   return res.data;
 }
@@ -201,7 +204,7 @@ export async function dispatchOrderShipment(orderId, payload = {}) {
 
   if (lines.length === 0) throw new Error('حداقل یک قلم با تعداد مثبت برای ارسال انتخاب کنید.');
 
-  const res = await supabase.rpc('fn_dispatch_order_shipment', {
+  const res = await supabase.rpc('fn_orders_full_dispatch_shipment', {
     p_order_id: orderId,
     p_lines: lines,
     p_shipment_date: payload.shipment_date || null,
@@ -212,24 +215,28 @@ export async function dispatchOrderShipment(orderId, payload = {}) {
     p_notes: payload.notes?.trim() || null,
     p_idempotency_key: payload.idempotency_key || null,
   });
+  if (res.error && isMissingRpc(res.error)) throw new Error('Migration 135 اجرا نشده است؛ ثبت ارسال برای فروش و مدیر فروش فعال نیست.');
   assertNoError(res, 'خطا در ثبت قطعی ارسال سفارش');
   return res.data;
 }
 
 export async function reserveOrderInventory(orderId) {
-  const res = await supabase.rpc('fn_reserve_order_inventory', { p_order_id: orderId });
+  const res = await supabase.rpc('fn_orders_full_reserve_inventory', { p_order_id: orderId });
+  if (res.error && isMissingRpc(res.error)) throw new Error('Migration 135 اجرا نشده است؛ رزرو اتمیک و Audit‌شده سفارش در دسترس نیست.');
   assertNoError(res, 'خطا در رزرو موجودی سفارش');
   return res.data;
 }
 
 export async function releaseOrderInventory(orderId) {
-  const res = await supabase.rpc('fn_release_order_inventory', { p_order_id: orderId });
+  const res = await supabase.rpc('fn_orders_full_release_inventory', { p_order_id: orderId });
+  if (res.error && isMissingRpc(res.error)) throw new Error('Migration 135 اجرا نشده است؛ آزادسازی رزرو برای فروش و مدیر فروش فعال نیست.');
   assertNoError(res, 'خطا در آزادسازی رزرو موجودی');
   return res.data;
 }
 
 export async function createSalesProformaFromOrder(orderId) {
-  const res = await supabase.rpc('fn_create_sales_proforma_from_order', { p_order_id: orderId });
+  const res = await supabase.rpc('fn_orders_full_create_proforma', { p_order_id: orderId });
+  if (res.error && isMissingRpc(res.error)) throw new Error('Migration 135 اجرا نشده است؛ صدور پیش‌فاکتور با دسترسی کامل سفارش‌ها فعال نیست.');
   assertNoError(res, 'خطا در ساخت پیش‌فاکتور از سفارش');
   return res.data;
 }
@@ -241,13 +248,12 @@ export async function createSalesInvoiceFromOrder(orderId) {
 }
 
 export async function cancelOrder(orderId, reason = 'لغو توسط کاربر') {
-  const res = await supabase
-    .from('orders')
-    .update({ is_cancelled: true, cancelled_reason: reason, updated_at: new Date().toISOString() })
-    .eq('id', orderId)
-    .select('id')
-    .single();
-  assertNoError(res, 'خطا در لغو سفارش');
+  const res = await supabase.rpc('fn_orders_cancel_order_complete', {
+    p_order_id: orderId,
+    p_reason: reason,
+  });
+  if (res.error && isMissingRpc(res.error)) throw new Error('Migration 135 اجرا نشده است؛ لغو کامل و اتمیک سفارش فعال نیست.');
+  assertNoError(res, 'خطا در لغو کامل سفارش');
   return res.data;
 }
 
@@ -277,7 +283,7 @@ export async function createOrderReferral({ orderId, targetModule, targetRole, t
 }
 
 export async function logCrmInteraction({ customerId, title, description, activityType = 'follow_up', contactChannel, orderId }) {
-  const res = await supabase.rpc('fn_log_crm_interaction', {
+  const res = await supabase.rpc('fn_orders_full_log_crm_interaction', {
     p_customer_id: customerId,
     p_title: title,
     p_description: description || null,
@@ -285,6 +291,7 @@ export async function logCrmInteraction({ customerId, title, description, activi
     p_contact_channel: contactChannel || null,
     p_related_order_id: orderId || null,
   });
+  if (res.error && isMissingRpc(res.error)) throw new Error('Migration 135 اجرا نشده است؛ ثبت تعامل CRM با دسترسی کامل سفارش‌ها فعال نیست.');
   assertNoError(res, 'خطا در ثبت تعامل CRM');
   return res.data;
 }
@@ -305,7 +312,7 @@ export async function createCrmFollowup({
 
   const userId = await currentUserId();
 
-  const rpcRes = await supabase.rpc('fn_create_crm_followup', {
+  const rpcRes = await supabase.rpc('fn_orders_full_create_crm_followup', {
     p_customer_id: customerId,
     p_title: title.trim(),
     p_due_at: dueAt,
@@ -316,59 +323,19 @@ export async function createCrmFollowup({
     p_assigned_to: assignedTo || userId,
   });
 
-  if (!rpcRes.error) return rpcRes.data;
-  if (!isMissingRpc(rpcRes.error)) assertNoError(rpcRes, 'خطا در ثبت پیگیری CRM');
-
-  // Fallback for databases that have not run migration 018 yet.
-  const insertRes = await supabase.from('crm_followups').insert({
-    customer_id: customerId,
-    related_order_id: orderId || null,
-    title: title.trim(),
-    due_at: dueAt,
-    assigned_to: assignedTo || userId,
-    created_by: userId,
-  }).select('id').single();
-  assertNoError(insertRes, 'خطا در ثبت پیگیری CRM');
-
-  const customerPatch = {
-    next_follow_up_at: dueAt,
-    updated_at: new Date().toISOString(),
-  };
-  if (contactChannel) customerPatch.preferred_contact_channel = contactChannel;
-  await supabase.from('customers').update(customerPatch).eq('id', customerId);
-
-  try {
-    await logCrmInteraction({
-      customerId,
-      orderId,
-      title: `برنامه‌ریزی پیگیری: ${title.trim()}`,
-      description,
-      activityType,
-      contactChannel,
-    });
-  } catch (_) {
-    // The follow-up itself is already saved; do not fail the UI just because interaction logging failed.
-  }
-
-  return insertRes.data;
+  if (rpcRes.error && isMissingRpc(rpcRes.error)) throw new Error('Migration 135 اجرا نشده است؛ پیگیری CRM با دسترسی کامل سفارش‌ها فعال نیست.');
+  assertNoError(rpcRes, 'خطا در ثبت پیگیری CRM');
+  return rpcRes.data;
 }
 
 export async function markCrmFollowupDone(followupId, note = '') {
-  const rpcRes = await supabase.rpc('fn_complete_crm_followup', {
+  const rpcRes = await supabase.rpc('fn_orders_full_complete_crm_followup', {
     p_followup_id: followupId,
     p_note: note || null,
   });
-  if (!rpcRes.error) return rpcRes.data;
-  if (!isMissingRpc(rpcRes.error)) assertNoError(rpcRes, 'خطا در بستن پیگیری');
-
-  const res = await supabase
-    .from('crm_followups')
-    .update({ is_done: true, done_at: new Date().toISOString() })
-    .eq('id', followupId)
-    .select('id')
-    .single();
-  assertNoError(res, 'خطا در بستن پیگیری');
-  return res.data;
+  if (rpcRes.error && isMissingRpc(rpcRes.error)) throw new Error('Migration 135 اجرا نشده است؛ بستن پیگیری CRM با دسترسی کامل سفارش‌ها فعال نیست.');
+  assertNoError(rpcRes, 'خطا در بستن پیگیری');
+  return rpcRes.data;
 }
 
 export async function updateWorkflowTemplate(templateId, patch) {

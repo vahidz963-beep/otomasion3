@@ -53,6 +53,7 @@ import { ItemKardexSection as AccountingItemKardexSection } from '../accounting/
 import './WarehouseModule.css';
 import { getFriendlyErrorMessage, getTechnicalErrorMessage } from '../../lib/errorMessages';
 import { shipmentLineText, shipmentLines, shipmentSearchText, shipmentSourceLabel, shipmentStats, shipmentStatusLabel, normalizeShipmentStatus } from '../../lib/shipmentModel';
+import { calculateWarehouseValuation } from '../../lib/inventoryValuation';
 import { supabase } from '../../lib/supabaseClient';
 
 const REASONS = {
@@ -147,16 +148,22 @@ export default function WarehouseModule() {
       && (statusFilter === 'all' || (statusFilter === 'low' && i.is_low_stock) || (statusFilter === 'available' && Number(i.current_qty) > 0));
   }), [data.stock, query, groupFilter, statusFilter]);
 
-  const kpis = useMemo(() => ({
-    items: data.stock.length,
-    low: data.stock.filter((i) => i.is_low_stock).length,
-    draft: data.draftLines.length,
-    docs: data.documents.filter((d) => d.status === 'final').length,
-    inDocs: data.documents.filter((d) => d.type === 'in' && !['adjustment', 'opening_balance'].includes(d.document_kind)).length,
-    outDocs: data.documents.filter((d) => d.type === 'out' && !['adjustment', 'opening_balance'].includes(d.document_kind)).length,
-    refs: data.referrals.filter((r) => r.status !== 'done' && r.status !== 'cancelled').length,
-    value: data.stock.reduce((s, i) => s + Number(i.stock_value_estimate || 0), 0),
-  }), [data]);
+  const kpis = useMemo(() => {
+    const usdRial = Number(exchangeRates.usd_rial || Number(exchangeRates.usd_toman || 0) * 10);
+    const valuation = calculateWarehouseValuation(data.stock, usdRial);
+    return {
+      items: data.stock.length,
+      low: data.stock.filter((i) => i.is_low_stock).length,
+      draft: data.draftLines.length,
+      docs: data.documents.filter((d) => d.status === 'final').length,
+      inDocs: data.documents.filter((d) => d.type === 'in' && !['adjustment', 'opening_balance'].includes(d.document_kind)).length,
+      outDocs: data.documents.filter((d) => d.type === 'out' && !['adjustment', 'opening_balance'].includes(d.document_kind)).length,
+      refs: data.referrals.filter((r) => r.status !== 'done' && r.status !== 'cancelled').length,
+      value: valuation.totalCostRial,
+      saleValue: valuation.totalSaleRial,
+      valuation,
+    };
+  }, [data.stock, data.draftLines.length, data.documents, data.referrals, exchangeRates.usd_rial, exchangeRates.usd_toman]);
 
   async function runAction(fn, ok) {
     setBusy(true); setNotice('');
@@ -174,6 +181,13 @@ export default function WarehouseModule() {
     } finally {
       setBusy(false);
     }
+  }
+
+  function refreshRatesNow() {
+    return runAction(async () => {
+      await refreshWarehouseExchangeRates();
+      await loadExchangeRates();
+    }, 'نرخ روز دلار و یوان دریافت شد و ارزش و قیمت‌های جاری انبار به‌روزرسانی شدند.');
   }
 
   function handleDraftClick(doc = draft) {
@@ -275,11 +289,11 @@ export default function WarehouseModule() {
 
     <nav className="warehouse-tabs">{[['overview','نمای کلی'],['stock','موجودی'],['docs','اسناد'],['kardex','کاردکس'],['sync','همگام‌سازی انبارا'],['shipments','مدیریت ارسال‌ها'],['refs','ارجاع و اسناد'],['reports','گزارش‌ها'],['settings','تنظیمات']].map(([k,l])=><button key={k} className={tab===k?'active':''} onClick={()=>setTab(k)}>{l}</button>)}</nav>
 
-    {!data.loading && tab === 'overview' && <Overview kpis={kpis} stock={data.stock} docs={data.documents} refs={data.referrals} setTab={setTab} />}
+    {!data.loading && tab === 'overview' && <Overview kpis={kpis} stock={data.stock} docs={data.documents} refs={data.referrals} rates={exchangeRates} busy={busy} onRefreshRates={refreshRatesNow} setTab={setTab} />}
     {!data.loading && tab === 'stock' && <StockSection groups={(data.categories || []).map((c) => c.name_fa)} stock={filteredStock} query={query} setQuery={setQuery} groupFilter={groupFilter} setGroupFilter={setGroupFilter} statusFilter={statusFilter} setStatusFilter={setStatusFilter} selectedItemId={selectedItemId} kardexRows={kardex.rows} busy={busy} onIn={(item)=>setModal({type:'movement',item,direction:'in'})} onOut={(item)=>setModal({type:'movement',item,direction:'out'})} onOpenKardex={(item)=>{setSelectedItemId(item.item_id);setTab('kardex')}} onEdit={(item)=>setModal({type:'item',item})} onStocktake={openStocktake} onDeactivate={(item)=>runAction(()=>deactivateWarehouseItem(item.item_id),'کالا غیرفعال شد.')} exportStock={exportStock} printStock={printStock}/>} 
     {!data.loading && tab === 'docs' && <DocumentsSection docs={data.documents} draftDocuments={draftDocuments} draftLinesByDocument={data.draftLinesByDocument || {}} shipmentDocumentIds={new Set((data.shipments || []).filter((shipment) => ['sent','delivered'].includes(shipment.status)).map((shipment) => shipment.warehouse_document_id).filter(Boolean))} selectedDocument={selectedDocument} lines={selectedDocument && data.draftLinesByDocument?.[selectedDocument.id] ? data.draftLinesByDocument[selectedDocument.id] : documentLines.rows} busy={busy} onSelect={setSelectedDocumentId} onFinalize={(id)=>runAction(()=>finalizeWarehouseDocument(id),'سند ثبت نهایی شد.')} onRequestCancel={(doc)=>setModal({ type: 'confirmDocumentDelete', doc })} onUpdateMeta={(id, meta)=>runAction(()=>updateWarehouseDocumentMeta(id, meta),'اطلاعات سند ذخیره شد.')} onEditLine={(line)=>setModal({ type: 'lineEdit', line })} onRemoveLine={(id)=>runAction(()=>removeWarehouseDocumentLine(id),'ردیف سند حذف/اصلاح شد.')} onPrint={printDocument} setTab={setTab} />}
     {!data.loading && tab === 'kardex' && <KardexSection stock={data.stock} selectedItemId={selectedItemId} setSelectedItemId={setSelectedItemId} rows={kardex.rows} />}
-    {!data.loading && tab === 'sync' && <SyncSection snapshots={data.snapshots} matched={data.matched} unmatched={data.unmatched} inactiveItems={data.inactiveItems} stock={data.stock || []} exchangeRates={exchangeRates} busy={busy} onImport={()=>setModal({type:'import'})} onRestore={(item)=>runAction(()=>reactivateWarehouseItem(item.id),'کالا دوباره فعال شد.')} onRefreshRates={() => runAction(async () => { await refreshWarehouseExchangeRates(); await loadExchangeRates(); }, 'نرخ روز دلار و یوان دریافت شد و قیمت‌های جاری اتوماسیون به‌روزرسانی شدند.')} onSaveCurrencyPrice={(payload) => runAction(() => setWarehouseItemCurrencyPrice(payload), 'قیمت ارزی کالا ذخیره و معادل تومانی آن به‌روزرسانی شد.')} onConvertAllCurrency={(currency) => runAction(() => convertAllWarehouseItemCurrency(currency), `ارز مبنای کالاهای قیمت‌گذاری‌شده با حفظ ارزش تومانی به ${currency === 'USD' ? 'دلار' : 'یوان'} تبدیل شد.`)} />}
+    {!data.loading && tab === 'sync' && <SyncSection snapshots={data.snapshots} matched={data.matched} unmatched={data.unmatched} inactiveItems={data.inactiveItems} stock={data.stock || []} exchangeRates={exchangeRates} busy={busy} onImport={()=>setModal({type:'import'})} onRestore={(item)=>runAction(()=>reactivateWarehouseItem(item.id),'کالا دوباره فعال شد.')} onRefreshRates={refreshRatesNow} onSaveCurrencyPrice={(payload) => runAction(() => setWarehouseItemCurrencyPrice(payload), 'قیمت ارزی کالا ذخیره و معادل تومانی آن به‌روزرسانی شد.')} onConvertAllCurrency={(currency) => runAction(() => convertAllWarehouseItemCurrency(currency), `ارز مبنای کالاهای قیمت‌گذاری‌شده با حفظ ارزش تومانی به ${currency === 'USD' ? 'دلار' : 'یوان'} تبدیل شد.`)} />}
     {!data.loading && tab === 'shipments' && <ShipmentsSection shipments={data.shipments || []} onNew={() => setModal({ type: 'shipment' })} onEdit={(shipment) => setModal({ type: 'shipment', shipment })} onReverse={(shipment) => setModal({ type: 'reverseShipment', shipment })} onArchive={(shipment) => setModal({ type: 'archiveShipment', shipment })} />}
     {!data.loading && tab === 'refs' && <div className="warehouse-grid"><ReferralPanel sourceModule="warehouse" title="ارجاع و اسناد انبار" defaultTarget="accounting" /></div>}
     {!data.loading && tab === 'reports' && <ReportsSection report={report} setReport={setReport} stock={data.stock} categories={data.categories || []} docs={data.documents} onExport={exportWarehouseReport} />}
@@ -287,7 +301,7 @@ export default function WarehouseModule() {
   </div>;
 }
 
-function Overview({ kpis, stock, docs, refs, setTab }) {
+function Overview({ kpis, stock, docs, refs, rates, busy, onRefreshRates, setTab }) {
   const recentDocs = docs.slice(0, 4);
   return <>
     <section className="warehouse-kpis tuned">
@@ -296,14 +310,33 @@ function Overview({ kpis, stock, docs, refs, setTab }) {
       <Kpi icon="🧾" label="ردیف سند موقت" value={kpis.draft} warning/>
       <Kpi icon="📥" label="اسناد ورود" value={kpis.inDocs}/>
       <Kpi icon="📤" label="اسناد خروج" value={kpis.outDocs}/>
-      <Kpi icon="💰" label="ارزش موجودی" value={formatMoney(kpis.value)} success/>
+      <Kpi icon="💰" label="ارزش کل انبار (بهای خرید روز)" value={formatMoney(kpis.value)} success/>
     </section>
+    <WarehouseValueOverview valuation={kpis.valuation} rates={rates} busy={busy} onRefreshRates={onRefreshRates} />
     <div className="warehouse-grid three overview-cards">
       <section className="warehouse-card"><CardTitle icon={AlertTriangle} title="کم‌موجودی و سفارش مجدد" action={<button onClick={()=>setTab('stock')}>موجودی</button>} />{stock.filter(i=>i.is_low_stock).length? <div className="warehouse-timeline compact">{stock.filter(i=>i.is_low_stock).slice(0,6).map(i=><article key={i.item_id}><strong>{i.item_name_fa}</strong><small>{i.item_code} · موجودی {i.current_qty} · نقطه سفارش {i.reorder_point||i.min_stock_threshold}</small></article>)}</div>:<Empty/>}</section>
       <section className="warehouse-card"><CardTitle icon={FileText} title="آخرین اسناد" action={<button onClick={()=>setTab('docs')}>اسناد</button>} />{recentDocs.length?<div className="doc-mini-list">{recentDocs.map(d=><button key={d.id} onClick={()=>setTab('docs')}><b>{d.doc_number || 'سند موقت'}</b><span>{warehouseDocumentLabel(d)} · {STATUS_LABEL[d.status]} · {formatDate(d.created_at)}</span></button>)}</div>:<Empty/>}</section>
       <section className="warehouse-card"><CardTitle icon={ClipboardList} title="ارجاعات باز" action={<button onClick={()=>setTab('refs')}>همه</button>} />{refs.length?<div className="warehouse-timeline compact">{refs.slice(0,6).map(r=><article key={r.id}><strong>{r.title_fa}</strong><small>{r.referral_number} · {r.source_module} ← {r.target_module}</small></article>)}</div>:<Empty/>}</section>
     </div>
   </>;
+}
+
+function WarehouseValueOverview({ valuation = {}, rates = {}, busy, onRefreshRates }) {
+  const usdToman = Number(rates.usd_rial || 0) > 0 ? Number(rates.usd_rial) / 10 : Number(rates.usd_toman || 0);
+  const cnyToman = Number(rates.cny_rial || 0) > 0 ? Number(rates.cny_rial) / 10 : Number(rates.cny_toman || 0);
+  return <section className="warehouse-card warehouse-value-overview">
+    <div className="warehouse-value-head"><div><div className="eyebrow">Live Inventory Valuation</div><h2>ارزش کل روز انبار و نرخ دقیق ارز</h2><p>ارزش انبار از موجودی لحظه‌ای × بهای خرید جاری هر کالا محاسبه می‌شود. معادل دلاری فقط با نرخ معتبر همین لحظه محاسبه شده و قیمت‌های فروش جداگانه نمایش داده می‌شوند.</p></div><button className="refresh-rates-btn" disabled={busy} onClick={onRefreshRates}><RefreshCw size={17}/>{busy ? 'در حال به‌روزرسانی...' : 'به‌روزرسانی نرخ و ارزش'}</button></div>
+    <div className="warehouse-value-grid">
+      <article className="warehouse-total-value primary"><span>ارزش کل انبار به تومان</span><strong>{formatMoney(valuation.totalCostRial)}</strong><small>بهای خرید روز · بدون استفاده از قیمت فروش</small></article>
+      <article className="warehouse-total-value usd"><span>ارزش کل انبار به دلار</span><strong>{valuation.totalCostUsd == null ? '—' : `$ ${fxNumber(valuation.totalCostUsd, 2)}`}</strong><small>{usdToman > 0 ? `بر مبنای دقیق $1 = ${fxNumber(usdToman, 0)} تومان` : 'نرخ معتبر دلار هنوز دریافت نشده است'}</small></article>
+      <article className="warehouse-total-value sale"><span>ارزش فروش روز موجودی</span><strong>{formatMoney(valuation.totalSaleRial)}</strong><small>{valuation.unpricedSaleItemCount ? `برآورد ناقص: ${formatNumber(valuation.unpricedSaleItemCount)} قلم فاقد قیمت فروش` : 'برآورد فروش؛ مستقل از ارزش بهای خرید انبار'}</small></article>
+    </div>
+    <div className="overview-exchange-rates">
+      <ExchangeRateCard currency="USD" rate={usdToman} status={rates.usd_status} sourceCount={rates.usd_source_count} fetchedAt={rates.usd_fetched_at} sources={rates.usd_sources} />
+      <ExchangeRateCard currency="CNY" rate={cnyToman} status={rates.cny_status} sourceCount={rates.cny_source_count} fetchedAt={rates.cny_fetched_at} sources={rates.cny_sources} />
+    </div>
+    <div className="warehouse-value-foot"><span className={valuation.unpricedItemCount ? 'warning' : 'ok'}>{valuation.unpricedItemCount ? `${formatNumber(valuation.unpricedItemCount)} قلم دارای موجودی، بهای خرید معتبر ندارند و در جمع ارزش خرید صفر محاسبه شده‌اند.` : 'همه اقلام دارای موجودی، بهای خرید معتبر دارند.'}</span>{valuation.unpricedSaleItemCount > 0 && <span className="warning">{formatNumber(valuation.unpricedSaleItemCount)} قلم دارای موجودی، قیمت فروش معتبر ندارند و فقط در برآورد فروش صفر محاسبه شده‌اند.</span>}{valuation.negativeStockCount > 0 && <span className="danger">{formatNumber(valuation.negativeStockCount)} قلم موجودی منفی دارد و با علامت واقعی در ارزش کل لحاظ شده است.</span>}<small>آخرین بررسی نرخ: {rateFreshnessLabel(rates.last_checked_at)}</small></div>
+  </section>;
 }
 function Kpi({icon,label,value,danger,warning,success}){return <div className={`warehouse-kpi ${danger?'danger':warning?'warning':success?'success':''}`}><i>{icon}</i><span>{label}</span><b>{value}</b></div>}
 
@@ -442,8 +475,8 @@ function ExchangeRateCard({ currency, rate, status, sourceCount, fetchedAt, sour
   const sourceNames = { tgju: 'TGJU', alanchand: 'الان‌چند', 'priceto.day': 'PriceToDay' };
   return <article className={`exchange-rate-card ${currency.toLowerCase()} ${status === 'no_data' ? 'stale' : status === 'manual' ? 'manual' : ''}`}>
     <div className="exchange-rate-symbol">{currencySymbol(currency)}</div>
-    <span>نرخ روز {currencyTitle(currency)}</span>
-    <strong>{Number(rate || 0) > 0 ? fxNumber(rate, 0) : '—'} <small>تومان</small></strong>
+    <span>نرخ تبدیل دقیق یک {currencyTitle(currency)}</span>
+    <strong><bdi>{currencySymbol(currency)}1</bdi> <i>=</i> {Number(rate || 0) > 0 ? fxNumber(rate, 0) : '—'} <small>تومان</small></strong>
     <div className="exchange-rate-meta"><b>{rateStateLabel(status, sourceCount)}</b><small>آخرین نرخ معتبر: {rateFreshnessLabel(fetchedAt)}</small></div>
     <div className="rate-source-status" aria-label="وضعیت منابع نرخ">
       {sourceRows.length ? sourceRows.map((source) => <span key={source.source} className={source.ok ? 'ok' : 'error'} title={source.ok ? `${fxNumber(Number(source.rial || 0) / 10, 0)} تومان` : (source.error || 'خطای منبع')}><i />{sourceNames[source.source] || source.source}</span>) : <small>وضعیت سه منبع پس از اولین دریافت نمایش داده می‌شود.</small>}

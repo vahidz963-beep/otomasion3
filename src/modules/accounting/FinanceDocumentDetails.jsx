@@ -47,7 +47,18 @@ function shortCode(value) {
   return value ? String(value).slice(0, 8) : '—';
 }
 
-function printDocument(bundle, variant = 'company') {
+function invoiceMoney(value) {
+  const formatted = formatRial(value);
+  if (formatted === '—') {
+    return '<span class="invoice-money"><span class="invoice-money-value">—</span></span>';
+  }
+  const separator = formatted.lastIndexOf(' ');
+  const amount = separator > 0 ? formatted.slice(0, separator) : formatted;
+  const unit = separator > 0 ? formatted.slice(separator + 1) : '';
+  return `<span class="invoice-money"><span class="invoice-money-value">${esc(amount)}</span>${unit ? `<span class="invoice-money-unit">${esc(unit)}</span>` : ''}</span>`;
+}
+
+export function printFinanceDocument(bundle, variant = 'company') {
   const d = bundle.document;
   const party = bundle.party || {};
   const order = bundle.order || {};
@@ -67,12 +78,12 @@ function printDocument(bundle, variant = 'company') {
         <td class="desc">${esc(item.description_fa)}</td>
         <td>${new Intl.NumberFormat('fa-IR').format(qty)}</td>
         <td>${esc(item.unit || '')}</td>
-        <td class="money">${formatRial(unitPrice)}</td>
-        <td class="money">${formatRial(gross)}</td>
-        <td class="money">${formatRial(discount)}</td>
-        <td class="money">${formatRial(netAmount)}</td>
-        <td class="money">${formatRial(taxAmount)}</td>
-        <td class="money">${formatRial(finalAmount)}</td>
+        <td class="money">${invoiceMoney(unitPrice)}</td>
+        <td class="money">${invoiceMoney(gross)}</td>
+        <td class="money">${invoiceMoney(discount)}</td>
+        <td class="money">${invoiceMoney(netAmount)}</td>
+        <td class="money">${invoiceMoney(taxAmount)}</td>
+        <td class="money">${invoiceMoney(finalAmount)}</td>
       </tr>
     `;
   }).join('');
@@ -132,18 +143,19 @@ function printDocument(bundle, variant = 'company') {
         </div>
       </section>
       <div class="section-label">${variant === 'official' ? 'مشخصات کالا یا خدمات مورد معامله' : 'جزئیات اقلام'}</div>
-      <table class="official-table">
-        <thead><tr><th style="width:34px">ردیف</th><th>شرح کالا / خدمات</th><th style="width:58px">تعداد</th><th style="width:50px">واحد</th><th>مبلغ واحد ریال</th><th>مبلغ کل</th><th>تخفیف</th><th>مبلغ خالص</th><th>مالیات</th><th>مبلغ نهایی</th></tr></thead>
+      <table class="official-table invoice-items-table">
+        <colgroup><col style="width:4%"><col style="width:25%"><col style="width:6%"><col style="width:6%"><col style="width:10%"><col style="width:10%"><col style="width:9%"><col style="width:10%"><col style="width:9%"><col style="width:11%"></colgroup>
+        <thead><tr><th>ردیف</th><th>شرح کالا / خدمات</th><th>تعداد</th><th>واحد</th><th>مبلغ واحد</th><th>مبلغ کل</th><th>تخفیف</th><th>مبلغ خالص</th><th>مالیات</th><th>مبلغ نهایی</th></tr></thead>
         <tbody>${rows || '<tr><td colspan="10">ردیفی ثبت نشده است.</td></tr>'}</tbody>
       </table>
       <section class="totals-wrap">
         <table class="totals-table">
           <tbody>
-            <tr><td>جمع فاکتور</td><td class="money">${formatRial(d.subtotal_amount)}</td></tr>
-            <tr><td>تخفیف</td><td class="money">${formatRial(discountTotal)}</td></tr>
-            <tr><td>مالیات</td><td class="money">${formatRial(d.tax_amount)}</td></tr>
-            <tr><td>قابل پرداخت</td><td class="money">${formatRial(d.total_amount)}</td></tr>
-            <tr><td>مانده فاکتور</td><td class="money">${formatRial(d.balance_amount)}</td></tr>
+            <tr><td>جمع فاکتور</td><td class="money">${invoiceMoney(d.subtotal_amount)}</td></tr>
+            <tr><td>تخفیف</td><td class="money">${invoiceMoney(discountTotal)}</td></tr>
+            <tr><td>مالیات</td><td class="money">${invoiceMoney(d.tax_amount)}</td></tr>
+            <tr><td>قابل پرداخت</td><td class="money">${invoiceMoney(d.total_amount)}</td></tr>
+            <tr><td>مانده فاکتور</td><td class="money">${invoiceMoney(d.balance_amount)}</td></tr>
           </tbody>
         </table>
         <div class="amount-words">
@@ -199,7 +211,7 @@ export default function FinanceDocumentDetails({
         <button disabled={busy || d.status === 'void'} onClick={() => onVoid(d.id)}>ابطال</button>
         <button disabled={busy} onClick={() => onNewPayment(d.id)}><Banknote size={14} /> دریافت/پرداخت</button>
         <button disabled={busy} onClick={() => onNewReferral(d.id)}><Link2 size={14} /> ارجاع</button>
-        <button onClick={() => printDocument(bundle, 'company')}><Printer size={14} /> چاپ شرکتی</button><button onClick={() => printDocument(bundle, 'official')}><Printer size={14} /> چاپ رسمی</button>
+        <button onClick={() => printFinanceDocument(bundle, 'company')}><Printer size={14} /> چاپ شرکتی</button><button onClick={() => printFinanceDocument(bundle, 'official')}><Printer size={14} /> چاپ رسمی</button>
       </div>
 
       {loading && <p className="muted">در حال دریافت جزئیات...</p>}
