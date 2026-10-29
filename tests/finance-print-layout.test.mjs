@@ -36,6 +36,12 @@ assert.match(financePrint, /class=\"\$\{innerClass\}\"[^>]*>.*<\/section><div cl
 assert.match(financePrint, /function fitStatementMoneyCells\(\)/, 'person-statement fitting must remain available');
 assert.doesNotMatch(financePrint, /\.invoice-money-value|fitInvoiceMoneyCells/, 'new split amount/unit layout must stay removed');
 
+const currencyOutput = read('src/lib/currencyOutput.js');
+assert.match(currencyOutput, /export function formatInvoiceRialNumber\(value, withUnit = false/);
+assert.match(currencyOutput, /return withUnit \? `\$\{amount\} ریال` : amount/);
+assert.match(currencyOutput, /export function statementDisplayValue/);
+assert.match(currencyOutput, /finiteRialValue \/ 10/);
+
 const details = read('src/modules/accounting/FinanceDocumentDetails.jsx');
 assert.doesNotMatch(details, /function invoiceMoney\(value\)|class=\"invoice-money-value\"|class=\"invoice-money-unit\"/);
 assert.match(details, /class=\"official-table invoice-items-table\"/);
@@ -43,11 +49,31 @@ assert.doesNotMatch(details, /<colgroup>/, 'percentage-based column layout must 
 assert.match(details, /<th style=\"width:34px\">ردیف<\/th>/);
 assert.match(details, /<th style=\"width:58px\">تعداد<\/th>/);
 assert.match(details, /<th style=\"width:50px\">واحد<\/th>/);
-assert.match(details, /<th>مبلغ واحد ریال<\/th>/);
-assert.equal((details.match(/\$\{formatRial\(/g) || []).length >= 11, true, 'invoice values must use the approved single-line 136 format');
+assert.match(details, /<th>مبلغ واحد<\/th>/);
+assert.doesNotMatch(details, /مبلغ واحد ریال|تومان|ریال/);
+assert.match(details, /import \{ formatInvoiceRialNumber \} from '\.\.\/\.\.\/lib\/currencyOutput'/);
+assert.equal((details.match(/formatInvoiceRialNumber\([^)]*?, true\)/g) || []).length, 2, 'only invoice total and payable rows may request the rial suffix');
+assert.doesNotMatch(details, /formatRial\(|formatToman\(|rialToPersianWords/);
+assert.match(details, /numberToPersianWords\(Math\.round\(Number\(d\.total_amount \|\| 0\)\)\)/);
 assert.match(details, /layout: 'invoice'/);
 assert.match(details, /export function printFinanceDocument/);
 assert.match(details, /printFinanceDocument\(bundle, 'company'\)/);
 assert.match(details, /printFinanceDocument\(bundle, 'official'\)/);
+
+const accounting = read('src/modules/accounting/AccountingModule.jsx');
+const simpleInvoiceStart = accounting.indexOf('function printSimpleDocument');
+const simpleInvoiceEnd = accounting.indexOf('function htmlSafe', simpleInvoiceStart);
+const simpleInvoicePrint = accounting.slice(simpleInvoiceStart, simpleInvoiceEnd);
+assert.match(simpleInvoicePrint, /جمع فاکتور/);
+assert.match(simpleInvoicePrint, /قابل پرداخت/);
+assert.equal((simpleInvoicePrint.match(/formatInvoiceRialNumber\([^)]*?, true\)/g) || []).length, 2);
+assert.doesNotMatch(simpleInvoicePrint, /formatRial\(|formatToman\(|تومان/);
+assert.match(accounting, /انتخاب واحد فقط برای نمایش و خروجی صورت‌حساب اشخاص است/);
+assert.match(accounting, /فاکتور و پیش‌فاکتور همیشه بر پایه ریال خروجی می‌گیرند/);
+
+const orders = read('src/modules/orders/OrdersModule.jsx');
+assert.match(orders, /import \{ formatInvoiceRialNumber \} from '\.\.\/\.\.\/lib\/currencyOutput'/);
+assert.match(orders, /formatInvoiceRialNumber\(document\.total_amount\)/);
+assert.match(orders, /formatInvoiceRialNumber\(item\.unit_price\)/);
 
 console.log('FINANCE_PRINT_LAYOUT_OK');

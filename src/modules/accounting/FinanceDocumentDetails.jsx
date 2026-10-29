@@ -1,7 +1,8 @@
 import { Banknote, FileText, History, Link2, Printer, ReceiptText } from 'lucide-react';
 import { openOfficialFinancePrint } from '../../lib/financeApi';
-import { formatJalaliDate, formatToman } from '../../lib/formatters';
-import { formatRial, rialToPersianWords } from '../../lib/persianNumbers';
+import { formatJalaliDate } from '../../lib/formatters';
+import { formatInvoiceRialNumber } from '../../lib/currencyOutput';
+import { numberToPersianWords } from '../../lib/persianNumbers';
 
 const DOC_LABELS = {
   sales_proforma: 'پیش‌فاکتور فروش',
@@ -27,7 +28,7 @@ const STATUS_LABELS = {
 };
 
 function money(value) {
-  return formatToman(value, 'fa');
+  return formatInvoiceRialNumber(value);
 }
 
 function date(value) {
@@ -67,12 +68,12 @@ export function printFinanceDocument(bundle, variant = 'company') {
         <td class="desc">${esc(item.description_fa)}</td>
         <td>${new Intl.NumberFormat('fa-IR').format(qty)}</td>
         <td>${esc(item.unit || '')}</td>
-        <td class="money">${formatRial(unitPrice)}</td>
-        <td class="money">${formatRial(gross)}</td>
-        <td class="money">${formatRial(discount)}</td>
-        <td class="money">${formatRial(netAmount)}</td>
-        <td class="money">${formatRial(taxAmount)}</td>
-        <td class="money">${formatRial(finalAmount)}</td>
+        <td class="money">${formatInvoiceRialNumber(unitPrice)}</td>
+        <td class="money">${formatInvoiceRialNumber(gross)}</td>
+        <td class="money">${formatInvoiceRialNumber(discount)}</td>
+        <td class="money">${formatInvoiceRialNumber(netAmount)}</td>
+        <td class="money">${formatInvoiceRialNumber(taxAmount)}</td>
+        <td class="money">${formatInvoiceRialNumber(finalAmount)}</td>
       </tr>
     `;
   }).join('');
@@ -133,22 +134,22 @@ export function printFinanceDocument(bundle, variant = 'company') {
       </section>
       <div class="section-label">${variant === 'official' ? 'مشخصات کالا یا خدمات مورد معامله' : 'جزئیات اقلام'}</div>
       <table class="official-table invoice-items-table">
-        <thead><tr><th style="width:34px">ردیف</th><th>شرح کالا / خدمات</th><th style="width:58px">تعداد</th><th style="width:50px">واحد</th><th>مبلغ واحد ریال</th><th>مبلغ کل</th><th>تخفیف</th><th>مبلغ خالص</th><th>مالیات</th><th>مبلغ نهایی</th></tr></thead>
+        <thead><tr><th style="width:34px">ردیف</th><th>شرح کالا / خدمات</th><th style="width:58px">تعداد</th><th style="width:50px">واحد</th><th>مبلغ واحد</th><th>مبلغ کل</th><th>تخفیف</th><th>مبلغ خالص</th><th>مالیات</th><th>مبلغ نهایی</th></tr></thead>
         <tbody>${rows || '<tr><td colspan="10">ردیفی ثبت نشده است.</td></tr>'}</tbody>
       </table>
       <section class="totals-wrap">
         <table class="totals-table">
           <tbody>
-            <tr><td>جمع فاکتور</td><td class="money">${formatRial(d.subtotal_amount)}</td></tr>
-            <tr><td>تخفیف</td><td class="money">${formatRial(discountTotal)}</td></tr>
-            <tr><td>مالیات</td><td class="money">${formatRial(d.tax_amount)}</td></tr>
-            <tr><td>قابل پرداخت</td><td class="money">${formatRial(d.total_amount)}</td></tr>
-            <tr><td>مانده فاکتور</td><td class="money">${formatRial(d.balance_amount)}</td></tr>
+            <tr><td>جمع فاکتور</td><td class="money">${formatInvoiceRialNumber(d.subtotal_amount, true)}</td></tr>
+            <tr><td>تخفیف</td><td class="money">${formatInvoiceRialNumber(discountTotal)}</td></tr>
+            <tr><td>مالیات</td><td class="money">${formatInvoiceRialNumber(d.tax_amount)}</td></tr>
+            <tr><td>قابل پرداخت</td><td class="money">${formatInvoiceRialNumber(d.total_amount, true)}</td></tr>
+            <tr><td>مانده فاکتور</td><td class="money">${formatInvoiceRialNumber(d.balance_amount)}</td></tr>
           </tbody>
         </table>
         <div class="amount-words">
-          <b>مبلغ به حروف:</b> ${rialToPersianWords(d.total_amount)}
-          <br><b>مانده حساب نهایی:</b> ${formatRial(d.balance_amount)} ${Number(d.balance_amount || 0) > 0 ? 'بدهکار می‌باشد.' : 'تسویه می‌باشد.'}
+          <b>مبلغ به حروف:</b> ${numberToPersianWords(Math.round(Number(d.total_amount || 0)))}
+          <br><b>مانده حساب نهایی:</b> ${formatInvoiceRialNumber(d.balance_amount)} ${Number(d.balance_amount || 0) > 0 ? 'بدهکار می‌باشد.' : 'تسویه می‌باشد.'}
         </div>
       </section>
       <div class="notes-box"><b>توضیحات:</b> ${esc(d.description || '—')}${d.print_note ? `<br><b>جزئیات زیر فاکتور:</b> ${esc(d.print_note)}` : ''}</div>
