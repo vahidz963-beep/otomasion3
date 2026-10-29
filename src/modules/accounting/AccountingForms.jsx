@@ -202,13 +202,15 @@ export function FinancePaymentForm({
   const [directExpenseRows, setDirectExpenseRows] = useState(
     initialDirectLines.length
       ? initialDirectLines.map((line) => ({
+          line_type: line.line_type === 'party_payment' ? 'party_payment' : 'expense',
           category_id: line.category_id || '',
+          target_party_id: line.target_party_id || '',
           amount: line.line_amount ?? line.amount ?? 0,
           description: line.line_description ?? line.description ?? '',
         }))
-      : [{ category_id: '', amount: 0, description: '' }]
+      : [{ line_type: 'expense', category_id: '', target_party_id: '', amount: 0, description: '' }]
   );
-  const [idempotencyKey] = useState(() => globalThis.crypto?.randomUUID?.() || `direct-expense-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+  const [idempotencyKey] = useState(() => globalThis.crypto?.randomUUID?.() || `direct-transfer-${Date.now()}-${Math.random().toString(16).slice(2)}`);
 
   const isDirectExpense = payment.method === 'direct_expense_offset';
   const payableDocs = useMemo(() => documents.filter((doc) => {
@@ -224,10 +226,16 @@ export function FinancePaymentForm({
   const categoryOptions = categories.filter((item) => item.category_type === categoryType && item.is_active !== false);
   const selectedCategory = categories.find((item) => item.id === payment.category_id);
   const directTotal = directExpenseRows.reduce((sum, row) => sum + Number(row.amount || 0), 0);
+  const receivedAmount = Number(payment.amount || 0);
   const existingDirectAmount = directRevision && initialPayment?.party_id === payment.party_id ? Number(initialPayment?.amount || 0) : 0;
-  const availableDebt = Number(selectedParty?.balance || 0) + existingDirectAmount;
-  const debtAfter = Math.max(availableDebt - directTotal, 0);
-  const directRowsAreValid = directExpenseRows.length > 0 && directExpenseRows.every((row) => row.category_id && Number(row.amount) > 0);
+  const sourceBalanceBefore = Number(selectedParty?.balance || 0) + existingDirectAmount;
+  const sourceBalanceAfter = sourceBalanceBefore - receivedAmount;
+  const directDifference = receivedAmount - directTotal;
+  const directRowsAreValid = directExpenseRows.length > 0 && directExpenseRows.every((row) => {
+    if (Number(row.amount) <= 0) return false;
+    if (row.line_type === 'party_payment') return Boolean(row.target_party_id) && row.target_party_id !== payment.party_id;
+    return Boolean(row.category_id);
+  });
   const totalAmount = multiMode
     ? paymentRows.reduce((sum, row) => sum + Number(row.amount || 0), 0)
     : Number(payment.amount || 0);
@@ -271,7 +279,7 @@ export function FinancePaymentForm({
   }
 
   function addDirectRow() {
-    setDirectExpenseRows((rows) => [...rows, { category_id: '', amount: 0, description: '' }]);
+    setDirectExpenseRows((rows) => [...rows, { line_type: 'expense', category_id: '', target_party_id: '', amount: 0, description: '' }]);
   }
 
   function removeDirectRow(index) {
@@ -289,7 +297,7 @@ export function FinancePaymentForm({
           method: 'direct_expense_offset',
           party_id: payment.party_id,
           payment_date: payment.payment_date,
-          amount: directTotal,
+          amount: receivedAmount,
           currency: 'IRR',
           bank_account_id: null,
           cashbox_id: null,
@@ -299,9 +307,11 @@ export function FinancePaymentForm({
           revision_reason: payment.revision_reason,
           idempotency_key: idempotencyKey,
         },
-        allocations: documentId ? [{ document_id: documentId, amount: directTotal }] : [],
+        allocations: documentId ? [{ document_id: documentId, amount: receivedAmount }] : [],
         directExpenseLines: directExpenseRows.map((row) => ({
-          category_id: row.category_id,
+          line_type: row.line_type === 'party_payment' ? 'party_payment' : 'expense',
+          category_id: row.line_type === 'party_payment' ? null : row.category_id,
+          target_party_id: row.line_type === 'party_payment' ? row.target_party_id : null,
           amount: Number(row.amount || 0),
           description: row.description,
         })),
@@ -334,12 +344,14 @@ export function FinancePaymentForm({
     || payment.transfer_to_bank_account_id !== payment.bank_account_id;
   const loanIsValid = payment.method !== 'loan_payment' || payment.loan_id;
   const categoryIsValid = !categoryMode || payment.category_id;
+  const selectedDocumentAvailable = selectedDoc
+    ? Number(selectedDoc.balance_amount || 0) + (directRevision && selectedDoc.id === initialPayment?.document_id ? Number(initialPayment?.amount || 0) : 0)
+    : null;
   const directIsValid = !isDirectExpense || (
     payment.party_id
+    && receivedAmount > 0
     && directRowsAreValid
-    && directTotal > 0
-    && availableDebt > 0
-    && directTotal <= availableDebt
+    && Math.abs(directDifference) < 0.005
     && (!directRevision || payment.revision_reason.trim())
   );
   const canSubmit = isDirectExpense
@@ -355,45 +367,53 @@ export function FinancePaymentForm({
       )}
       {isDirectExpense && (
         <div className="finance-alert direct-expense-info">
-          <b>تسویه غیرنقدی بدهی با پرداخت مستقیم هزینه</b>
-          <span>شخص بدهکار هزینه‌های شرکت را مستقیماً پرداخت کرده است. این سند بدهی شخص را کم می‌کند، اما هیچ وجهی وارد بانک یا صندوق شرکت نمی‌شود.</span>
+          <b>حواله مستقیم؛ دریافت از یک شخص و تخصیص دقیق پرداخت‌ها</b>
+          <span>مبلغ از شخص مبدأ به‌صورت غیرنقدی دریافت و میان هزینه‌های شرکت یا پرداخت به اشخاص دیگر تقسیم می‌شود. هیچ بانک، کارت یا صندوقی درگیر نیست.</span>
         </div>
       )}
 
       <div className="finance-form-grid">
         {!categoryMode && !isDirectExpense && <Field label="نوع"><select value={payment.direction} onChange={(e) => changeDirection(e.target.value)}><option value="receipt">دریافت</option><option value="payment">پرداخت</option></select></Field>}
-        {isDirectExpense && <Field label="نوع اثر حسابداری"><input readOnly value="هزینه غیرنقدی + کاهش بدهی شخص" /></Field>}
+        {isDirectExpense && <Field label="نوع اثر حسابداری"><input readOnly value="دریافت از مبدأ + هزینه / پرداخت به شخص" /></Field>}
         <Field label="روش">
-          <select value={payment.method} disabled={directRevision} onChange={(e) => changeMethod(e.target.value)}>
-            <option value="bank_transfer">واریز / انتقال بانکی</option>
-            <option value="card">کارت</option>
-            <option value="pos">کارت‌خوان</option>
-            <option value="cash">نقدی / صندوق</option>
-            <option value="check">چک</option>
-            <option value="offset">تهاتر</option>
-            {!categoryMode && <option value="direct_expense_offset">تسویه مستقیم هزینه توسط شخص (غیرنقدی)</option>}
-            {payment.direction === 'payment' && !categoryMode && <option value="loan_payment">پرداخت وام</option>}
-            <option value="other">سایر</option>
+          <select value={payment.method} disabled={isDirectExpense || directRevision} onChange={(e) => changeMethod(e.target.value)}>
+            {isDirectExpense && <option value="direct_expense_offset">حواله مستقیم (غیرنقدی)</option>}
+            {!isDirectExpense && <>
+              <option value="bank_transfer">واریز / انتقال بانکی</option>
+              <option value="card">کارت</option>
+              <option value="pos">کارت‌خوان</option>
+              <option value="cash">نقدی / صندوق</option>
+              <option value="check">چک</option>
+              <option value="offset">تهاتر</option>
+              {payment.direction === 'payment' && !categoryMode && <option value="loan_payment">پرداخت وام</option>}
+              <option value="other">سایر</option>
+            </>}
           </select>
         </Field>
 
         {categoryMode && !isDirectExpense && <Field label={payment.direction === 'receipt' ? 'دسته درآمد' : 'دسته هزینه'}><select value={payment.category_id} onChange={(e) => setPayment({ ...payment, category_id: e.target.value })}><option value="">انتخاب دسته</option>{categoryOptions.map((item) => <option key={item.id} value={item.id}>{item.parent_name_fa ? `${item.parent_name_fa} / ` : ''}{item.name_fa}</option>)}</select></Field>}
         {categoryMode && !isDirectExpense && <Field label="نوع عملیات"><select value={payment.direction} onChange={(e) => changeDirection(e.target.value)}><option value="payment">ثبت هزینه</option><option value="receipt">ثبت درآمد</option></select></Field>}
 
-        <Field label={isDirectExpense ? 'شخص بدهکار' : 'شخص'}>
+        <Field label={isDirectExpense ? 'شخص مبدأ' : 'شخص'}>
           <SearchableSelect
             value={payment.party_id}
             onChange={(value) => { setPayment({ ...payment, party_id: value }); setDocumentId(''); }}
-            options={parties.map((party) => ({
-              value: party.party_id || party.id,
-              label: `${party.display_name}${Number(party.balance || 0) > 0 ? ` · بدهکار ${new Intl.NumberFormat('fa-IR').format(Number(party.balance))} ریال` : ''}`,
-              searchText: `${party.display_name || ''} ${party.phone || ''} ${party.national_id || ''}`,
-            }))}
-            placeholder={isDirectExpense ? 'جست‌وجو و انتخاب شخص بدهکار' : 'جست‌وجو و انتخاب شخص'}
+            options={parties.map((party) => {
+              const balance = Number(party.balance || 0);
+              return {
+                value: party.party_id || party.id,
+                label: isDirectExpense
+                  ? `${party.display_name} · ${new Intl.NumberFormat('fa-IR').format(Math.abs(balance))} ریال ${balance > 0 ? 'بدهکار' : balance < 0 ? 'بستانکار' : 'تسویه'}`
+                  : party.display_name,
+                searchText: `${party.display_name || ''} ${party.phone || ''} ${party.national_id || ''}`,
+              };
+            })}
+            placeholder={isDirectExpense ? 'جست‌وجو و انتخاب شخص مبدأ' : 'جست‌وجو و انتخاب شخص'}
             emptyText="شخصی یافت نشد"
           />
         </Field>
         <Field label="تاریخ"><JalaliDateInput value={payment.payment_date} onChange={(value) => setPayment({ ...payment, payment_date: value })} /></Field>
+        {isDirectExpense && <Field label="مبلغ دریافتی"><MoneyInput value={payment.amount} onChange={(value) => setPayment({ ...payment, amount: value })} /></Field>}
 
         {isDirectExpense && (
           <Field label="فاکتور مرتبط (اختیاری)" full>
@@ -414,42 +434,73 @@ export function FinancePaymentForm({
         {!isDirectExpense && !categoryMode && <Field label="تخصیص به فاکتور"><select value={documentId} onChange={(e) => { const value = e.target.value; setDocumentId(value); const doc = payableDocs.find((item) => item.id === value); if (doc && !multiMode) setPayment({ ...payment, party_id: doc.party_id, amount: doc.balance_amount }); }}><option value="">بدون تخصیص</option>{payableDocs.map((doc) => <option key={doc.id} value={doc.id}>{doc.doc_number} · {Number(doc.balance_amount).toLocaleString('fa-IR')} ریال</option>)}</select></Field>}
         {!isDirectExpense && <Field label="ارز"><select value={payment.currency} onChange={(e) => setPayment({ ...payment, currency: e.target.value })}><option value="IRR">ریال</option><option value="USD">دلار</option><option value="EUR">یورو</option><option value="AED">درهم</option></select></Field>}
         {!isDirectExpense && categoryMode && <Field label="جزئیات دسته" full><input value={payment.category_note} onChange={(e) => setPayment({ ...payment, category_note: e.target.value })} placeholder={selectedCategory ? `جزئیات ${selectedCategory.name_fa}` : 'مثلاً شماره رسید، نام فروشنده یا علت هزینه'} /></Field>}
-        <Field label={isDirectExpense ? 'شرح کلی سند' : 'شرح'} full><textarea value={payment.description} onChange={(e) => setPayment({ ...payment, description: e.target.value })} placeholder={isDirectExpense ? 'توضیح کلی درباره هزینه‌هایی که شخص مستقیماً پرداخت کرده است' : ''} /></Field>
+        <Field label={isDirectExpense ? 'شرح کلی حواله' : 'شرح'} full><textarea value={payment.description} onChange={(e) => setPayment({ ...payment, description: e.target.value })} placeholder={isDirectExpense ? 'توضیح درباره دریافت از شخص مبدأ و نحوه تخصیص پرداخت‌ها' : ''} /></Field>
         {directRevision && <Field label="دلیل اصلاح نسخه‌دار" full><textarea value={payment.revision_reason} onChange={(e) => setPayment({ ...payment, revision_reason: e.target.value })} placeholder="دلیل تغییر مبلغ، ردیف‌ها یا اطلاعات سند را دقیق بنویسید" required /></Field>}
       </div>
 
       {isDirectExpense && (
-        <section className="direct-expense-lines-editor">
+        <section className="direct-expense-lines-editor direct-transfer-lines-editor">
           <div className="payment-rows-header">
-            <div><b>ردیف‌های هزینه</b><small>جمع این ردیف‌ها عیناً از بدهی شخص کسر می‌شود.</small></div>
-            <button type="button" className="mini-btn" onClick={addDirectRow}>＋ افزودن ردیف هزینه</button>
+            <div><b>ردیف‌های پرداخت حواله</b><small>هر ردیف «هزینه» یا «پرداخت به شخص» است و جمع همه ردیف‌ها باید دقیقاً برابر مبلغ دریافتی باشد.</small></div>
+            <button type="button" className="mini-btn" onClick={addDirectRow}>＋ افزودن ردیف پرداخت</button>
           </div>
-          <div className="direct-expense-lines-head" aria-hidden="true"><span>ردیف</span><span>دسته هزینه</span><span>مبلغ ریال</span><span>شرح ردیف</span><span>عملیات</span></div>
+          <div className="direct-expense-lines-head direct-transfer-lines-head" aria-hidden="true"><span>ردیف</span><span>نوع</span><span>دسته هزینه / شخص مقصد</span><span>مبلغ ریال</span><span>شرح ردیف</span><span>عملیات</span></div>
           {directExpenseRows.map((row, index) => (
-            <div className="direct-expense-line" key={`direct-expense-${index}`}>
+            <div className="direct-expense-line direct-transfer-line" key={`direct-transfer-${index}`}>
               <span className="direct-expense-line-number">{new Intl.NumberFormat('fa-IR').format(index + 1)}</span>
-              <SearchableSelect
-                value={row.category_id}
-                onChange={(value) => updateDirectRow(index, { category_id: value })}
-                options={categoryOptions.map((item) => ({
-                  value: item.id,
-                  label: `${item.parent_name_fa ? `${item.parent_name_fa} / ` : ''}${item.name_fa}`,
-                  searchText: `${item.name_fa || ''} ${item.parent_name_fa || ''} ${item.code || ''}`,
-                }))}
-                placeholder="انتخاب دسته هزینه"
-                emptyText="دسته هزینه‌ای یافت نشد"
-              />
+              <select
+                value={row.line_type || 'expense'}
+                onChange={(event) => updateDirectRow(index, {
+                  line_type: event.target.value,
+                  category_id: '',
+                  target_party_id: '',
+                })}
+              >
+                <option value="expense">هزینه</option>
+                <option value="party_payment">پرداخت به شخص</option>
+              </select>
+              {row.line_type === 'party_payment' ? (
+                <SearchableSelect
+                  value={row.target_party_id}
+                  onChange={(value) => updateDirectRow(index, { target_party_id: value })}
+                  options={parties.filter((party) => (party.party_id || party.id) !== payment.party_id).map((party) => {
+                    const balance = Number(party.balance || 0);
+                    return {
+                      value: party.party_id || party.id,
+                      label: `${party.display_name} · ${new Intl.NumberFormat('fa-IR').format(Math.abs(balance))} ریال ${balance > 0 ? 'بدهکار' : balance < 0 ? 'بستانکار' : 'تسویه'}`,
+                      searchText: `${party.display_name || ''} ${party.phone || ''} ${party.national_id || ''}`,
+                    };
+                  })}
+                  placeholder="انتخاب شخص مقصد"
+                  emptyText="شخص مقصدی یافت نشد"
+                />
+              ) : (
+                <SearchableSelect
+                  value={row.category_id}
+                  onChange={(value) => updateDirectRow(index, { category_id: value })}
+                  options={categoryOptions.map((item) => ({
+                    value: item.id,
+                    label: `${item.parent_name_fa ? `${item.parent_name_fa} / ` : ''}${item.name_fa}`,
+                    searchText: `${item.name_fa || ''} ${item.parent_name_fa || ''} ${item.code || ''}`,
+                  }))}
+                  placeholder="انتخاب دسته هزینه"
+                  emptyText="دسته هزینه‌ای یافت نشد"
+                />
+              )}
               <MoneyInput value={row.amount} onChange={(value) => updateDirectRow(index, { amount: value })} />
-              <input value={row.description} onChange={(e) => updateDirectRow(index, { description: e.target.value })} placeholder="شرح این هزینه" />
+              <input value={row.description} onChange={(e) => updateDirectRow(index, { description: e.target.value })} placeholder={row.line_type === 'party_payment' ? 'شرح پرداخت به شخص' : 'شرح هزینه'} />
               <button type="button" className="mini-btn danger" disabled={directExpenseRows.length === 1} onClick={() => removeDirectRow(index)}>حذف</button>
             </div>
           ))}
-          <div className="direct-expense-summary">
-            <div><span>مانده بدهکار قابل تسویه</span><b>{new Intl.NumberFormat('fa-IR').format(Math.max(availableDebt, 0))} ریال</b></div>
-            <div className="primary"><span>جمع هزینه‌ها / مبلغ تسویه</span><b>{new Intl.NumberFormat('fa-IR').format(directTotal)} ریال</b></div>
-            <div className={directTotal > availableDebt ? 'danger' : ''}><span>مانده بدهکار پس از ثبت</span><b>{directTotal > availableDebt ? 'مبلغ بیش از بدهی است' : `${new Intl.NumberFormat('fa-IR').format(debtAfter)} ریال`}</b></div>
+          <div className="direct-expense-summary direct-transfer-summary">
+            <div><span>مانده مبدأ پیش از این نسخه</span><b>{new Intl.NumberFormat('fa-IR').format(Math.abs(sourceBalanceBefore))} ریال · {sourceBalanceBefore > 0 ? 'بدهکار' : sourceBalanceBefore < 0 ? 'بستانکار' : 'تسویه'}</b></div>
+            <div className="primary"><span>مبلغ دریافتی</span><b>{new Intl.NumberFormat('fa-IR').format(receivedAmount)} ریال</b></div>
+            <div><span>جمع ردیف‌های پرداخت</span><b>{new Intl.NumberFormat('fa-IR').format(directTotal)} ریال</b></div>
+            <div className={Math.abs(directDifference) >= 0.005 ? 'danger' : 'balanced'}><span>اختلاف دریافت و پرداخت</span><b>{Math.abs(directDifference) < 0.005 ? 'تراز کامل' : `${new Intl.NumberFormat('fa-IR').format(Math.abs(directDifference))} ریال`}</b></div>
+            <div><span>مانده مبدأ پس از ثبت</span><b>{new Intl.NumberFormat('fa-IR').format(Math.abs(sourceBalanceAfter))} ریال · {sourceBalanceAfter > 0 ? 'بدهکار' : sourceBalanceAfter < 0 ? 'بستانکار' : 'تسویه'}</b></div>
           </div>
-          <div className="finance-note">این سند با روش «غیرنقدی» ثبت می‌شود: حساب هزینه هر ردیف بدهکار و حساب دریافتنی شخص بستانکار خواهد شد؛ هیچ حساب بانک یا صندوق درگیر نمی‌شود.</div>
+          {selectedDocumentAvailable !== null && receivedAmount > selectedDocumentAvailable && <div className="finance-note warning">از مبلغ دریافتی، فقط {new Intl.NumberFormat('fa-IR').format(selectedDocumentAvailable)} ریال به مانده فاکتور تخصیص می‌یابد و مازاد، شخص مبدأ را بستانکارتر می‌کند؛ مبلغ حواله محدود نمی‌شود.</div>}
+          <div className="finance-note">اثر سند فقط در صورت‌حساب اشخاص و هزینه‌های واقعی ثبت می‌شود: دریافت، مانده شخص مبدأ را کم می‌کند؛ ردیف هزینه، هزینه شرکت را ثبت می‌کند؛ ردیف پرداخت به شخص، طلب شخص مقصد از شرکت را کم می‌کند. مبلغ مبدأ به مانده بدهکار محدود نیست و می‌تواند او را بستانکار کند. هیچ گردش بانک یا صندوق ساخته نمی‌شود.</div>
         </section>
       )}
 
@@ -464,7 +515,7 @@ export function FinancePaymentForm({
       <div className="finance-form-actions">
         <button type="button" onClick={onCancel}>انصراف</button>
         <button type="submit" disabled={busy || !canSubmit}>
-          {busy ? 'در حال ثبت...' : directRevision ? 'ثبت نسخه اصلاح‌شده' : isDirectExpense ? 'ثبت تسویه غیرنقدی' : initialPayment ? 'ذخیره ویرایش دریافت/پرداخت' : categoryMode ? (payment.direction === 'receipt' ? 'ثبت درآمد' : 'ثبت هزینه') : 'ثبت و صدور سند حسابداری'}
+          {busy ? 'در حال ثبت...' : directRevision ? 'ثبت نسخه اصلاح‌شده حواله' : isDirectExpense ? 'ثبت حواله مستقیم' : initialPayment ? 'ذخیره ویرایش دریافت/پرداخت' : categoryMode ? (payment.direction === 'receipt' ? 'ثبت درآمد' : 'ثبت هزینه') : 'ثبت و صدور سند حسابداری'}
         </button>
       </div>
     </form>

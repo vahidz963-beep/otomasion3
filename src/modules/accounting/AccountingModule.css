@@ -605,3 +605,17 @@
 @media(max-width:900px){.direct-expense-lines-head{display:none}.direct-expense-line{grid-template-columns:42px 1fr 1fr}.direct-expense-line .searchable-select{grid-column:2/-1}.direct-expense-line>input{grid-column:2/-1}.direct-expense-summary{grid-template-columns:1fr}}
 @media(max-width:600px){.payment-rows-header{align-items:stretch;flex-direction:column}.direct-expense-line{grid-template-columns:38px 1fr}.direct-expense-line .searchable-select,.direct-expense-line>input,.direct-expense-line>.mini-btn{grid-column:2}.direct-expense-line .money-input{grid-column:2}.direct-expense-detail-modal{max-width:100%!important}}
 .direct-expense-history-card{grid-column:1/-1}.direct-expense-history-card .finance-table{min-width:1050px}.direct-expense-history-card .status-badge{white-space:nowrap}
+.direct-transfer-lines-head,.direct-transfer-line{grid-template-columns:50px minmax(125px,.58fr) minmax(220px,1.15fr) minmax(145px,.68fr) minmax(180px,.9fr) 72px}
+.direct-transfer-line>select{width:100%;min-height:40px;border:1px solid #d5dfdc;border-radius:10px;padding:8px 9px;background:#fff;color:#10243d}
+.direct-transfer-summary{grid-template-columns:repeat(auto-fit,minmax(185px,1fr))}
+.direct-transfer-summary .balanced{border-color:#a9d7c9;background:#f0faf6}.direct-transfer-summary .balanced b{color:#127056}
+@media(max-width:1000px){.direct-transfer-lines-head{display:none}.direct-transfer-line{grid-template-columns:42px minmax(130px,.65fr) minmax(0,1fr)}.direct-transfer-line .searchable-select{grid-column:auto}.direct-transfer-line>input{grid-column:2/-1}.direct-transfer-line>.money-input{grid-column:auto}.direct-transfer-line>.mini-btn{justify-self:end}}
+@media(max-width:650px){.direct-transfer-line{grid-template-columns:36px 1fr}.direct-transfer-line>select,.direct-transfer-line .searchable-select,.direct-transfer-line>.money-input,.direct-transfer-line>input,.direct-transfer-line>.mini-btn{grid-column:2}.direct-transfer-line>.mini-btn{justify-self:stretch}}
+.direct-transfer-card{border-color:#b9dcd1;background:linear-gradient(180deg,#fbfffd 0%,#fff 100%)}
+.direct-transfer-card>.finance-card-header>div:first-child{display:flex;flex-direction:column;gap:4px}.direct-transfer-card>.finance-card-header .finance-note{margin:0}
+.direct-transfer-toolbar{margin:12px 0}.direct-transfer-toolbar input{min-width:min(460px,100%)}
+.direct-transfer-kpis{margin:0 0 12px}.direct-transfer-table{min-width:1120px}.direct-transfer-table td small{display:block;margin-top:3px;color:#71807d;font-size:10.5px}
+.direct-transfer-audit-note{display:flex;align-items:center;gap:7px;margin-top:11px;padding:9px 11px;border:1px solid #d8e9e3;border-radius:11px;background:#f6fbf9}
+.direct-transfer-line-kind{display:inline-flex;padding:4px 8px;border-radius:999px;font-size:10.5px;font-weight:900;white-space:nowrap}.direct-transfer-line-kind.expense{background:#fff1eb;color:#9a3b1c}.direct-transfer-line-kind.party{background:#edf4ff;color:#24588e}
+.direct-transfer-detail-table{min-width:940px}
+@media(max-width:700px){.direct-transfer-card>.finance-card-header{align-items:stretch;flex-direction:column}.direct-transfer-card>.finance-card-header>button{width:100%}.direct-transfer-toolbar{align-items:stretch;flex-direction:column}.direct-transfer-toolbar input{min-width:0;width:100%}}

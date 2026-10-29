@@ -53,7 +53,7 @@ for (const file of files) {
     process.exit(1);
   }
 }
-console.log('MIGRATIONS_128_135_PGLITE_OK');
+console.log('MIGRATIONS_128_137_PGLITE_OK');
 {
   const admin = '10000000-0000-4000-8000-000000000001';
   await db.exec(`
@@ -199,6 +199,152 @@ console.log('MIGRATIONS_128_135_PGLITE_OK');
   try { await db.query(`delete from public.finance_direct_expense_offsets where id=$1`,[directRevised.settlement_id]); } catch { physicalDeleteBlocked = true; }
   if (!physicalDeleteBlocked) throw new Error('direct expense physical deletion was not blocked');
   console.log('DIRECT_EXPENSE_DEBT_OFFSET_INTEGRATION_OK');
+
+  // حواله مستقیم مختلط: دریافت ۱۰۰ از A، هزینه ۶۰، پرداخت ۴۰ به B.
+  // A only owes 50 beforehand, so the accepted 100 receipt must cross A into
+  // credit balance. B starts with an 80 payable and must end at 40 payable.
+  const sourceA = (await db.query(`
+    insert into public.finance_parties(party_type,display_name,created_by)
+    values('customer','شخص مبدأ A حواله',$1) returning id
+  `,[admin])).rows[0].id;
+  const targetB = (await db.query(`
+    insert into public.finance_parties(party_type,display_name,created_by)
+    values('supplier','شخص مقصد B حواله',$1) returning id
+  `,[admin])).rows[0].id;
+  await db.query(`
+    insert into public.finance_documents(document_type,status,party_id,subtotal_amount,total_amount,description,approved_by,approved_at,created_by)
+    values
+      ('sales_invoice','approved',$1,50000,50000,'بدهی اولیه A',$3,now(),$3),
+      ('purchase_invoice','approved',$2,80000,80000,'طلب اولیه B',$3,now(),$3)
+  `,[sourceA,targetB,admin]);
+  const sourceDocumentA = (await db.query(`select id from public.finance_documents where party_id=$1 and description='بدهی اولیه A'`,[sourceA])).rows[0].id;
+  const mixedLines = JSON.stringify([
+    {line_type:'expense',category_id:expenseCategories[0].id,amount:60000,description:'هزینه شصت واحدی'},
+    {line_type:'party_payment',target_party_id:targetB,amount:40000,description:'پرداخت چهل واحدی به B'},
+  ]);
+  const bankBeforeMixed = Number((await db.query(`select current_balance from public.v_finance_account_turnover where account_kind='bank' and account_id=$1`,[bank])).rows[0].current_balance);
+
+  let mixedMismatchBlocked = false;
+  try {
+    await db.query(`select public.fn_create_direct_transfer($1,current_date,100001,$2::jsonb,'عدم تراز',null,null,'direct-transfer-mismatch')`,[sourceA,mixedLines]);
+  } catch { mixedMismatchBlocked = true; }
+  if (!mixedMismatchBlocked) throw new Error('direct transfer accepted received/allocated mismatch');
+
+  const mixedCreated = (await db.query(`
+    select public.fn_create_direct_transfer(
+      $1,current_date,100000,$2::jsonb,'نمونه ۱۰۰/۶۰/۴۰',$3,null,'direct-transfer-mixed-1'
+    ) as x
+  `,[sourceA,mixedLines,sourceDocumentA])).rows[0].x;
+  if (Number(mixedCreated.received_amount)!==100000 || mixedCreated.idempotent!==false) throw new Error('mixed direct transfer create mismatch');
+  const mixedRepeated = (await db.query(`
+    select public.fn_create_direct_transfer(
+      $1,current_date,100000,$2::jsonb,'نمونه ۱۰۰/۶۰/۴۰',$3,null,'direct-transfer-mixed-1'
+    ) as x
+  `,[sourceA,mixedLines,sourceDocumentA])).rows[0].x;
+  if (mixedRepeated.transfer_id!==mixedCreated.transfer_id || mixedRepeated.idempotent!==true) throw new Error('mixed direct transfer idempotency failed');
+
+  let sourceBalance = Number((await db.query(`select balance from public.v_party_balances where party_id=$1`,[sourceA])).rows[0].balance);
+  let targetBalance = Number((await db.query(`select balance from public.v_party_balances where party_id=$1`,[targetB])).rows[0].balance);
+  if (sourceBalance!==-50000) throw new Error(`source balance did not cross into credit: ${sourceBalance}`);
+  if (targetBalance!==-40000) throw new Error(`target claim was not reduced by 40000: ${targetBalance}`);
+  const overpaidDocumentState = (await db.query(`
+    select d.paid_amount,d.balance_amount,
+      (select coalesce(sum(a.amount),0) from public.finance_payment_allocations a where a.document_id=d.id) allocated
+    from public.finance_documents d where d.id=$1
+  `,[sourceDocumentA])).rows[0];
+  if (Number(overpaidDocumentState.paid_amount)!==50000 || Number(overpaidDocumentState.balance_amount)!==0 || Number(overpaidDocumentState.allocated)!==50000) throw new Error('linked invoice capped the source receipt instead of partially allocating it');
+
+  let mixedState = (await db.query(`
+    select s.status,s.total_amount,s.payment_id,s.journal_entry_id,
+      count(*)::int line_count,
+      coalesce(sum(l.amount) filter(where l.line_type='expense'),0) expense_amount,
+      coalesce(sum(l.amount) filter(where l.line_type='party_payment'),0) party_amount,
+      count(*) filter(where l.line_type='party_payment' and l.target_party_id=$2 and l.target_payment_id is not null)::int target_line_count,
+      (select count(*)::int from public.finance_payments p where p.source_record_id=s.id and p.method='direct_expense_offset' and p.status='confirmed') active_payment_count,
+      (select count(*)::int from public.finance_payments p where p.source_record_id=s.id and (p.bank_account_id is not null or p.cashbox_id is not null)) treasury_reference_count,
+      (select coalesce(sum(jl.debit_amount),0) from public.finance_journal_lines jl where jl.entry_id=s.journal_entry_id) journal_debit,
+      (select coalesce(sum(jl.credit_amount),0) from public.finance_journal_lines jl where jl.entry_id=s.journal_entry_id) journal_credit,
+      (select count(*)::int from public.finance_journal_lines jl join public.finance_accounts a on a.id=jl.account_id where jl.entry_id=s.journal_entry_id and a.code='2000' and jl.party_id=$2 and jl.debit_amount=40000) payable_target_lines,
+      (select count(*)::int from public.finance_journal_lines jl join public.finance_accounts a on a.id=jl.account_id where jl.entry_id=s.journal_entry_id and a.code='1100' and jl.party_id=$3 and jl.credit_amount=100000) receivable_source_lines
+    from public.finance_direct_expense_offsets s
+    join public.finance_direct_expense_offset_lines l on l.settlement_id=s.id
+    where s.id=$1
+    group by s.id
+  `,[mixedCreated.transfer_id,targetB,sourceA])).rows[0];
+  if (Number(mixedState.line_count)!==2 || Number(mixedState.expense_amount)!==60000 || Number(mixedState.party_amount)!==40000) throw new Error('mixed transfer line classification mismatch');
+  if (Number(mixedState.target_line_count)!==1 || Number(mixedState.active_payment_count)!==2 || Number(mixedState.treasury_reference_count)!==0) throw new Error('mixed transfer party payments/treasury references mismatch');
+  if (Number(mixedState.journal_debit)!==100000 || Number(mixedState.journal_credit)!==100000 || Number(mixedState.payable_target_lines)!==1 || Number(mixedState.receivable_source_lines)!==1) throw new Error('mixed transfer journal is not balanced by source/target effects');
+
+  const sourceStatementCredit = Number((await db.query(`select coalesce(sum(credit_amount),0) amount from public.v_party_statement where party_id=$1 and payment_id=$2`,[sourceA,mixedCreated.payment_id])).rows[0].amount);
+  const targetStatementDebit = Number((await db.query(`
+    select coalesce(sum(debit_amount),0) amount from public.v_party_statement
+    where party_id=$1 and payment_id in (
+      select target_payment_id from public.finance_direct_expense_offset_lines where settlement_id=$2 and line_type='party_payment'
+    )
+  `,[targetB,mixedCreated.transfer_id])).rows[0].amount);
+  if (sourceStatementCredit!==100000 || targetStatementDebit!==40000) throw new Error('mixed transfer party statement effects mismatch');
+
+  let mixedExpenseReport = (await db.query(`select count(*)::int n,coalesce(sum(amount),0) total from public.v_finance_income_expense_ledger where direct_settlement_id=$1`,[mixedCreated.transfer_id])).rows[0];
+  if (Number(mixedExpenseReport.n)!==1 || Number(mixedExpenseReport.total)!==60000) throw new Error('party-payment line leaked into expense ledger');
+  const mixedSummary = (await db.query(`select received_amount,allocated_amount,expense_amount,party_payment_amount,expense_line_count,party_payment_line_count from public.v_finance_direct_transfer_summary where transfer_id=$1`,[mixedCreated.transfer_id])).rows[0];
+  if (Number(mixedSummary.received_amount)!==100000 || Number(mixedSummary.allocated_amount)!==100000 || Number(mixedSummary.expense_amount)!==60000 || Number(mixedSummary.party_payment_amount)!==40000 || Number(mixedSummary.expense_line_count)!==1 || Number(mixedSummary.party_payment_line_count)!==1) throw new Error('direct transfer summary view mismatch');
+  const mixedTreasuryRows = Number((await db.query(`select count(*)::int n from public.v_finance_payment_ledger where source_record_id=$1`,[mixedCreated.transfer_id])).rows[0].n);
+  const bankAfterMixed = Number((await db.query(`select current_balance from public.v_finance_account_turnover where account_kind='bank' and account_id=$1`,[bank])).rows[0].current_balance);
+  if (mixedTreasuryRows!==0 || bankAfterMixed!==bankBeforeMixed) throw new Error('mixed direct transfer changed bank/cash flow');
+
+  // A non-accounting role must not invoke the write RPC.
+  const directTransferSalesUser = '10000000-0000-4000-8000-000000000002';
+  await db.query(`insert into auth.users(id,email,raw_user_meta_data,raw_app_meta_data,created_at,updated_at) values($1,'sales@test.local','{"role":"sales","full_name":"Sales Test"}'::jsonb,'{}'::jsonb,now(),now())`,[directTransferSalesUser]);
+  await db.query(`select set_config('request.jwt.claim.sub',$1,false)`,[directTransferSalesUser]);
+  let salesTransferBlocked = false;
+  try { await db.query(`select public.fn_create_direct_transfer($1,current_date,100000,$2::jsonb,'غیرمجاز',null,null,'direct-transfer-forbidden')`,[sourceA,mixedLines]); } catch { salesTransferBlocked = true; }
+  if (!salesTransferBlocked) throw new Error('sales role invoked direct transfer RPC');
+  await db.query(`select set_config('request.jwt.claim.sub',$1,false)`,[admin]);
+
+  const revisedMixedLines = JSON.stringify([
+    {line_type:'expense',category_id:expenseCategories[0].id,amount:50000,description:'هزینه نسخه دوم'},
+    {line_type:'party_payment',target_party_id:targetB,amount:50000,description:'پرداخت نسخه دوم به B'},
+  ]);
+  const mixedRevised = (await db.query(`
+    select public.fn_revise_direct_transfer(
+      $1,$2,current_date,100000,$3::jsonb,'اصلاح تقسیم ۵۰/۵۰','نسخه دوم',$4,null,'direct-transfer-mixed-revise-1'
+    ) as x
+  `,[mixedCreated.transfer_id,sourceA,revisedMixedLines,sourceDocumentA])).rows[0].x;
+  if (mixedRevised.replaces_settlement_id!==mixedCreated.transfer_id) throw new Error('mixed transfer version link missing');
+  sourceBalance = Number((await db.query(`select balance from public.v_party_balances where party_id=$1`,[sourceA])).rows[0].balance);
+  targetBalance = Number((await db.query(`select balance from public.v_party_balances where party_id=$1`,[targetB])).rows[0].balance);
+  if (sourceBalance!==-50000 || targetBalance!==-30000) throw new Error('mixed transfer revision did not replace active party effects');
+  mixedExpenseReport = (await db.query(`select count(*)::int n,coalesce(sum(amount),0) total from public.v_finance_income_expense_ledger where direct_settlement_id=$1`,[mixedRevised.transfer_id])).rows[0];
+  if (Number(mixedExpenseReport.n)!==1 || Number(mixedExpenseReport.total)!==50000) throw new Error('mixed transfer revision expense effect mismatch');
+  const oldMixedPaymentsActive = Number((await db.query(`select count(*)::int n from public.finance_payments where source_record_id=$1 and status='confirmed'`,[mixedCreated.transfer_id])).rows[0].n);
+  if (oldMixedPaymentsActive!==0) throw new Error('old mixed transfer payments remained active after revision');
+
+  await db.query(`select public.fn_void_direct_transfer($1,'ابطال امن نهایی حواله مختلط')`,[mixedRevised.transfer_id]);
+  sourceBalance = Number((await db.query(`select balance from public.v_party_balances where party_id=$1`,[sourceA])).rows[0].balance);
+  targetBalance = Number((await db.query(`select balance from public.v_party_balances where party_id=$1`,[targetB])).rows[0].balance);
+  if (sourceBalance!==50000 || targetBalance!==-80000) throw new Error('safe void did not fully restore source/target statements');
+  const restoredSourceDocument = (await db.query(`select paid_amount,balance_amount from public.finance_documents where id=$1`,[sourceDocumentA])).rows[0];
+  if (Number(restoredSourceDocument.paid_amount)!==0 || Number(restoredSourceDocument.balance_amount)!==50000) throw new Error('safe void did not restore partially allocated source invoice');
+  const mixedVoidState = (await db.query(`
+    select s.status,je.status journal_status,
+      (select count(*)::int from public.finance_payments p where p.source_record_id=s.id and p.status='confirmed') active_payments,
+      (select count(*)::int from public.finance_payments p where p.source_record_id=s.id and p.status='void') void_payments,
+      (select count(*)::int from public.finance_direct_expense_offset_lines l where l.settlement_id=s.id) audit_lines
+    from public.finance_direct_expense_offsets s
+    join public.finance_journal_entries je on je.id=s.journal_entry_id
+    where s.id=$1
+  `,[mixedRevised.transfer_id])).rows[0];
+  if (mixedVoidState.status!=='void' || mixedVoidState.journal_status!=='void' || Number(mixedVoidState.active_payments)!==0 || Number(mixedVoidState.void_payments)!==2 || Number(mixedVoidState.audit_lines)!==2) throw new Error('mixed transfer safe void/audit retention mismatch');
+  const remainingMixedExpense = Number((await db.query(`select count(*)::int n from public.v_finance_income_expense_ledger where direct_settlement_id in ($1,$2)`,[mixedCreated.transfer_id,mixedRevised.transfer_id])).rows[0].n);
+  if (remainingMixedExpense!==0) throw new Error('void/replaced mixed transfer remained in active expense report');
+  let mixedDeleteBlocked = false;
+  try { await db.query(`delete from public.finance_direct_expense_offset_lines where settlement_id=$1`,[mixedRevised.transfer_id]); } catch { mixedDeleteBlocked = true; }
+  if (!mixedDeleteBlocked) throw new Error('mixed transfer audit lines were physically deletable');
+
+  const bankNameContract = (await db.query(`select count(*)::int n from information_schema.columns where table_schema='public' and table_name='v_finance_payment_ledger' and column_name='bank_name'`)).rows[0].n;
+  if (Number(bankNameContract)!==1) throw new Error('v_finance_payment_ledger.bank_name contract missing');
+  await db.query(`select bank_name from public.v_finance_payment_ledger limit 0`);
+  console.log('DIRECT_TRANSFER_MIXED_SAFE_VOID_RLS_AND_BANK_NAME_CONTRACT_OK');
 
   const existing = (await db.query(`select public.fn_purchase_finance_investment(
     'land','دارایی موجود تست',current_date,2,'عدد',500000,0,500000,null,null,null,'بدون پرداخت','inv-existing-1','existing_asset'

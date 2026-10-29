@@ -658,27 +658,42 @@ function StockSection({ stock, onRefresh }) {
   return <section className="orders-card order-live-stock"><div className="section-head"><div><CardTitle icon={PackageCheck} title="موجودی و قیمت فروش آنلاین انبار" /><p className="live-stock-note"><i/>همگام زنده با موجودی، رزرو، قیمت فروش و نرخ ارز انبار · آخرین داده: {latestUpdate ? formatDateTime(latestUpdate) : 'در انتظار همگام‌سازی'}</p></div><button type="button" onClick={onRefresh}><RefreshCcw size={15}/> به‌روزرسانی الآن</button></div><div className="filters"><input value={stockQuery} onChange={(e) => setStockQuery(e.target.value)} placeholder="جست‌وجوی کد، نام کالا، گروه..." /></div>{filtered.length === 0 ? <Empty text="کالایی با این جست‌وجو پیدا نشد." /> : <div className="orders-table-wrap order-live-stock-table"><table><thead><tr><th>کد</th><th>کالا</th><th>موجودی</th><th>رزروشده</th><th>قابل فروش</th><th>قیمت فروش روز</th><th>مبنای قیمت</th><th>حداقل</th><th>وضعیت</th></tr></thead><tbody>{filtered.map((s) => { const salePrice = Number(s.sale_price_rial ?? s.effective_sale_price ?? s.unit_sale_price_estimate ?? 0); const basePrice = Number(s.base_sale_price || 0); const currency = s.price_currency; return <tr key={s.item_id}><td dir="ltr">{s.item_code}</td><td><b>{s.item_name_fa}</b><small>{s.item_group_label || s.item_group || s.category || '—'}</small></td><td>{formatNumber(s.current_qty)} {s.unit}</td><td>{formatNumber(s.reserved_qty)}</td><td className={Number(s.available_for_sale_qty) > 0 ? 'positive' : 'negative'}><b>{formatNumber(s.available_for_sale_qty)}</b></td><td className="online-sale-price">{salePrice > 0 ? <><b>{formatMoney(salePrice)}</b><small>قیمت جاری قابل استفاده در سفارش جدید</small></> : <span>فاقد قیمت فروش</span>}</td><td>{['USD','CNY'].includes(currency) && basePrice > 0 ? <><b dir="ltr">{currency === 'USD' ? '$' : '¥'}{formatPriceNumber(basePrice)}</b><small>{currency === 'USD' ? 'دلار' : 'یوان'} · نرخ روز</small></> : <span>ریالی</span>}</td><td>{formatNumber(s.min_stock_threshold)}</td><td>{s.is_low_stock ? <span className="stock-sale-status low">کمبود</span> : <span className="stock-sale-status ok">قابل فروش</span>}</td></tr>;})}</tbody></table></div>}</section>;
 }
 
+function SalesDocumentKindCard({ kind, title, rows, total, query, onQueryChange, emptyText, onOpen }) {
+  return <section className={`orders-card sales-document-kind-card ${kind}`}>
+    <div className="section-head sales-document-kind-head">
+      <div><CardTitle icon={FileText} title={title}/><p className="muted">{formatNumber(total)} سند مرتبط · فقط مشاهده و دریافت خروجی</p></div>
+      <span className={`sales-document-kind-count ${kind}`}>{formatNumber(total)}</span>
+    </div>
+    <div className="filters sales-document-kind-search"><input value={query} onChange={(event) => onQueryChange(event.target.value)} placeholder={`جست‌وجوی مستقل ${title}؛ شماره سند، سفارش یا مشتری...`}/></div>
+    {rows.length === 0 ? <Empty text={query ? `در ${title} نتیجه‌ای برای این جست‌وجو پیدا نشد.` : emptyText}/> : <div className="orders-table-wrap sales-documents-table"><table><thead><tr><th>شماره سند</th><th>تاریخ</th><th>سفارش مرتبط</th><th>مشتری</th><th>وضعیت</th><th>مبلغ کل</th><th>مانده</th><th>عملیات مجاز</th></tr></thead><tbody>{rows.map((document) => <tr key={document.id}><td dir="ltr"><b>{document.doc_number}</b></td><td>{formatDate(document.issue_date)}</td><td dir="ltr">{document.order_code || '—'}</td><td>{document.party_name || document.customer_name || '—'}</td><td><span className="status-pill">{SALES_DOCUMENT_STATUS_LABELS[document.status] || document.status}</span></td><td><b>{formatMoney(document.total_amount)}</b></td><td>{formatMoney(document.balance_amount)}</td><td><button type="button" className="sales-document-open" onClick={() => onOpen(document.id)}><Eye size={15}/> مشاهده و خروجی</button></td></tr>)}</tbody></table></div>}
+  </section>;
+}
+
 function SalesDocumentsSection({ documents = [], onOpen, onRefresh }) {
-  const [query, setQuery] = useState('');
-  const [type, setType] = useState('all');
-  const filtered = useMemo(() => documents.filter((document) => {
+  const [invoiceQuery, setInvoiceQuery] = useState('');
+  const [proformaQuery, setProformaQuery] = useState('');
+  const invoices = useMemo(() => documents.filter((document) => document.document_type === 'sales_invoice'), [documents]);
+  const proformas = useMemo(() => documents.filter((document) => document.document_type === 'sales_proforma'), [documents]);
+
+  function matchesQuery(document, query) {
     const text = `${document.doc_number || ''} ${document.order_code || ''} ${document.party_name || document.customer_name || ''}`.toLowerCase();
-    return (type === 'all' || document.document_type === type) && (!query || text.includes(query.toLowerCase()));
-  }), [documents, query, type]);
-  const invoices = documents.filter((document) => document.document_type === 'sales_invoice').length;
-  const proformas = documents.filter((document) => document.document_type === 'sales_proforma').length;
+    return !query || text.includes(query.trim().toLowerCase());
+  }
+
+  const filteredInvoices = useMemo(() => invoices.filter((document) => matchesQuery(document, invoiceQuery)), [invoices, invoiceQuery]);
+  const filteredProformas = useMemo(() => proformas.filter((document) => matchesQuery(document, proformaQuery)), [proformas, proformaQuery]);
 
   return <>
     <section className="orders-grid sales-document-kpis">
       <article><span>اسناد مرتبط قابل مشاهده</span><b>{formatNumber(documents.length)}</b><small>فقط اسناد فروش متصل به سفارش‌های مجاز</small></article>
-      <article><span>فاکتور فروش</span><b>{formatNumber(invoices)}</b><small>مشاهده و دریافت خروجی</small></article>
-      <article><span>پیش‌فاکتور فروش</span><b>{formatNumber(proformas)}</b><small>مشاهده و دریافت خروجی</small></article>
+      <article><span>فاکتور فروش</span><b>{formatNumber(invoices.length)}</b><small>مشاهده و دریافت خروجی</small></article>
+      <article><span>پیش‌فاکتور فروش</span><b>{formatNumber(proformas.length)}</b><small>مشاهده و دریافت خروجی</small></article>
     </section>
-    <section className="orders-card sales-documents-card">
-      <div className="section-head"><div><CardTitle icon={FileText} title="فاکتورها و پیش‌فاکتورهای مرتبط"/><p className="muted">این فهرست فقط‌خواندنی است و هیچ دسترسی به خزانه، حساب‌ها، ثبت پرداخت، ویرایش، ابطال یا تبدیل سند ایجاد نمی‌کند.</p></div><button type="button" onClick={onRefresh}><RefreshCcw size={15}/> به‌روزرسانی</button></div>
-      <div className="filters"><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="جست‌وجوی شماره سند، سفارش یا مشتری..."/><select value={type} onChange={(event) => setType(event.target.value)}><option value="all">همه اسناد</option><option value="sales_invoice">فاکتور فروش</option><option value="sales_proforma">پیش‌فاکتور فروش</option></select></div>
-      {filtered.length === 0 ? <Empty text="سند فروش مرتبطی پیدا نشد."/> : <div className="orders-table-wrap sales-documents-table"><table><thead><tr><th>نوع سند</th><th>شماره سند</th><th>تاریخ</th><th>سفارش مرتبط</th><th>مشتری</th><th>وضعیت</th><th>مبلغ کل</th><th>مانده</th><th>عملیات مجاز</th></tr></thead><tbody>{filtered.map((document) => <tr key={document.id}><td><span className={`sales-doc-kind ${document.document_type}`}>{SALES_DOCUMENT_LABELS[document.document_type] || document.document_type}</span></td><td dir="ltr"><b>{document.doc_number}</b></td><td>{formatDate(document.issue_date)}</td><td dir="ltr">{document.order_code || '—'}</td><td>{document.party_name || document.customer_name || '—'}</td><td><span className="status-pill">{SALES_DOCUMENT_STATUS_LABELS[document.status] || document.status}</span></td><td><b>{formatMoney(document.total_amount)}</b></td><td>{formatMoney(document.balance_amount)}</td><td><button type="button" className="sales-document-open" onClick={() => onOpen(document.id)}><Eye size={15}/> مشاهده و خروجی</button></td></tr>)}</tbody></table></div>}
-    </section>
+    <section className="orders-card sales-documents-intro-card"><div className="section-head"><div><CardTitle icon={FileText} title="فاکتور و پیش‌فاکتور"/><p className="muted">دو فهرست مستقل زیر فقط‌خواندنی‌اند و هیچ دسترسی به خزانه، حساب‌ها، ثبت پرداخت، ویرایش، ابطال یا تبدیل سند ایجاد نمی‌کنند.</p></div><button type="button" onClick={onRefresh}><RefreshCcw size={15}/> به‌روزرسانی</button></div></section>
+    <div className="sales-document-separated-grid">
+      <SalesDocumentKindCard kind="invoice" title="فاکتورها" rows={filteredInvoices} total={invoices.length} query={invoiceQuery} onQueryChange={setInvoiceQuery} emptyText="هنوز فاکتور مرتبطی وجود ندارد." onOpen={onOpen}/>
+      <SalesDocumentKindCard kind="proforma" title="پیش‌فاکتورها" rows={filteredProformas} total={proformas.length} query={proformaQuery} onQueryChange={setProformaQuery} emptyText="هنوز پیش‌فاکتور مرتبطی وجود ندارد." onOpen={onOpen}/>
+    </div>
   </>;
 }
 

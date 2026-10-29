@@ -96,6 +96,6 @@ assert.match(warehouseUi, /ثبت دستی مستقل از موجودی/u);
 assert.match(warehouseUi, /اقلام دقیق ارسال‌شده/u);
 assert.doesNotMatch(financeApi, /fn_finance_issue_inventory_for_document/u, 'frontend invoice approval must never call stock issue');
 assert.match(financeApi, /fn_sync_order_reservation_for_finance_document/u);
-assert.equal(packageJson.version, '138.0.1');
+assert.equal(packageJson.version, '139.0.0');
 
 console.log('warehouse shipment model + migration/UI contracts: OK');
