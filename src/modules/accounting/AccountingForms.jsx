@@ -263,7 +263,7 @@ export function FinancePaymentForm({
       method,
       cashbox_id: method === 'cash' ? (current.cashbox_id || cashboxes[0]?.id || '') : '',
       bank_account_id: method === 'cash' ? '' : (current.bank_account_id || accounts[0]?.id || ''),
-      transfer_to_bank_account_id: method === 'bank_transfer' ? current.transfer_to_bank_account_id : '',
+      transfer_to_bank_account_id: method === 'bank_transfer' || method === 'account_transfer' ? current.transfer_to_bank_account_id : '',
       loan_id: method === 'loan_payment' ? current.loan_id : '',
     }));
   }
@@ -325,7 +325,7 @@ export function FinancePaymentForm({
       loan_id: payment.method === 'loan_payment' ? payment.loan_id || null : null,
       bank_account_id: payment.method === 'cash' ? null : payment.bank_account_id || null,
       cashbox_id: payment.method === 'cash' ? payment.cashbox_id || null : null,
-      transfer_to_bank_account_id: payment.method === 'bank_transfer' ? payment.transfer_to_bank_account_id || null : null,
+      transfer_to_bank_account_id: payment.method === 'bank_transfer' || payment.method === 'account_transfer' ? payment.transfer_to_bank_account_id || null : null,
       category_id: payment.category_id || null,
       category_note: payment.category_note || null,
       amount: totalAmount,
@@ -339,9 +339,12 @@ export function FinancePaymentForm({
   }
 
   const targetRequired = payment.method === 'cash' ? payment.cashbox_id : payment.bank_account_id;
-  const transferIsValid = payment.method !== 'bank_transfer'
-    || !payment.transfer_to_bank_account_id
-    || payment.transfer_to_bank_account_id !== payment.bank_account_id;
+  const transferMethod = payment.method === 'bank_transfer' || payment.method === 'account_transfer';
+  const transferIsValid = payment.method === 'account_transfer'
+    ? Boolean(payment.transfer_to_bank_account_id) && payment.transfer_to_bank_account_id !== payment.bank_account_id
+    : payment.method !== 'bank_transfer'
+      || !payment.transfer_to_bank_account_id
+      || payment.transfer_to_bank_account_id !== payment.bank_account_id;
   const loanIsValid = payment.method !== 'loan_payment' || payment.loan_id;
   const categoryIsValid = !categoryMode || payment.category_id;
   const selectedDocumentAvailable = selectedDoc
@@ -376,10 +379,11 @@ export function FinancePaymentForm({
         {!categoryMode && !isDirectExpense && <Field label="نوع"><select value={payment.direction} onChange={(e) => changeDirection(e.target.value)}><option value="receipt">دریافت</option><option value="payment">پرداخت</option></select></Field>}
         {isDirectExpense && <Field label="نوع اثر حسابداری"><input readOnly value="دریافت از مبدأ + هزینه / پرداخت به شخص" /></Field>}
         <Field label="روش">
-          <select value={payment.method} disabled={isDirectExpense || directRevision} onChange={(e) => changeMethod(e.target.value)}>
-            {isDirectExpense && <option value="direct_expense_offset">حواله مستقیم (غیرنقدی)</option>}
+          <select value={payment.method} disabled={directRevision} onChange={(e) => changeMethod(e.target.value)}>
+            <option value="direct_expense_offset">حواله مستقیم (غیرنقدی)</option>
             {!isDirectExpense && <>
               <option value="bank_transfer">واریز / انتقال بانکی</option>
+              <option value="account_transfer">انتقال بین حساب‌ها</option>
               <option value="card">کارت</option>
               <option value="pos">کارت‌خوان</option>
               <option value="cash">نقدی / صندوق</option>
@@ -428,7 +432,7 @@ export function FinancePaymentForm({
         {!isDirectExpense && payment.method === 'cash'
           ? <Field label="صندوق"><select value={payment.cashbox_id} onChange={(e) => setPayment({ ...payment, cashbox_id: e.target.value })}><option value="">انتخاب صندوق</option>{cashboxes.map((cashbox) => <option key={cashbox.id} value={cashbox.id}>{cashbox.name}</option>)}</select></Field>
           : !isDirectExpense && <Field label="حساب بانک / کارت"><select value={payment.bank_account_id} onChange={(e) => setPayment({ ...payment, bank_account_id: e.target.value })}><option value="">انتخاب حساب/کارت</option>{accounts.map((account) => <option key={account.id} value={account.id}>{account.account_name} · {account.bank_name || ''}{account.card_number ? ` · ${account.card_number}` : ''}</option>)}</select></Field>}
-        {!isDirectExpense && payment.method === 'bank_transfer' && <Field label="حساب مقصد انتقال (اختیاری)"><select value={payment.transfer_to_bank_account_id} onChange={(e) => setPayment({ ...payment, transfer_to_bank_account_id: e.target.value })}><option value="">انتقال داخلی نیست / بدون مقصد</option>{accounts.filter((account) => account.id !== payment.bank_account_id).map((account) => <option key={account.id} value={account.id}>{account.account_name} · {account.bank_name || ''}</option>)}</select></Field>}
+        {!isDirectExpense && transferMethod && <Field label={payment.method === 'account_transfer' ? 'حساب مقصد انتقال' : 'حساب مقصد انتقال (اختیاری)'}><select value={payment.transfer_to_bank_account_id} onChange={(e) => setPayment({ ...payment, transfer_to_bank_account_id: e.target.value })}>{payment.method === 'bank_transfer' && <option value="">انتقال داخلی نیست / بدون مقصد</option>}{accounts.filter((account) => account.id !== payment.bank_account_id).map((account) => <option key={account.id} value={account.id}>{account.account_name} · {account.bank_name || ''}</option>)}</select></Field>}
 
         {!isDirectExpense && !multiMode && <Field label="مبلغ"><MoneyInput value={payment.amount} onChange={(value) => setPayment({ ...payment, amount: value })} /></Field>}
         {!isDirectExpense && !categoryMode && <Field label="تخصیص به فاکتور"><select value={documentId} onChange={(e) => { const value = e.target.value; setDocumentId(value); const doc = payableDocs.find((item) => item.id === value); if (doc && !multiMode) setPayment({ ...payment, party_id: doc.party_id, amount: doc.balance_amount }); }}><option value="">بدون تخصیص</option>{payableDocs.map((doc) => <option key={doc.id} value={doc.id}>{doc.doc_number} · {Number(doc.balance_amount).toLocaleString('fa-IR')} ریال</option>)}</select></Field>}

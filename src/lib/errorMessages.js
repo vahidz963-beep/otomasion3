@@ -22,11 +22,18 @@ export function getFriendlyErrorMessage(error, fallback = 'خطا در اجرا�
   }
 
   if (lower.includes('relation') && lower.includes('does not exist') || lower.includes('could not find the table') || lower.includes('schema cache') || code === 'PGRST205') {
-    return 'جدول یا View مورد نیاز در دیتابیس پیدا نشد. احتمالاً بخشی از SQLهای جدید هنوز اجرا نشده است.';
+    const missing = raw.match(/'([^']+)'/)?.[1] || '';
+    return missing
+      ? `جدول یا View «${missing}» در دیتابیس پیدا نشد. همه فایل‌های SQL پوشه supabase/migrations باید به‌ترتیب و کامل در Supabase اجرا شوند.`
+      : 'جدول یا View مورد نیاز در دیتابیس پیدا نشد. همه فایل‌های SQL پوشه supabase/migrations باید به‌ترتیب و کامل در Supabase اجرا شوند.';
   }
 
   if (lower.includes('column') && lower.includes('does not exist') || code === '42703') {
-    return 'ستون جدید مورد نیاز در دیتابیس وجود ندارد. احتمالاً دیتابیس با آخرین SQLها به‌روزرسانی نشده است.';
+    const missing = raw.match(/"([^"]+)"|'([^']+)'/);
+    const name = missing?.[1] || missing?.[2] || '';
+    return name
+      ? `ستون «${name}» در دیتابیس وجود ندارد؛ یعنی آخرین فایل‌های SQL هنوز در Supabase اجرا نشده‌اند.`
+      : 'ستون جدید مورد نیاز در دیتابیس وجود ندارد. احتمالاً دیتابیس با آخرین SQLها به‌روزرسانی نشده است.';
   }
 
   if (lower.includes('cannot change name of view column') || code === '42P16') {

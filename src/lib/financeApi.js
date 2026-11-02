@@ -473,6 +473,25 @@ export async function postFinancePayment(paymentId) {
 }
 
 
+const FINANCE_PAYMENT_COLUMNS = ['direction', 'method', 'status', 'party_id', 'payment_date', 'amount', 'currency', 'bank_account_id', 'cashbox_id', 'related_order_id', 'source_module', 'source_record_id', 'description', 'loan_id', 'category_id', 'category_note', 'transfer_to_bank_account_id'];
+const FINANCE_PAYMENT_NULLABLE_COLUMNS = ['party_id', 'bank_account_id', 'cashbox_id', 'related_order_id', 'loan_id', 'category_id', 'category_note', 'transfer_to_bank_account_id', 'source_record_id', 'description'];
+
+// finance_payments must only ever receive its real table columns. Ledger rows
+// and form state carry view-only extras (direct_settlement_id, document_id,
+// allocation_amount, bank_name, ...); sending them to insert/update makes
+// PostgREST reject the whole write with PGRST204, which blocked editing and
+// creating transactions from «صندوق و گردش حساب».
+export function sanitizeFinancePaymentPayload(payment = {}) {
+  const clean = {};
+  for (const key of FINANCE_PAYMENT_COLUMNS) {
+    if (payment[key] !== undefined) clean[key] = payment[key];
+  }
+  for (const key of FINANCE_PAYMENT_NULLABLE_COLUMNS) {
+    if (clean[key] === '') clean[key] = null;
+  }
+  return clean;
+}
+
 export async function getFinancePaymentForEdit(paymentId) {
   const baseColumns = 'id, payment_number, direction, method, status, party_id, payment_date, amount, currency, bank_account_id, cashbox_id, related_order_id, source_module, source_record_id, description, created_at, transfer_to_bank_account_id';
   let paymentRes = await supabase
@@ -600,7 +619,7 @@ export async function createFinancePayment({ payment, allocations = [], rows = [
   const batchId = normalizedRows.length > 1 ? crypto.randomUUID() : null;
   let firstResult = null;
   for (const row of normalizedRows) {
-    const rowPayment = { ...payment, amount: Number(row.amount || 0), description: row.description || payment.description, batch_id: batchId };
+    const rowPayment = { ...sanitizeFinancePaymentPayload(payment), amount: Number(row.amount || 0), description: row.description || payment.description, batch_id: batchId || null };
     const paymentRes = await supabase.from('finance_payments').insert({ payment_number: null, status: 'draft', ...rowPayment }).select('id, payment_number').single();
     assertNoError(paymentRes, 'خطا در ثبت دریافت/پرداخت');
     if (!firstResult) firstResult = paymentRes.data;
@@ -616,16 +635,13 @@ export async function createFinancePayment({ payment, allocations = [], rows = [
   return firstResult;
 }
 
-async function getEditableFinancePayment(paymentId, allowSourceVoid = false) {
+async function getEditableFinancePayment(paymentId) {
   const res = await supabase
     .from('finance_payments')
     .select('id, payment_number, status, method, loan_id, source_module, source_record_id, description')
     .eq('id', paymentId)
     .single();
   assertNoError(res, 'خطا در دریافت سند دریافت/پرداخت');
-  if (res.data?.source_record_id && !allowSourceVoid) {
-    throw new Error('این سند از بخش دیگری ساخته شده است و برای حفظ سوابق باید از همان بخش اصلی اصلاح یا ابطال شود.');
-  }
   if (['void', 'cancelled'].includes(res.data?.status)) {
     throw new Error('سند باطل‌شده یا لغوشده قابل ویرایش نیست.');
   }
@@ -667,7 +683,7 @@ export async function updateFinancePayment(paymentId, { payment, allocations = [
 
   const paymentRes = await supabase
     .from('finance_payments')
-    .update({ ...payment, status: post ? 'draft' : (payment.status || 'draft') })
+    .update({ ...sanitizeFinancePaymentPayload(payment), status: post ? 'draft' : (payment.status || 'draft') })
     .eq('id', paymentId)
     .select('id, payment_number')
     .single();
@@ -690,7 +706,7 @@ export async function updateFinancePayment(paymentId, { payment, allocations = [
 }
 
 export async function voidFinancePayment(paymentId, reason = '') {
-  const existing = await getEditableFinancePayment(paymentId, true);
+  const existing = await getEditableFinancePayment(paymentId);
 
   if (existing.method === 'direct_expense_offset') {
     const transferId = existing.source_record_id;
@@ -944,7 +960,7 @@ export function openOfficialFinancePrint({ title, subtitle = '', body, reportLab
     .totals-wrap{direction:ltr;display:grid;grid-template-columns:${isInvoice ? (isLandscape ? '48mm' : '42mm') : (isLandscape ? '58mm' : '50mm')} 1fr;gap:0;border-bottom:1.6px solid #151515;min-height:${isInvoice ? 'auto' : (isLandscape ? '25mm' : '34mm')}}.totals-table{direction:rtl;width:${isInvoice ? (isLandscape ? '48mm' : '42mm') : (isLandscape ? '58mm' : '50mm')};border-collapse:collapse;font-size:${isInvoice ? fs(10) : fs(14)};margin:0}.totals-table td{border:1.15px solid #151515;padding:${isInvoice ? '.85mm 1.2mm' : '2mm'};line-height:${isInvoice ? '1.22' : '1.5'}}.totals-table td:first-child{font-weight:950;background:#eeeeee;color:#111}.totals-table td.money{direction:ltr;text-align:left;font-family:${ARYAMAN_FONT_FAMILY_CSS};font-weight:950;font-size:${isInvoice ? ns(10.5) : ns(16)};font-variant-numeric:tabular-nums}.amount-words{direction:rtl;border:1.15px solid #151515;border-left:0;padding:${isInvoice ? '1.6mm 2.4mm' : '3.5mm 4mm'};font-size:${isInvoice ? fs(10.5) : fs(15)};line-height:${isInvoice ? '1.45' : '2.05'};display:flex;flex-direction:column;justify-content:center}.amount-words b{font-weight:950}.notes-box{border-bottom:1.6px solid #151515;min-height:${isInvoice ? 'auto' : (isLandscape ? '15mm' : '18mm')};padding:${isInvoice ? '1.4mm 4mm' : '3.5mm 4mm'};font-size:${isInvoice ? fs(10.2) : fs(15)};line-height:${isInvoice ? '1.35' : '2'}}.notes-box b{font-weight:950}.statement-title{text-align:center;border-bottom:1.6px solid #151515;padding:4mm;margin:0}.statement-title h1{font-size:19px;margin:0 0 2mm;font-weight:950}.statement-title h2{font-size:14px;margin:0;font-weight:900}.statement-summary{display:grid;grid-template-columns:repeat(4,1fr);gap:0;border-bottom:1.6px solid #151515}.statement-summary div{border-left:1.15px solid #151515;padding:3mm;font-size:14px;min-height:18mm}.statement-summary div:nth-child(even){background:#f7f7f7}.statement-summary span{display:block;color:#4b5563;font-weight:800}.statement-summary strong{display:block;margin-top:1.5mm;font-size:16px;color:#111;font-weight:950}.status-cell{font-weight:950}.continued{text-align:left;font-size:${isInvoice ? fs(9.5) : fs(13)};padding:${isInvoice ? '.8mm 4mm' : '2mm 4mm'};color:#555}.signatures{display:grid;grid-template-columns:repeat(3,1fr);gap:14mm;min-height:${isInvoice ? (isLandscape ? '13mm' : '16mm') : (isLandscape ? '28mm' : '48mm')};align-items:end;padding:${isInvoice ? (isLandscape ? '4mm 12mm 3mm' : '5mm 10mm 3mm') : (isLandscape ? '12mm 14mm 8mm' : '18mm 12mm 9mm')};text-align:center;font-size:${isInvoice ? fs(10.5) : fs(15)};page-break-inside:avoid}.signatures span{display:block;font-weight:850}.footer-line{position:absolute;left:4mm;right:4mm;bottom:1.8mm;border-top:1px solid #777;padding:1.5mm 0 0;font-size:${isInvoice ? fs(8.5) : fs(11)};text-align:center;color:#444;display:${printSettings.showFooter === false ? 'none' : 'block'}}.soft-row{background:#f7f7f7!important}.no-print{display:none}
     .invoice-sheet .invoice-items-table th,.invoice-sheet .invoice-items-table td,.invoice-sheet .totals-table td,.invoice-sheet .field{max-width:100%;overflow:hidden}.invoice-sheet .field span{max-width:100%}.invoice-sheet .invoice-items-table .money,.invoice-sheet .totals-table .money{font-variant-numeric:tabular-nums}
     body{font-size:${fs(14)}}.invoice-top .invoice-meta{font-size:${ns(13.5)}}.invoice-top .invoice-title{font-size:${fs(22)}}.invoice-top .invoice-subtitle{font-size:${fs(12.5)}}.page-no{font-size:${ns(14)}}.brand-center h1{font-size:${fs(18)}}.brand-center h2{font-size:${fs(24)}}.brand-center p{font-size:${fs(14)}}.section-label{font-size:${fs(16)}}.field{font-size:${fs(15)}}.official-table{font-size:${fs(isLandscape ? 13.6 : 14)}}.official-table .money,.money{font-size:${ns(15)}}.official-table.compact th,.official-table.compact td{font-size:${fs(13.5)}}.totals-table{font-size:${fs(14)}}.totals-table td.money{font-size:${ns(16)}}.amount-words,.notes-box{font-size:${fs(15)}}.statement-summary div{font-size:${fs(14)}}.statement-summary strong{font-size:${ns(16)}}.continued{font-size:${fs(13)}}.signatures{font-size:${fs(15)}}.footer-line{font-size:${fs(11)}}
-    .statement-table{table-layout:fixed;font-size:clamp(9.5px,${fs(12)},12px)!important}.statement-table col.col-row{width:6%}.statement-table col.col-date{width:12%}.statement-table col.col-description{width:27%}.statement-table col.col-debit,.statement-table col.col-credit,.statement-table col.col-balance{width:15%}.statement-table col.col-status{width:10%}.statement-table th,.statement-table td{padding:1.5mm .65mm;line-height:1.45;overflow:hidden;overflow-wrap:anywhere;word-break:normal;min-width:0}.statement-table td.desc{text-align:right;word-break:break-word}.statement-table td.desc small{font-size:clamp(7.5px,${fs(9)},9px);line-height:1.35}.statement-table .statement-date{white-space:normal;font-size:clamp(8.5px,${fs(10.5)},10.5px)}.statement-table .status-cell{white-space:normal;font-size:clamp(8.5px,${fs(10.5)},10.5px)}.statement-money-cell{direction:rtl!important;text-align:center!important;white-space:normal!important;padding-inline:.5mm!important;overflow:hidden!important}.statement-money{width:100%;max-width:100%;min-width:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.25mm;overflow:hidden;line-height:1.12}.statement-money-value{display:block;max-width:100%;direction:ltr;unicode-bidi:isolate;white-space:nowrap;font-family:${ARYAMAN_FONT_FAMILY_CSS}!important;font-variant-numeric:tabular-nums;font-weight:900;letter-spacing:-.025em}.statement-money.fit-md .statement-money-value{font-size:clamp(9px,${ns(11.5)},11.5px)}.statement-money.fit-sm .statement-money-value{font-size:clamp(8.4px,${ns(10.4)},10.4px)}.statement-money.fit-xs .statement-money-value{font-size:clamp(7.5px,${ns(9.2)},9.2px);letter-spacing:-.045em}.statement-money.fit-xxs .statement-money-value,.statement-money-value.force-wrap{font-size:7.2px;letter-spacing:-.06em;white-space:normal;overflow-wrap:anywhere;word-break:break-word}.statement-table tfoot td{font-weight:900;background:#eeeeee!important}.statement-unit-final{margin-top:2.2mm;border:1px solid #111;border-radius:2mm;padding:1.8mm 3mm;text-align:center;font-size:clamp(10px,${fs(12)},12px);font-weight:800;background:#f3f3f3!important;break-inside:avoid}
+    .statement-table{table-layout:fixed;font-size:clamp(9.5px,${fs(12)},12px)!important}.statement-table col.col-row{width:6%}.statement-table col.col-date{width:12%}.statement-table col.col-description{width:27%}.statement-table col.col-debit,.statement-table col.col-credit,.statement-table col.col-balance{width:15%}.statement-table col.col-status{width:10%}.statement-table th,.statement-table td{padding:1.5mm .65mm;line-height:1.45;overflow:hidden;overflow-wrap:anywhere;word-break:normal;min-width:0}.statement-table td.desc{text-align:right;word-break:break-word}.statement-table td.desc small{font-size:clamp(7.5px,${fs(9)},9px);line-height:1.35}.statement-table .statement-date{white-space:normal;font-size:clamp(8.5px,${fs(10.5)},10.5px)}.statement-table .status-cell{white-space:normal;font-size:clamp(8.5px,${fs(10.5)},10.5px)}.statement-money-cell{direction:rtl!important;text-align:center!important;white-space:normal!important;padding-inline:.5mm!important;overflow:hidden!important}.statement-money{width:100%;max-width:100%;min-width:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.25mm;overflow:hidden;line-height:1.12}.statement-money-value{display:block;max-width:100%;direction:ltr;unicode-bidi:isolate;white-space:nowrap;font-family:${ARYAMAN_FONT_FAMILY_CSS}!important;font-variant-numeric:tabular-nums;font-weight:900;letter-spacing:-.025em}.statement-money.fit-md .statement-money-value{font-size:clamp(9px,${ns(11.5)},11.5px)}.statement-money.fit-sm .statement-money-value{font-size:clamp(8.4px,${ns(10.4)},10.4px)}.statement-money.fit-xs .statement-money-value{font-size:clamp(7.5px,${ns(9.2)},9.2px);letter-spacing:-.045em}.statement-money.fit-xxs .statement-money-value,.statement-money-value.force-wrap{font-size:7.2px;letter-spacing:-.06em;white-space:normal;overflow-wrap:anywhere;word-break:break-word}.statement-money-unit{display:block;max-width:100%;font-size:clamp(7px,${fs(8.3)},8.3px);font-weight:850;line-height:1;color:#222;white-space:nowrap}.statement-table tfoot td{font-weight:900;background:#eeeeee!important}.statement-table tfoot .statement-money-unit{font-weight:900}.statement-unit-final{margin-top:2.2mm;border:1px solid #111;border-radius:2mm;padding:1.8mm 3mm;text-align:center;font-size:clamp(10px,${fs(12)},12px);font-weight:800;background:#f3f3f3!important;break-inside:avoid}
     @media print{html,body{background:#fff;padding:0;margin:0;-webkit-print-color-adjust:exact;print-color-adjust:exact}.print-btn{display:none}.official-sheet{border:1.5px solid #151515;max-width:${sheetWidth};width:100%;min-height:${printMinHeight};box-shadow:none;break-inside:avoid;page-break-inside:avoid;page-break-after:avoid}.official-inner{break-inside:avoid;page-break-inside:avoid}.official-top{min-height:${isInvoice ? '12mm' : '31mm'}}.official-table th{background:#d9d9d9!important}.official-table tbody tr:nth-child(even) td,.official-table tr.alt td{background:#f7f7f7!important}.totals-wrap,.notes-box,.signatures{break-inside:avoid;page-break-inside:avoid}body.invoice-print{width:${sheetWidth};height:${sheetHeight};max-height:${sheetHeight};overflow:hidden}.official-sheet.invoice-sheet{width:${sheetWidth};height:${sheetHeight};min-height:${sheetHeight};max-height:${sheetHeight};overflow:hidden}.invoice-sheet .invoice-content{min-height:0;break-inside:avoid;page-break-inside:avoid;page-break-after:avoid}}
   `;
   const standardHeader = `<header class="official-top"><div class="page-no">صفحه ۱ از ۱</div><div class="brand-center"><h1>${escapeHtml(reportLabel || title)}</h1><h2>${FINANCE_LEGAL_NAME_FA}</h2><p>${escapeHtml(subtitle || 'بوشهر، بهمنی، نخلج فارس، پردیس فناوری')}<br>تلفن‌های تماس: 09173742966</p></div><div class="brand-logo"><img src="${ARYAMAN_LOGO_DATA_URI}" alt="Aryaman"><span>aryaman</span></div></header>`;
@@ -1370,8 +1386,23 @@ export async function archiveFinanceLoan(loanId, reason = '') {
 
 export async function archiveFinanceLoanInstallment(installmentId, reason = '') {
   const res = await supabase.rpc('fn_finance_archive_loan_installment', { p_installment_id: installmentId, p_reason: reason || 'لغو امن قسط' });
-  assertNoError(res, 'خطا در لغو امن قسط وام');
-  return res.data;
+  if (!res.error) return res.data;
+  if (!isMissingRpc(res.error)) throw new Error(res.error.message || 'خطا در لغو امن قسط وام');
+
+  // Safe fallback for databases where the archive RPC was never created:
+  // cancel the unpaid installment without physical delete, keep the reason in
+  // notes as audit, then refresh overdue statuses.
+  const cancelRes = await supabase
+    .from('finance_loan_installments')
+    .update({ status: 'cancelled', notes: reason ? `لغو امن قسط: ${reason}` : 'لغو امن قسط' })
+    .eq('id', installmentId)
+    .neq('status', 'paid')
+    .select('id, loan_id')
+    .single();
+  assertNoError(cancelRes, 'خطا در لغو امن قسط وام');
+  const refreshRes = await supabase.rpc('fn_finance_refresh_loan_installment_statuses');
+  if (refreshRes.error && !isMissingRpc(refreshRes.error)) throw new Error(refreshRes.error.message || 'خطا در به‌روزرسانی وضعیت اقساط');
+  return cancelRes.data;
 }
 
 export async function updateFinanceLoanInstallment(installmentId, payload = {}) {

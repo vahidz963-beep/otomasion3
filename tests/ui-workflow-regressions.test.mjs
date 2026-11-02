@@ -38,12 +38,13 @@ assert.match(currencyOutput, /currencyDisplay === 'rial' \? finiteRialValue : fi
 assert.match(accounting, /statement-unit-final/);
 assert.match(accounting, /واحد تمام مبالغ این صورت‌حساب/);
 assert.match(accounting, /body\.push\(\['', '', '', '', '', '', 'واحد تمام مبالغ', statementCurrencyUnit\(currencyDisplay\)\]\)/);
-assert.doesNotMatch(accounting.slice(accounting.indexOf('function statementMoneyHtml'), accounting.indexOf('function exportStatement')), /statement-money-unit|formatRial|formatMoney/);
+assert.doesNotMatch(accounting.slice(accounting.indexOf('function statementMoneyHtml'), accounting.indexOf('function exportStatement')), /formatRial|formatMoney/);
 
 const financePrint = read('src/lib/financeApi.js');
 assert.match(financePrint, /\.statement-table col\.col-description/);
 assert.match(financePrint, /\.statement-money-cell\{[^}]*overflow:hidden!important/);
-assert.doesNotMatch(financePrint, /\.statement-money-unit\{/);
+assert.match(financePrint, /\.statement-money-unit\{.*white-space:nowrap\}/, 'total-row unit styling must be available for statement totals');
+assert.match(financePrint, /\.statement-table tfoot \.statement-money-unit\{font-weight:900\}/);
 assert.match(financePrint, /\.statement-unit-final\{[^}]*text-align:center/);
 assert.match(financePrint, /\.statement-money\.fit-xxs \.statement-money-value,\.statement-money-value\.force-wrap\{[^}]*overflow-wrap:anywhere/);
 assert.match(financePrint, /function fitStatementMoneyCells\(\)/);
@@ -98,6 +99,13 @@ assert.match(voidSql, /status\s*=\s*'cancelled'/i, 'legacy warehouse cancellatio
 const financeApi = read('src/lib/financeApi.js');
 assert.match(financeApi, /fn_update_confirmed_finance_document/);
 assert.match(financeApi, /if \(syncLinkedDocuments\)/);
+assert.match(financeApi, /fn_finance_archive_loan_installment[\s\S]{0,400}isMissingRpc\(res\.error\)[\s\S]{0,600}لغو امن قسط[\s\S]{0,600}fn_finance_refresh_loan_installment_statuses/, 'installment cancellation must fall back safely when the archive RPC is missing');
+assert.match(financeApi, /\.neq\('status', 'paid'\)/, 'paid installments must never be cancelled');
+
+const diagnosticSql = read('supabase/CHECK_139_DIAGNOSTIC.sql');
+assert.match(diagnosticSql, /v_finance_payment_ledger/, 'diagnostic must cover the payment ledger view');
+assert.match(diagnosticSql, /fn_create_direct_transfer/);
+assert.match(diagnosticSql, /notify pgrst, 'reload schema'/);
 
 const orderHook = read('src/hooks/useOrdersData.js');
 assert.equal((orderHook.match(/\.order\('line_no'/g) || []).length >= 4, true);
@@ -328,6 +336,26 @@ assert.match(directTransferMigration, /bank_account_id, cashbox_id/);
 assert.match(directTransferMigration, /source_record_id = v_transfer\.id/);
 assert.match(directTransferMigration, /s\.status = 'posted'[\s\S]*l\.line_type = 'expense'/);
 assert.doesNotMatch(directTransferMigration, /delete\s+from\s+public\.finance_direct_expense/i, 'direct transfer audit rows must never be physically deleted');
+
+const autoReceiptNumbering = read('supabase/migrations/138_warehouse_auto_receipt_document_numbers.sql');
+assert.match(autoReceiptNumbering, /fn_assign_warehouse_auto_doc_number/);
+assert.match(autoReceiptNumbering, /trg_assign_warehouse_auto_doc_number/);
+assert.match(autoReceiptNumbering, /before insert on public\.warehouse_documents/);
+assert.match(autoReceiptNumbering, /new\.type::text = 'in'/);
+assert.match(autoReceiptNumbering, /new\.status::text = 'final'/, 'only final auto receipts are numbered at insert; drafts stay numbered at finalize');
+assert.match(autoReceiptNumbering, /WH-IN-'/);
+assert.match(autoReceiptNumbering, /warehouse_in_doc_seq/);
+assert.match(autoReceiptNumbering, /از طریق فاکتور خرید مبدأ؛ شماره سند انبار: /);
+assert.match(autoReceiptNumbering, /قرارداد شماره‌گذاری رسید خودکار برقرار نشد/);
+assert.doesNotMatch(autoReceiptNumbering, /delete\s+from\s+public\.warehouse/i, 'numbering must never delete warehouse history');
+
+// حواله مستقیم: گزینه همیشگی در فرم دریافت/پرداخت + KPI ورود/خروج
+assert.match(accountingForms, /<option value="direct_expense_offset">حواله مستقیم \(غیرنقدی\)<\/option>/);
+assert.match(accountingUi, /دریافت‌های ماه \(با حواله مستقیم\)/);
+assert.match(accountingUi, /پرداخت‌های ماه \(با حواله مستقیم\)/);
+assert.match(accountingUi, /data\.directExpenseDetails \|\| \[\]\)\.forEach/, 'month inflow/outflow KPIs must include posted direct transfers');
+assert.match(accountingUi, /row\.status !== 'posted'/);
+assert.match(accountingUi, /Math\.min\(item\.allocated, item\.received\)/, 'direct outflow must never exceed the received amount');
 
 const backupUi = read('src/modules/backup/BackupCenter.jsx');
 assert.match(backupUi, /انتخاب پوشه و بکاپ کامل/);

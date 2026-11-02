@@ -141,15 +141,15 @@ export function printFinanceDocument(bundle, variant = 'company') {
         <table class="totals-table">
           <tbody>
             <tr><td>جمع فاکتور</td><td class="money">${formatInvoiceRialNumber(d.subtotal_amount, true)}</td></tr>
-            <tr><td>تخفیف</td><td class="money">${formatInvoiceRialNumber(discountTotal)}</td></tr>
-            <tr><td>مالیات</td><td class="money">${formatInvoiceRialNumber(d.tax_amount)}</td></tr>
+            <tr><td>تخفیف</td><td class="money">${formatInvoiceRialNumber(discountTotal, true)}</td></tr>
+            <tr><td>مالیات</td><td class="money">${formatInvoiceRialNumber(d.tax_amount, true)}</td></tr>
             <tr><td>قابل پرداخت</td><td class="money">${formatInvoiceRialNumber(d.total_amount, true)}</td></tr>
-            <tr><td>مانده فاکتور</td><td class="money">${formatInvoiceRialNumber(d.balance_amount)}</td></tr>
+            <tr><td>مانده فاکتور</td><td class="money">${formatInvoiceRialNumber(d.balance_amount, true)}</td></tr>
           </tbody>
         </table>
         <div class="amount-words">
-          <b>مبلغ به حروف:</b> ${numberToPersianWords(Math.round(Number(d.total_amount || 0)))}
-          <br><b>مانده حساب نهایی:</b> ${formatInvoiceRialNumber(d.balance_amount)} ${Number(d.balance_amount || 0) > 0 ? 'بدهکار می‌باشد.' : 'تسویه می‌باشد.'}
+          <b>مبلغ به حروف:</b> ${numberToPersianWords(Math.round(Number(d.total_amount || 0)))} ریال
+          <br><b>مانده حساب نهایی:</b> ${formatInvoiceRialNumber(d.balance_amount, true)} ${Number(d.balance_amount || 0) > 0 ? 'بدهکار می‌باشد.' : 'تسویه می‌باشد.'}
         </div>
       </section>
       <div class="notes-box"><b>توضیحات:</b> ${esc(d.description || '—')}${d.print_note ? `<br><b>جزئیات زیر فاکتور:</b> ${esc(d.print_note)}` : ''}</div>

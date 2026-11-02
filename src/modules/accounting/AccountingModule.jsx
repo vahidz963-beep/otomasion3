@@ -135,8 +135,8 @@ const COPY = {
     receivable: 'دریافتنی‌ها',
     payable: 'پرداختنی‌ها',
     overdue: 'سررسید گذشته',
-    monthSales: 'دریافت‌های ماه',
-    monthCosts: 'پرداخت‌های ماه',
+    monthSales: 'دریافت‌های ماه (با حواله مستقیم)',
+    monthCosts: 'پرداخت‌های ماه (با حواله مستقیم)',
     monthProfit: 'خالص گردش ماه',
     openReferrals: 'ارجاع باز مالی',
     selectParty: 'برای مشاهده گردش، یک شخص را انتخاب کنید.',
@@ -159,7 +159,7 @@ const COPY = {
     loading: 'Loading finance data...',
     error: 'Finance data failed to load. Finance migrations may not be applied yet.',
     noData: 'No data yet.',
-    receivable: 'Receivables', payable: 'Payables', overdue: 'Overdue', monthSales: 'Month receipts', monthCosts: 'Month payments', monthProfit: 'Month net cashflow', openReferrals: 'Open referrals',
+    receivable: 'Receivables', payable: 'Payables', overdue: 'Overdue', monthSales: 'Month receipts (incl. direct transfers)', monthCosts: 'Month payments (incl. direct transfers)', monthProfit: 'Month net cashflow', openReferrals: 'Open referrals',
     selectParty: 'Select a party to view statement.', official: 'Official account', unofficial: 'Unofficial account', all: 'All', debtors: 'Debtors', creditors: 'Creditors', settled: 'Settled', debitOnly: 'Debit only', creditOnly: 'Credit only', printPdf: 'Print / PDF', exportCsv: 'Export Excel',
   },
 };
@@ -176,9 +176,28 @@ const DOC_LABELS = {
   opening_balance: { fa: 'مانده افتتاحیه', en: 'Opening balance' },
 };
 
+const PAYMENT_METHOD_LABELS = {
+  bank_transfer: { fa: 'واریز/انتقال بانکی', en: 'Bank transfer' },
+  card: { fa: 'کارت', en: 'Card' },
+  pos: { fa: 'کارت‌خوان', en: 'POS' },
+  cash: { fa: 'نقدی/صندوق', en: 'Cash' },
+  check: { fa: 'چک', en: 'Cheque' },
+  offset: { fa: 'تهاتر', en: 'Offset' },
+  loan_payment: { fa: 'پرداخت وام', en: 'Loan payment' },
+  account_transfer: { fa: 'انتقال بین حساب‌ها', en: 'Account transfer' },
+  direct_expense_offset: { fa: 'حواله مستقیم', en: 'Direct transfer' },
+  opening_balance: { fa: 'مانده اول دوره', en: 'Opening balance' },
+  other: { fa: 'سایر', en: 'Other' },
+};
+
+function methodLabel(method, lang = 'fa') {
+  if (!method) return '—';
+  const labels = PAYMENT_METHOD_LABELS[method];
+  return labels ? (labels[lang] || labels.fa) : method;
+}
+
 const STATUS_LABELS = {
-  draft: { fa: 'پیش‌نویس', en: 'Draft' },
-  pending_approval: { fa: 'در انتظار تأیید', en: 'Pending' },
+  draft: { fa: 'پیش‌نویس', en: 'Draft' },  pending_approval: { fa: 'در انتظار تأیید', en: 'Pending' },
   approved: { fa: 'تأیید شده', en: 'Approved' },
   sent: { fa: 'ارسال شده', en: 'Sent' },
   partially_paid: { fa: 'بخشی تسویه', en: 'Partially paid' },
@@ -407,8 +426,14 @@ export default function AccountingModule({ lang = 'fa' }) {
         setPayrollPaymentModal({ payment: payrollPayment, slip });
         return;
       }
-      if (payment.source_record_id) {
-        setNotice('این سند از بخش اصلی خودش قابل اصلاح است.');
+      // Payments created by other modules (orders, purchases, transfers, ...)
+      // stay editable from «صندوق و گردش حساب»; the safe update voids the old
+      // journal entry and reposts, so no history is lost. Only check-linked
+      // payments are routed to the checks section, because their state is
+      // managed by check settlement.
+      const linkedCheck = (data.checks || []).find((item) => item.related_payment_id === payment.id);
+      if (linkedCheck) {
+        setNotice(`این سند به چک ${linkedCheck.check_number || linkedCheck.internal_check_code || ''} متصل است؛ مدیریت آن از بخش چک‌ها انجام می‌شود.`);
         return;
       }
       const modalType = payment.category_id || payment.source_module === 'accounting' ? 'incomeExpense' : 'payment';
@@ -448,7 +473,7 @@ export default function AccountingModule({ lang = 'fa' }) {
   const monthlyCashflow = useMemo(() => {
     const now = new Date();
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
-    return (data.paymentLedger || []).reduce((acc, row) => {
+    const base = (data.paymentLedger || []).reduce((acc, row) => {
       if (row.status && row.status !== 'confirmed') return acc;
       const day = String(row.payment_date || row.created_at || '').slice(0, 10);
       if (!day || day < monthStart) return acc;
@@ -456,7 +481,22 @@ export default function AccountingModule({ lang = 'fa' }) {
       if (row.direction === 'payment') acc.payments += Number(row.amount || 0);
       return acc;
     }, { receipts: 0, payments: 0 });
-  }, [data.paymentLedger]);
+    // حواله‌های مستقیم در KPI ورود/خروج ماه هم محاسبه می‌شوند؛ ورود و خروج
+    // هر حواله برابر است، بنابراین «خالص گردش» تغییر نمی‌کند و خزانه بانک/صندوق
+    // همچنان دست‌نخورده می‌ماند.
+    const directSettlements = new Map();
+    (data.directExpenseDetails || []).forEach((row) => {
+      if (row.status !== 'posted') return;
+      const day = String(row.settlement_date || row.created_at || '').slice(0, 10);
+      if (!day || day < monthStart) return;
+      const current = directSettlements.get(row.settlement_id) || { received: 0, allocated: 0 };
+      current.received = Math.max(current.received, Number(row.total_amount || 0));
+      current.allocated += Number(row.line_amount || 0);
+      directSettlements.set(row.settlement_id, current);
+    });
+    const direct = [...directSettlements.values()].reduce((acc, item) => ({ received: acc.received + item.received, allocated: acc.allocated + Math.min(item.allocated, item.received) }), { received: 0, allocated: 0 });
+    return { receipts: base.receipts + direct.received, payments: base.payments + direct.allocated };
+  }, [data.paymentLedger, data.directExpenseDetails]);
   const monthlyNetCashflow = monthlyCashflow.receipts - monthlyCashflow.payments;
 
   const kpis = [
@@ -667,7 +707,7 @@ function PaymentDetailModal({ payment, row, onClose }) {
   const direction = payment?.direction || row?.entry_type;
   const isReceipt = direction === 'receipt';
   const amount = payment?.amount ?? (isReceipt ? row?.credit_amount : row?.debit_amount);
-  return <div className="finance-detail-modal-backdrop" onMouseDown={(e)=>e.target===e.currentTarget&&onClose()}><div className="finance-detail-modal payment-detail-modal"><section className="finance-card document-detail-card"><header className="detail-header"><div><span className="detail-eyebrow">{isReceipt ? 'سند دریافت' : 'سند پرداخت'}</span><h2 dir="ltr">{payment?.payment_number || row?.ref_number || '—'}</h2><p>{payment?.description || row?.description || 'بدون توضیح'}</p></div><div className="detail-header-actions"><span className={`status-badge ${payment?.status || 'confirmed'}`}>{payment?.status === 'draft' ? 'پیش‌نویس' : payment?.status === 'confirmed' ? 'تأیید شده' : payment?.status || 'ثبت‌شده'}</span><button type="button" className="detail-close-btn" onClick={onClose}>×</button></div></header><div className="detail-grid"><Info label="نوع" value={isReceipt ? 'دریافت / واریز' : 'پرداخت / برداشت'} /><Info label="تاریخ" value={formatDate(payment?.payment_date || row?.entry_date, 'fa')} /><Info label="مبلغ" value={formatMoney(amount, 'fa')} highlight /><Info label="حساب" value={payment?.account_name || '—'} /><Info label="بانک" value={payment?.bank_name || '—'} /><Info label="شخص" value={payment?.party_name || '—'} /><Info label="روش" value={payment?.method || '—'} /><Info label="شماره سفارش" value={payment?.order_code || '—'} /></div><div className="detail-block"><h3>شرح سند</h3><p className="muted">{payment?.description || row?.description || 'شرحی ثبت نشده است.'}</p></div></section></div></div>;
+  return <div className="finance-detail-modal-backdrop" onMouseDown={(e)=>e.target===e.currentTarget&&onClose()}><div className="finance-detail-modal payment-detail-modal"><section className="finance-card document-detail-card"><header className="detail-header"><div><span className="detail-eyebrow">{isReceipt ? 'سند دریافت' : 'سند پرداخت'}</span><h2 dir="ltr">{payment?.payment_number || row?.ref_number || '—'}</h2><p>{payment?.description || row?.description || 'بدون توضیح'}</p></div><div className="detail-header-actions"><span className={`status-badge ${payment?.status || 'confirmed'}`}>{payment?.status === 'draft' ? 'پیش‌نویس' : payment?.status === 'confirmed' ? 'تأیید شده' : payment?.status || 'ثبت‌شده'}</span><button type="button" className="detail-close-btn" onClick={onClose}>×</button></div></header><div className="detail-grid"><Info label="نوع" value={isReceipt ? 'دریافت / واریز' : 'پرداخت / برداشت'} /><Info label="تاریخ" value={formatDate(payment?.payment_date || row?.entry_date, 'fa')} /><Info label="مبلغ" value={formatMoney(amount, 'fa')} highlight /><Info label="حساب" value={payment?.account_name || '—'} /><Info label="بانک" value={payment?.bank_name || '—'} /><Info label="شخص" value={payment?.party_name || '—'} /><Info label="روش" value={methodLabel(payment?.method, 'fa')} /><Info label="شماره سفارش" value={payment?.order_code || '—'} /></div><div className="detail-block"><h3>شرح سند</h3><p className="muted">{payment?.description || row?.description || 'شرحی ثبت نشده است.'}</p></div></section></div></div>;
 }
 
 function DirectTransferDetailModal({ rows = [], busy, onClose, onEdit, onVoid, onOpenVersion }) {
@@ -731,7 +771,7 @@ function CashFlowSection({ accounts, bankAccounts = [], ledger, investments, lan
   }, [accounts, ledger, filtered]);
   const th = (key, label) => <th><button className="sort-th" onClick={() => setSort(nextSort(sort, key))}>{label}<span>{sort.key === key ? (sort.dir === 'asc' ? '▲' : '▼') : '↕'}</span></button></th>;
   return <div className="accounting-grid cashflow-layout finance-cashflow-full">
-    <section className="finance-card cashflow-main-card full-width"><div className="finance-card-header between"><CardHeader icon={Banknote} title="صندوق و گردش حساب" bare /><div className="actions-cell"><button className="mini-btn" onClick={onNewAccount}>＋ افزودن حساب/کارت</button><button className="mini-btn" onClick={onNewPayment}>＋ دریافت/پرداخت</button><button className="mini-btn primary-soft" onClick={() => onNewIncomeExpense?.('payment')}>＋ هزینه/درآمد</button></div></div><div className="cash-account-grid bank-card-grid">{enrichedAccounts.map((a) => <BankFlipCard key={`${a.account_kind}-${a.account_id}`} account={a} lang={lang} onEdit={onEditAccount} onDelete={onDeleteAccount} isAdmin={isAdmin} />)}</div><div className="toolbar-line"><select value={filters.accountId} onChange={(e)=>setFilters({...filters,accountId:e.target.value})}><option value="all">همه حساب‌ها</option>{enrichedAccounts.map(a=><option key={a.account_id} value={a.account_id}>{a.account_name}</option>)}</select><select value={filters.direction} onChange={(e)=>setFilters({...filters,direction:e.target.value})}><option value="all">همه گردش‌ها</option><option value="receipt">واریزی</option><option value="payment">برداشت</option></select><input value={filters.q} onChange={(e)=>setFilters({...filters,q:e.target.value})} placeholder="جست‌وجوی شماره، شخص، شرح..." /></div><div className="table-scroll limited-list tall"><table className="finance-table cashflow-ledger-table"><thead><tr>{th('payment_date','تاریخ')}{th('payment_number','شماره')}{th('account_name','حساب')}{th('party_name','شخص')}{th('direction','نوع')}{th('method','روش')}{th('amount','مبلغ')}<th>مانده حساب</th><th>شرح</th><th>ویرایش</th></tr></thead><tbody>{ledgerWithBalances.map(r=><tr key={r.id}><td>{formatDate(r.payment_date, lang)}</td><td dir="ltr">{r.payment_number}</td><td>{r.account_name || '—'}</td><td>{r.party_name || '—'}</td><td className={r.direction==='receipt'?'receipt-text':'payment-text'}>{r.method === 'opening_balance' ? 'موجودی اول دوره' : r.direction === 'receipt' ? 'واریز' : 'برداشت'}</td><td>{r.method === 'opening_balance' ? 'مانده اول دوره' : r.method === 'account_transfer' ? 'انتقال بین حساب‌ها' : r.method}</td><td className={r.direction==='receipt'?'receipt-text':'payment-text'}>{formatMoney(r.amount, lang)}</td><td className="running-balance-cell">{r.running_balance === null ? '—' : formatMoney(r.running_balance, lang)}</td><td>{r.description || '—'}</td><td className="cashflow-edit-cell">{r.method === 'opening_balance' ? <span className="finance-note">سیستمی</span> : <><button type="button" className="row-round-edit-btn" title="ویرایش سند دریافت/پرداخت" aria-label="ویرایش سند دریافت/پرداخت" onClick={() => onEditPayment?.(r.method === 'bank_transfer' && String(r.description || '').startsWith('واریز انتقال بین بانکی') ? { ...r, id: r.source_record_id } : r)}><Edit3 size={14} /></button><button type="button" className="row-round-edit-btn danger" title="باطل/حذف از لیست فعال" aria-label="باطل/حذف از لیست فعال" onClick={() => onDeletePayment?.(r.method === 'bank_transfer' && String(r.description || '').startsWith('واریز انتقال بین بانکی') ? { ...r, id: r.source_record_id } : r)}><Trash2 size={14} /></button></>}</td></tr>)}</tbody></table></div></section>
+    <section className="finance-card cashflow-main-card full-width"><div className="finance-card-header between"><CardHeader icon={Banknote} title="صندوق و گردش حساب" bare /><div className="actions-cell"><button className="mini-btn" onClick={onNewAccount}>＋ افزودن حساب/کارت</button><button className="mini-btn" onClick={onNewPayment}>＋ دریافت/پرداخت</button><button className="mini-btn primary-soft" onClick={() => onNewIncomeExpense?.('payment')}>＋ هزینه/درآمد</button></div></div><div className="cash-account-grid bank-card-grid">{enrichedAccounts.map((a) => <BankFlipCard key={`${a.account_kind}-${a.account_id}`} account={a} lang={lang} onEdit={onEditAccount} onDelete={onDeleteAccount} isAdmin={isAdmin} />)}</div><div className="toolbar-line"><select value={filters.accountId} onChange={(e)=>setFilters({...filters,accountId:e.target.value})}><option value="all">همه حساب‌ها</option>{enrichedAccounts.map(a=><option key={a.account_id} value={a.account_id}>{a.account_name}</option>)}</select><select value={filters.direction} onChange={(e)=>setFilters({...filters,direction:e.target.value})}><option value="all">همه گردش‌ها</option><option value="receipt">واریزی</option><option value="payment">برداشت</option></select><input value={filters.q} onChange={(e)=>setFilters({...filters,q:e.target.value})} placeholder="جست‌وجوی شماره، شخص، شرح..." /></div><div className="table-scroll limited-list tall"><table className="finance-table cashflow-ledger-table"><thead><tr>{th('payment_date','تاریخ')}{th('payment_number','شماره')}{th('account_name','حساب')}{th('party_name','شخص')}{th('direction','نوع')}{th('method','روش')}{th('amount','مبلغ')}<th>مانده حساب</th><th>شرح</th><th>ویرایش</th></tr></thead><tbody>{ledgerWithBalances.map(r=><tr key={r.id}><td>{formatDate(r.payment_date, lang)}</td><td dir="ltr">{r.payment_number}</td><td>{r.account_name || '—'}</td><td>{r.party_name || '—'}</td><td className={r.direction==='receipt'?'receipt-text':'payment-text'}>{r.method === 'opening_balance' ? 'موجودی اول دوره' : r.direction === 'receipt' ? 'واریز' : 'برداشت'}</td><td>{methodLabel(r.method, lang)}</td><td className={r.direction==='receipt'?'receipt-text':'payment-text'}>{formatMoney(r.amount, lang)}</td><td className="running-balance-cell">{r.running_balance === null ? '—' : formatMoney(r.running_balance, lang)}</td><td>{r.description || '—'}</td><td className="cashflow-edit-cell">{r.method === 'opening_balance' ? <span className="finance-note">سیستمی</span> : <><button type="button" className="row-round-edit-btn" title="ویرایش سند دریافت/پرداخت" aria-label="ویرایش سند دریافت/پرداخت" onClick={() => onEditPayment?.(r.method === 'bank_transfer' && String(r.description || '').startsWith('واریز انتقال بین بانکی') ? { ...r, id: r.source_record_id } : r)}><Edit3 size={14} /></button><button type="button" className="row-round-edit-btn danger" title="باطل/حذف از لیست فعال" aria-label="باطل/حذف از لیست فعال" onClick={() => onDeletePayment?.(r.method === 'bank_transfer' && String(r.description || '').startsWith('واریز انتقال بین بانکی') ? { ...r, id: r.source_record_id } : r)}><Trash2 size={14} /></button></>}</td></tr>)}</tbody></table></div></section>
     <section className="finance-card investment-full-card full-width"><div className="finance-card-header between"><CardHeader icon={WalletCards} title="خرید و فروش کامل سرمایه‌گذاری‌ها" bare /><button className="mini-btn" onClick={onNewInvestment}>＋ ثبت خرید / دارایی موجود</button></div>{investments.length === 0 ? <Empty t={{noData:'سرمایه‌گذاری ثبت نشده است.'}}/> : <div className="investment-list investment-list-full investment-ledger-list">{investments.filter((i)=>i.status!=='archived').map(i=><article key={i.id} className={i.status==='sold'?'investment-sold':''}><div className="investment-main"><b>{i.title_fa}</b><span>{investmentType(i.asset_type)} · {formatDate(i.acquisition_date, lang)} · {i.acquisition_mode==='existing_asset'?'دارایی از قبل موجود؛ بدون برداشت نقدی':'خرید پرداخت‌شده'}</span><small>{i.purchase_account_name ? `حساب خرید: ${i.purchase_account_name}` : 'بدون گردش بانک/صندوق در زمان ثبت'}{i.sale_account_name ? ` · حساب فروش: ${i.sale_account_name}` : ''}</small></div><div className="investment-values"><span>ارزش مبنا <b>{formatMoney(i.carrying_amount ?? i.purchase_amount, lang)}</b></span><span>{i.status==='sold'?'خالص فروش':'ارزش برآوردی'} <b>{formatMoney(i.status==='sold'?i.sale_cash_amount:i.current_estimated_value, lang)}</b></span>{i.status==='sold'&&<span className={Number(i.realized_profit_loss)>=0?'positive':'negative'}>سود/زیان <b>{formatMoney(i.realized_profit_loss,lang)}</b></span>}</div><div className="investment-actions"><span className={`finance-status ${i.status}`}>{i.status==='sold'?'فروخته‌شده':'فعال'}</span><button onClick={()=>onEditInvestment(i)}>ارزش‌گذاری/یادداشت</button>{i.status==='active'&&<button className="primary-soft" onClick={()=>onSellInvestment(i)}>فروش کامل</button>}{i.status!=='active'&&<button onClick={()=>onArchiveInvestment(i)}>آرشیو</button>}</div></article>)}</div>}</section>
   </div>;
 }
@@ -1874,7 +1914,7 @@ function printSimpleDocument(d, lang) {
     orientation: 'landscape',
     layout: 'invoice',
     meta: { number: d.doc_number, date: formatDate(d.issue_date, lang) },
-    body: `<div class="section-label">خلاصه سند</div><section class="box-row"><div class="box-grid four"><div class="field"><b>شماره:</b><br><span dir="ltr">${htmlSafe(d.doc_number)}</span></div><div class="field"><b>شخص:</b> ${htmlSafe(d.party_name || '—')}</div><div class="field"><b>سفارش:</b> ${htmlSafe(d.order_code || '—')}</div><div class="field"><b>وضعیت:</b> ${STATUS_LABELS[d.status]?.[lang] || d.status}</div></div></section><section class="statement-summary"><div><span>جمع فاکتور</span><strong class="money">${formatInvoiceRialNumber(d.total_amount, true)}</strong></div><div><span>پرداخت‌شده</span><strong class="money">${formatInvoiceRialNumber(d.paid_amount)}</strong></div><div><span>مانده</span><strong class="money">${formatInvoiceRialNumber(d.balance_amount)}</strong></div><div><span>قابل پرداخت</span><strong class="money">${formatInvoiceRialNumber(d.total_amount, true)}</strong></div></section><section class="signatures"><span>امضاء فروشنده</span><span>امضاء مالی</span><span>مهر شرکت</span></section>`,
+    body: `<div class="section-label">خلاصه سند</div><section class="box-row"><div class="box-grid four"><div class="field"><b>شماره:</b><br><span dir="ltr">${htmlSafe(d.doc_number)}</span></div><div class="field"><b>شخص:</b> ${htmlSafe(d.party_name || '—')}</div><div class="field"><b>سفارش:</b> ${htmlSafe(d.order_code || '—')}</div><div class="field"><b>وضعیت:</b> ${STATUS_LABELS[d.status]?.[lang] || d.status}</div></div></section><section class="statement-summary"><div><span>جمع فاکتور</span><strong class="money">${formatInvoiceRialNumber(d.total_amount, true)}</strong></div><div><span>پرداخت‌شده</span><strong class="money">${formatInvoiceRialNumber(d.paid_amount, true)}</strong></div><div><span>مانده</span><strong class="money">${formatInvoiceRialNumber(d.balance_amount, true)}</strong></div><div><span>قابل پرداخت</span><strong class="money">${formatInvoiceRialNumber(d.total_amount, true)}</strong></div></section><section class="signatures"><span>امضاء فروشنده</span><span>امضاء مالی</span><span>مهر شرکت</span></section>`,
   });
 }
 function htmlSafe(value) {
@@ -1886,13 +1926,14 @@ function htmlSafe(value) {
   });
 }
 
-function statementMoneyHtml(value, currencyDisplay, { strong = false } = {}) {
+function statementMoneyHtml(value, currencyDisplay, { strong = false, withUnit = false } = {}) {
   const amount = formatStatementNumber(value, currencyDisplay, 'fa');
   const length = [...amount].length;
   const fitClass = length >= 18 ? 'fit-xxs' : length >= 14 ? 'fit-xs' : length >= 11 ? 'fit-sm' : 'fit-md';
   const valueTag = strong ? 'b' : 'span';
   const safeAmount = htmlSafe(amount).replaceAll('٬', '٬<wbr>');
-  return `<span class="statement-money ${fitClass}"><${valueTag} class="statement-money-value" dir="ltr">${safeAmount}</${valueTag}></span>`;
+  const unitHtml = withUnit ? `<small class="statement-money-unit">${statementCurrencyUnit(currencyDisplay)}</small>` : '';
+  return `<span class="statement-money ${fitClass}"><${valueTag} class="statement-money-value" dir="ltr">${safeAmount}</${valueTag}>${unitHtml}</span>`;
 }
 
 function exportStatement(party, rows, lang, currencyDisplay = 'toman') {
@@ -1946,10 +1987,10 @@ function printStatement(party, rows, lang, currencyDisplay = 'toman') {
         <colgroup><col class="col-row"><col class="col-date"><col class="col-description"><col class="col-debit"><col class="col-credit"><col class="col-status"><col class="col-balance"></colgroup>
         <thead><tr><th>ردیف</th><th>تاریخ</th><th>شرح / شماره سند</th><th>بدهکار</th><th>بستانکار</th><th>تشخیص</th><th>مانده</th></tr></thead>
         <tbody>${bodyRows || '<tr><td colspan="7">گردشی برای این شخص ثبت نشده است.</td></tr>'}</tbody>
-        <tfoot><tr class="alt"><td colspan="3"><b>جمع و مانده نهایی</b></td><td class="statement-money-cell">${statementMoneyHtml(totalDebit, currencyDisplay, { strong: true })}</td><td class="statement-money-cell">${statementMoneyHtml(totalCredit, currencyDisplay, { strong: true })}</td><td><b>${lastBalance >= 0 ? 'بدهکار' : 'بستانکار'}</b></td><td class="statement-money-cell">${statementMoneyHtml(Math.abs(lastBalance), currencyDisplay, { strong: true })}</td></tr></tfoot>
+        <tfoot><tr class="alt"><td colspan="3"><b>جمع و مانده نهایی</b></td><td class="statement-money-cell">${statementMoneyHtml(totalDebit, currencyDisplay, { strong: true, withUnit: true })}</td><td class="statement-money-cell">${statementMoneyHtml(totalCredit, currencyDisplay, { strong: true, withUnit: true })}</td><td><b>${lastBalance >= 0 ? 'بدهکار' : 'بستانکار'}</b></td><td class="statement-money-cell">${statementMoneyHtml(Math.abs(lastBalance), currencyDisplay, { strong: true, withUnit: true })}</td></tr></tfoot>
       </table>
       <div class="continued">${rows.length > 18 ? 'ادامه دارد ...' : ''}</div>
-      <div class="notes-box"><b>مانده اول دوره:</b> ${formatStatementNumber(party.opening_balance || 0, currencyDisplay, lang)}<br><b>جمع بدهکار:</b> ${formatStatementNumber(totalDebit, currencyDisplay, lang)}<br><b>جمع بستانکار:</b> ${formatStatementNumber(totalCredit, currencyDisplay, lang)}<br><b>مانده نهایی حساب:</b> ${formatStatementNumber(Math.abs(lastBalance), currencyDisplay, lang)} ${lastBalance >= 0 ? 'بدهکار' : 'بستانکار'} است.<br><b>مانده به حروف:</b> ${numberToPersianWords(statementDisplayValue(Math.abs(lastBalance), currencyDisplay))} ${lastBalance >= 0 ? 'بدهکار می‌باشد.' : 'بستانکار می‌باشد.'}</div>
+      <div class="notes-box"><b>مانده اول دوره:</b> ${formatStatementNumber(party.opening_balance || 0, currencyDisplay, lang)} ${unit}<br><b>جمع بدهکار:</b> ${formatStatementNumber(totalDebit, currencyDisplay, lang)} ${unit}<br><b>جمع بستانکار:</b> ${formatStatementNumber(totalCredit, currencyDisplay, lang)} ${unit}<br><b>مانده نهایی حساب:</b> ${formatStatementNumber(Math.abs(lastBalance), currencyDisplay, lang)} ${unit} ${lastBalance >= 0 ? 'بدهکار' : 'بستانکار'} است.<br><b>مانده به حروف:</b> ${numberToPersianWords(statementDisplayValue(Math.abs(lastBalance), currencyDisplay))} ${unit} ${lastBalance >= 0 ? 'بدهکار می‌باشد.' : 'بستانکار می‌باشد.'}</div>
       <section class="signatures"><span>امضاء حسابداری</span><span>امضاء تأییدکننده</span><span>مهر شرکت</span></section>
       <div class="statement-unit-final">واحد تمام مبالغ این صورت‌حساب: <b>${unit}</b></div>
     `,

@@ -54,10 +54,12 @@ function softError(results) {
 
 // PostgREST projects commonly cap a single response at 1,000 rows. Load
 // parties in pages so the accounting/contact list does not silently stop at
-// an arbitrary 200/1,000-row boundary.
+// an arbitrary 200/1,000-row boundary. A hard safety cap stops runaway loops
+// if a misconfigured environment keeps returning full pages forever.
+const MAX_PAGED_ROWS = 20000;
 async function fetchAllRows(queryFactory, pageSize = 1000) {
   const all = [];
-  for (let from = 0; ; from += pageSize) {
+  for (let from = 0; from < MAX_PAGED_ROWS; from += pageSize) {
     const response = await queryFactory().range(from, from + pageSize - 1);
     if (response.error) return { data: all, error: response.error };
     all.push(...(response.data || []));
