@@ -53,7 +53,7 @@ for (const file of files) {
     process.exit(1);
   }
 }
-console.log('MIGRATIONS_128_137_PGLITE_OK');
+console.log('MIGRATIONS_PGLITE_OK');
 {
   const admin = '10000000-0000-4000-8000-000000000001';
   await db.exec(`

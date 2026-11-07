@@ -273,3 +273,18 @@
   .calc-component-summary dl { grid-template-columns: 1fr; }
   .calc-component-summary dl > div { border-bottom: 1px solid #e5e9ec !important; }
 }
+
+/* 140: uniform summary row layout + green/red core/bobbin stock backgrounds */
+.calc-customer-summary { grid-template-columns: repeat(4, minmax(0, 1fr)) !important; }
+.calc-customer-summary > div { display: grid; gap: 4px; align-content: start; background: #f5f7f8; border: 1px solid #e2e7ea; border-radius: 11px; padding: 10px; }
+.calc-customer-summary .stock-bg.ok { background: #eaf8f0; border-color: #b9e2ca; }
+.calc-customer-summary .stock-bg.bad { background: #fff0ef; border-color: #f0c4c0; }
+.calc-customer-summary .stock-bg small { font-weight: 800; }
+.calc-customer-summary .stock-bg.bad small { color: #9b423b; }
+/* 140: optional customer test-data block */
+.calc-test-data { margin-top: 13px; border: 1px solid #e0e5e8; border-radius: 11px; background: #f9fbfc; padding: 10px 13px; }
+.calc-test-data summary { cursor: pointer; font-size: 11.5px; font-weight: 800; color: #52616d; }
+.calc-test-data[open] summary { margin-bottom: 11px; }
+.calc-test-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 11px; }
+@media(max-width: 1100px) { .calc-test-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .calc-customer-summary { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; } }
+@media(max-width: 760px) { .calc-test-grid { grid-template-columns: 1fr; } .calc-customer-summary { grid-template-columns: 1fr 1fr !important; } }

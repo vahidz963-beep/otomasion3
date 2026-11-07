@@ -20,8 +20,14 @@ const windings = [
   { name: 'ثانویه', start_pin: 3, end_pin: 4, turns: 20, wire_id: 'wire-05', strands: 1, arrangement: 'side', layer_mode: 'auto', requested_layers: 1, direction: 'ccw' },
 ];
 const settings = {
-  packing_factor: 0.35,
+  packing_factor: 0.40,
   inter_winding_insulation_mm: 0.05,
+  insulation_wraps_per_layer: 3,
+  mylar_tape_roll_length_m: 66,
+  finishing_tape_wraps: 3,
+  core_glue_bead_section_mm2: 6,
+  glue_density_g_cm3: 1.3,
+  core_glue_min_g_per_unit: 0.5,
   profit_percent: 30,
   sample_multiplier: 2,
   sample_setup_rial: 5000000,
@@ -40,7 +46,7 @@ const settings = {
   price_rounding_rial: 10000,
 };
 
-assert.equal(CALCULATOR_ENGINE_VERSION, 'calculator-engine-1.1.0');
+assert.equal(CALCULATOR_ENGINE_VERSION, 'calculator-engine-1.2.0');
 assert.equal(shouldPersistTransformerAction('preview_transformer_fill'), false, 'live fill must never persist');
 assert.equal(shouldPersistTransformerAction('preview_transformer'), false, 'internal preview must never persist');
 assert.equal(shouldPersistTransformerAction('public_quote_preview'), false, 'public preview must never persist');
@@ -58,14 +64,20 @@ assert.ok(geometry.wire_usage.every((row) => row.required_g > 0 && row.available
 assert.ok(geometry.area_percent > 0 && geometry.radial_percent > 0);
 assert.equal(geometry.rows[0].turns_per_layer, 36, 'outer enamel diameter drives physical turns per layer');
 assert.equal(geometry.rows[0].calculated_layers, 3);
-assert.equal(geometry.rows[0].build_mm, 1);
-assert.equal(geometry.rows[1].separator_before_mm, 0.05, 'fixed inter-winding insulation');
-assert.equal(geometry.total_build_mm, 1.55);
-assert.equal(geometry.total_length_m, 4.299929);
-assert.equal(geometry.copper_weight_per_unit_g, 3.627883);
-assert.equal(geometry.area_percent, 63.1647);
-assert.equal(geometry.radial_percent, 29.8077);
-assert.equal(geometry.occupancy_percent, 63.1647);
+assert.equal(geometry.rows[0].build_mm, 1.35, 'build = 3 layers x (0.3mm copper + 3x0.05mm insulation wraps)');
+assert.equal(geometry.rows[0].layer_insulation_mm, 0.15, 'insulation wraps per layer = 3 x 0.05mm');
+assert.equal(geometry.rows[1].separator_before_mm, 0, 'the previous layer tape wraps act as the inter-winding separator');
+assert.equal(geometry.rows[1].build_mm, 0.65);
+assert.equal(geometry.total_build_mm, 2);
+assert.equal(geometry.total_length_m, 4.395434);
+assert.equal(geometry.copper_weight_per_unit_g, 3.730817);
+assert.equal(geometry.area_percent, 76.9037);
+assert.equal(geometry.radial_percent, 38.4615);
+assert.equal(geometry.occupancy_percent, 76.9037);
+assert.equal(geometry.mylar_tape_length_per_unit_m, 0.599695, 'per-layer insulation wraps + finishing wraps are metered');
+assert.equal(geometry.finishing_tape_length_per_unit_m, 0.134642);
+assert.equal(geometry.mylar_tape_rolls_needed, 1, 'a 66m roll covers the whole order');
+assert.equal(geometry.core_glue_per_unit_g, 0.5, 'core glue bead floor wins on this small core');
 
 const fillSvg = buildWindowFillSvg(bobbin, geometry);
 assert.equal(countWindingBands(fillSvg), windings.length, 'image 1 must have exactly one colored band per winding');
@@ -96,6 +108,8 @@ assert.match(pinSvg, /نمای بالا/);
 assert.doesNotMatch(pinSvg, /From the bottom view|نمای پایین/);
 assert.doesNotMatch(pinSvg, /Winding Specification/);
 
+const mylarTape = { id: 'tape-12', model_code: 'چسب دوازده 12mm', warehouse_item_id: 'wh-tape-12', warehouse_code: 'TAPE-12', unit: 'متر', current_cost_rial: 25000, current_qty: 500, available_qty: 500 };
+const coreGlue = { id: 'glue-core', model_code: 'چسب هسته', warehouse_item_id: 'wh-glue', warehouse_code: 'GLUE-CORE', unit: 'گرم', current_cost_rial: 900000, current_qty: 2000, available_qty: 2000 };
 const sample = calculateTransformerQuote({ core, bobbin, wires, windings, settings, orderType: 'sample', quantity: 1 });
 assert.equal(sample.valid, true);
 assert.equal(sample.pricing.unit_sale_rial, sample.pricing.regular_unit_sale_rial * 2);
@@ -112,6 +126,26 @@ assert.ok(sample.inventorySnapshot.every((row) => row.label), 'inventory snapsho
 assert.ok(sample.requirements.filter((row) => row.component_role === 'wire').every((row) => row.unit === 'گرم'), 'all wire inventory requirements use grams');
 assert.ok(Math.abs(sample.requirements.filter((row) => row.component_role === 'wire').reduce((sum, row) => sum + row.quantity_per_unit, 0) - sample.engineering.copper_weight_per_unit_g) < 0.00001, 'wire requirement grams match engineering copper weight');
 assert.equal(sample.requirements.some((row) => /terminal|lug/i.test(row.component_role)), false, 'terminal/lug is not in BOM');
+assert.equal(sample.pricing.tape_cost_rial, 0, 'tape stays out of the BOM until a warehouse item is configured');
+assert.equal(sample.requirements.some((row) => row.component_role === 'tape'), false);
+
+const withMaterials = calculateTransformerQuote({ core, bobbin, wires, tape: mylarTape, glue: coreGlue, windings, settings, orderType: 'sample', quantity: 1 });
+assert.equal(withMaterials.valid, true);
+const tapeRow = withMaterials.requirements.find((row) => row.component_role === 'tape');
+const glueRow = withMaterials.requirements.find((row) => row.component_role === 'glue');
+assert.ok(tapeRow, 'metered mylar tape becomes a real BOM row');
+assert.equal(tapeRow.unit, 'متر');
+assert.ok(Math.abs(tapeRow.quantity_per_unit - withMaterials.engineering.mylar_tape_length_per_unit_m) < 0.000001);
+assert.ok(glueRow && glueRow.unit === 'گرم');
+assert.ok(Math.abs(withMaterials.pricing.tape_cost_rial - withMaterials.engineering.mylar_tape_length_per_unit_m * 25000) < 0.01, 'tape price = consumed meters x meter price');
+assert.ok(Math.abs(withMaterials.pricing.glue_cost_rial - withMaterials.engineering.core_glue_per_unit_g * 900000) < 0.01, 'glue price = consumed grams x gram price');
+assert.ok(Math.abs(withMaterials.pricing.direct_cost_rial - (sample.pricing.direct_cost_rial + withMaterials.pricing.tape_cost_rial + withMaterials.pricing.glue_cost_rial)) < 0.01, 'tape/glue extend the per-unit direct cost');
+assert.ok(Math.abs(withMaterials.pricing.total_sale_rial - sample.pricing.total_sale_rial) > 0, 'tape/glue affect the sale price');
+
+const wrongTapeUnit = calculateTransformerQuote({ core, bobbin, wires, tape: { ...mylarTape, unit: 'عدد' }, glue: coreGlue, windings, settings, orderType: 'sample', quantity: 1 });
+assert.ok(wrongTapeUnit.errors.some((error) => error.code === 'TAPE_UNIT_INVALID'), 'tape warehouse unit must be meters');
+const wrongGlueUnit = calculateTransformerQuote({ core, bobbin, wires, tape: mylarTape, glue: { ...coreGlue, unit: 'عدد' }, windings, settings, orderType: 'sample', quantity: 1 });
+assert.ok(wrongGlueUnit.errors.some((error) => error.code === 'GLUE_UNIT_INVALID'), 'glue warehouse unit must be grams');
 
 const production = calculateTransformerQuote({ core, bobbin, wires, windings, settings, orderType: 'production', quantity: 100 });
 assert.equal(production.valid, true);
@@ -129,18 +163,28 @@ assert.ok(wrongWireUnit.errors.some((error) => error.code === 'WIRE_UNIT_INVALID
 const reportFixture = buildReportFixture();
 const customerReport = buildTransformerReportHtml({ ...reportFixture, kind: 'customer', logoUrl: '/assets/aryaman-report-logo.png' });
 const staffReport = buildTransformerReportHtml({ ...reportFixture, kind: 'internal', logoUrl: '/assets/aryaman-report-logo.png' });
-assert.match(customerReport, /گزارش فنی و تجاری ترانس/);
-assert.match(customerReport, /مشخصات هسته و بوبین/);
-assert.match(customerReport, /خلاصه امکان ساخت، موجودی و قیمت/);
-assert.match(customerReport, /جدول مشخصات سیم‌پیچی/);
-assert.match(customerReport, /تصویر ۱ — پرشدگی سیم‌پیچ‌ها/);
-assert.match(customerReport, /تصویر ۲ — نمای بالای پایه و سیم‌پیچی/);
-assert.doesNotMatch(customerReport, /ریز مالی محرمانه|بهای تمام‌شده|profit_amount_rial/, 'customer PDF never contains confidential cost details');
-assert.match(staffReport, /ریز مالی محرمانه/);
-assert.match(staffReport, /بهای تمام‌شده/);
+const customerPlain = buildTransformerReportHtml({ ...reportFixture, kind: 'customer', testData: undefined, logoUrl: '' });
+assert.match(customerReport, /Switching Transformer Datasheet/, 'customer output is the AM5-style English datasheet');
+assert.match(customerReport, /Document ID: <b>AMS7<\/b>/, 'document id comes from the AMS number');
+assert.match(customerReport, /Basic Information/);
+assert.match(customerReport, /Core Specifications/);
+assert.match(customerReport, /Winding Specification/);
+assert.match(customerReport, /Order Summary/);
+assert.match(customerReport, /Insulation/);
+assert.match(customerReport, /Transformer Diagrams/);
+assert.match(customerReport, /Inductance/, 'optional inductance section appears when the customer filled it');
+assert.match(customerReport, /Electrical Test/);
+assert.doesNotMatch(customerPlain, /Inductance|Electrical Test/, 'optional sections disappear when nothing is filled');
+assert.doesNotMatch(customerReport, /بهای تمام‌شده|جدول محاسبات قیمت|قلم مصرفی|نیاز سفارش/, 'customer datasheet carries no cost or inventory tables');
+assert.match(staffReport, /Switching Transformer Datasheet/, 'staff page 1 shares the customer datasheet');
+assert.match(staffReport, /جدول محاسبات قیمت/, 'staff page 2 keeps the confidential cost table');
+assert.match(staffReport, /پارامترهای محاسبه و تولید/);
 assert.match(staffReport, /چک‌لیست کنترل کیفیت/);
-assert.equal((customerReport.match(/class="page(?: [^"]*)?"/g) || []).length, 2, 'customer PDF has two organized pages');
-assert.equal((staffReport.match(/class="page(?: [^"]*)?"/g) || []).length, 3, 'staff PDF adds a confidential third page');
+assert.match(staffReport, /نوار مایلار \(چسب دوازده\)/, 'staff cost table includes metered mylar tape');
+assert.match(staffReport, /چسب هسته/, 'staff cost table includes core glue');
+assert.match(staffReport, /insulation_per_layer_mm|عایق هر لایه/, 'staff parameters include per-layer insulation');
+assert.equal((customerReport.match(/class="page(?: [^"]*)?"/g) || []).length, 1, 'customer datasheet is exactly one page');
+assert.equal((staffReport.match(/class="page(?: [^"]*)?"/g) || []).length, 2, 'staff PDF is the datasheet plus one confidential page');
 assert.match(customerReport, /@font-face[\s\S]*Aryaman Vazirmatn[\s\S]*vazirmatn-v16-arabic-wght-normal\.woff2/, 'customer PDF embeds the versioned local site font contract');
 assert.match(staffReport, /font-family:"Aryaman Vazirmatn"/, 'staff PDF uses the same high-quality font as the site');
 assert.ok(fs.existsSync(path.join(root, 'public/assets/fonts/vazirmatn/vazirmatn-v16-arabic-wght-normal.woff2')));
@@ -175,6 +219,27 @@ assert.match(migration124, /v_config-'show_internal_pricing_breakdown'/);
 assert.match(migration124, /assembly_method/);
 assert.match(migration124, /flange_length_mm/);
 assert.doesNotMatch(migration124, /service_role[^\n]*['"][A-Za-z0-9._-]{40,}/i);
+const migration139 = fs.readFileSync(path.join(root, 'supabase/migrations/139_calculator_tape_glue_materials.sql'), 'utf8');
+assert.match(migration139, /check\(component_role in \('core','bobbin','wire','tape','glue','material'\)\)/);
+assert.match(migration139, /mylar_tape_warehouse_item_id uuid references public\.warehouse_items/);
+assert.match(migration139, /'calculator-engine-1\.2\.0'/);
+assert.match(migration139, /insulation_wraps_per_layer/);
+assert.match(migration139, /mylar_tape_roll_length_m/);
+assert.match(migration139, /قلم انبار چسب\/نوار مایلار باید فعال و با واحد «متر» باشد/);
+assert.match(migration139, /قلم انبار چسب هسته باید فعال و با واحد «گرم» باشد/);
+assert.match(migration139, /'packing_factor',coalesce\(\(p_config->>'packing_factor'\)::numeric,0\.40\)/);
+assert.match(migration139, /mylar_tape_warehouse_item_id',b\.mylar_tape_warehouse_item_id/);
+assert.match(migration139, /mylar_tape_warehouse_item_id=excluded\.mylar_tape_warehouse_item_id/);
+assert.doesNotMatch(migration139, /service_role[^\n]*['"][A-Za-z0-9._-]{40,}/i);
+const migration140 = fs.readFileSync(path.join(root, 'supabase/migrations/140_calculator_ams_am_numbering_and_test_data.sql'), 'utf8');
+assert.match(migration140, /ams_number_seq/);
+assert.match(migration140, /am_number_seq/);
+assert.match(migration140, /fn_calculator_convert_quote_to_am/);
+assert.match(migration140, /تبدیل شماره سند به AM فقط با تأیید مدیر مجاز است/);
+assert.match(migration140, /test_data jsonb not null default '\{\}'::jsonb/);
+assert.match(migration140, /'ams_code',q\.ams_code/);
+assert.match(migration140, /q\.ams_code,q\.am_code/);
+assert.doesNotMatch(migration140, /service_role[^\n]*['"][A-Za-z0-9._-]{40,}/i);
 
 const moduleSource = fs.readFileSync(path.join(root, 'src/modules/calculator/CalculatorModule.jsx'), 'utf8');
 assert.match(moduleSource, /خروجی PDF مشتری/);
@@ -195,6 +260,16 @@ assert.match(moduleSource, /خلاصه امکان ساخت، موجودی و ق�
 assert.match(moduleSource, /پرونده فنی، جدول‌ها و نقشه‌های پیش از تأیید/);
 assert.match(moduleSource, /ریز محرمانه محاسبات و قیمت‌گذاری/);
 assert.match(moduleSource, /show_internal_pricing_breakdown/);
+assert.match(moduleSource, /قلم پیش‌فرض نوار مایلار/, 'formula modal exposes the default tape item');
+assert.match(moduleSource, /قلم انبار چسب هسته \(گرم\)/);
+assert.match(moduleSource, /قلم چسب مایلار این بوبین \(متر\)/, 'per-bobbin tape width selection');
+assert.match(moduleSource, /mylar_tape_warehouse_item_id/);
+assert.match(moduleSource, /insulation_wraps_per_layer/);
+assert.match(moduleSource, /calc-test-data/, 'designer exposes the optional test-data block');
+assert.match(moduleSource, /convertCalculatorQuoteToAm/, 'admin can convert AMS to AM');
+assert.match(moduleSource, /stock-bg/, 'core/bobbin stock cards use green/red backgrounds');
+assert.match(moduleSource, /docCode/, 'reports receive the AMS/AM document code');
+assert.match(moduleSource, /component_role !== 'wire'/, 'wire stock is no longer displayed');
 assert.match(moduleSource, /سفارش نمونه ترانس/);
 assert.match(moduleSource, /سفارش تعداد/);
 assert.match(moduleSource, /موجودی قابل رزرو/);
@@ -237,6 +312,11 @@ assert.match(edgeSource, /assertConfirmationMetadata/);
 assert.match(edgeSource, /safePublicEngineering/);
 assert.doesNotMatch(edgeSource.match(/function safePublicEngineering[\s\S]*?\n}/)?.[0] || '', /pricing|cost|inventory|warehouse/i, 'public engineering response excludes sensitive pricing and inventory');
 assert.match(edgeSource, /showPricingBreakdown = isAdmin \|\| Boolean/);
+assert.match(edgeSource, /mylar_tape_warehouse_item_id/);
+assert.match(edgeSource, /core_glue_warehouse_item_id/);
+assert.match(edgeSource, /واحد آن «متر» نیست/, 'edge guards the meter-unit tape item');
+assert.match(edgeSource, /sanitizeTestData/, 'edge sanitizes optional test data');
+assert.match(edgeSource, /test_data: payload\.test_data/, 'edge stores the sanitized test data with the quote snapshot');
 assert.match(edgeSource, /pricing_breakdown_visible: showPricingBreakdown/);
 const safeInventorySource = edgeSource.match(/function safePublicInventory[\s\S]*?\n}/)?.[0] || '';
 assert.doesNotMatch(safeInventorySource, /available_qty|quantity_total|warehouse_item_id|cost/i, 'public inventory exposes status only, never raw stock or cost');
