@@ -63,20 +63,20 @@ function optionalSections(testData) {
   const testFilled = [t.turns_ratio, t.hipot, t.dcr_primary, t.dcr_secondary, t.dcr_auxiliary].some((v) => String(v || '').trim());
   let html = '';
   if (indFilled) {
-    html += `${sectionTitle(5, 'Inductance', 'Optional — provided by the customer')}<div class="ds-wrap half"><table class="ds-qc"><thead><tr><th>Inductance</th><th>Measurement</th><th>Value</th></tr></thead><tbody>
+    html += `<div class="ds-opt">${sectionTitle(5, 'Inductance', 'Optional — provided by the customer')}<div class="ds-wrap half"><table class="ds-qc"><thead><tr><th>Inductance</th><th>Measurement</th><th>Value</th></tr></thead><tbody>
       <tr><td>Primary</td><td>${esc(t.ind_primary_condition || '10 kHz · 1V')}</td><td>${esc(t.ind_primary || '—')}</td></tr>
       <tr><td>Leakage</td><td>${esc(t.ind_leakage_condition || '—')}</td><td>${esc(t.ind_leakage || '—')}</td></tr>
       <tr><td>Secondary</td><td>${esc(t.ind_secondary_condition || '—')}</td><td>${esc(t.ind_secondary || '—')}</td></tr>
-    </tbody></table></div>`;
+    </tbody></table></div></div>`;
   }
   if (testFilled) {
-    html += `${sectionTitle('5.1', 'Electrical Test', 'Optional — provided by the customer')}<div class="ds-wrap half"><table class="ds-qc"><thead><tr><th>Item</th><th>Value</th><th>Test Condition</th></tr></thead><tbody>
+    html += `<div class="ds-opt">${sectionTitle('5.1', 'Electrical Test', 'Optional — provided by the customer')}<div class="ds-wrap half"><table class="ds-qc"><thead><tr><th>Item</th><th>Value</th><th>Test Condition</th></tr></thead><tbody>
       <tr><td>Turns Ratio</td><td>${esc(t.turns_ratio || '—')}</td><td>${esc(t.turns_ratio_condition || '—')}</td></tr>
       <tr><td>Hi-Pot (Insulation Test)</td><td>${esc(t.hipot || '—')}</td><td>${esc(t.hipot_condition || '—')}</td></tr>
       <tr><td>DCR – Primary</td><td>${esc(t.dcr_primary || '—')}</td><td>${esc(t.dcr_primary_condition || '—')}</td></tr>
       <tr><td>DCR – Secondary</td><td>${esc(t.dcr_secondary || '—')}</td><td>${esc(t.dcr_secondary_condition || '—')}</td></tr>
       <tr><td>DCR – Auxiliary</td><td>${esc(t.dcr_auxiliary || '—')}</td><td>${esc(t.dcr_auxiliary_condition || '—')}</td></tr>
-    </tbody></table></div>`;
+    </tbody></table></div></div>`;
   }
   return html;
 }
@@ -122,8 +122,8 @@ function datasheetPage(data) {
     <div class="ds-wrap"><table class="ds-wind"><thead><tr><th>Winding</th><th>Start Pin</th><th>To Pin</th><th>Turns</th><th>Wire (mm)</th><th>Strand</th><th>Layer</th><th>Direction</th><th>Insulation</th></tr></thead><tbody>${windingsTableRows(data.engineering)}</tbody></table></div>
     ${sectionTitle(4, 'Transformer Diagrams')}
     <div class="ds-diagrams">
-      <article class="ds-diagram"><h3>Figure 1 — Window Fill</h3>${data.fillSvg || '<p class="ds-none">Diagram unavailable.</p>'}</article>
-      <article class="ds-diagram"><h3>Figure 2 — Top View · Pinout &amp; Windings</h3>${data.pinSvg || '<p class="ds-none">Diagram unavailable.</p>'}</article>
+      <article class="ds-diagram"><h3>Figure 1 — Window Fill</h3><div class="ds-fig">${data.fillSvg || '<p class="ds-none">Diagram unavailable.</p>'}</div><div class="ds-legend">${(data.engineering?.rows || []).map((row, index) => `<span><i style="background:${row.color}"></i>N${index + 1} ${esc(row.name)} · ${en(row.turns, 0)}T · ${en(row.calculated_layers, 0)}L</span>`).join('')}<span class="gold"><i></i>Insulation strip between windings/layers</span></div><p class="ds-cap">Each colored band is one winding (band height ∝ build). Gold strips are the mylar tape layers; the labeled BW/HW edges are the bobbin window size.</p></article>
+      <article class="ds-diagram"><h3>Figure 2 — Top View · Pinout &amp; Windings</h3><div class="ds-fig">${data.pinSvg || '<p class="ds-none">Diagram unavailable.</p>'}</div><p class="ds-cap">Coil sides on the bobbin with pin numbers per side; CW/CCW shows the winding direction of each winding.</p></article>
     </div>
     ${optionalSections(data.testData)}
     ${sectionTitle(6, 'Order Summary')}
@@ -197,6 +197,7 @@ body{background:#fff;font-family:Arial,'Aryaman Vazirmatn',Vazirmatn,Tahoma,sans
 .ds-ltr .ds-sec,.ds-ltr .ds-cols,.ds-ltr .ds-diagrams{direction:ltr}
 .ds-sec{display:flex;align-items:center;gap:2.2mm;margin:4mm 0 2mm}
 .ds-sec i{min-width:5mm;height:5mm;border-radius:50%;background:#1d3a5f;color:#fff;font-size:8pt;font-weight:800;display:flex;align-items:center;justify-content:center;padding:0 1mm}
+*,*::before,*::after{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
 .ds-sec h2{font-size:10.5pt;font-weight:800;color:#1d3a5f;white-space:nowrap}
 .ds-sec .line{flex:1;height:.6mm;background:#d7dee8;border-radius:1mm}
 .ds-sec-cap{font-size:7.5pt;color:#7a8a9a;margin:-1mm 0 1.5mm 7mm}
@@ -219,10 +220,19 @@ table{border-collapse:collapse}
 .ds-wind tr:nth-child(even) td{background:#f4f7fb}
 .ds-wind td.name{font-weight:800;color:#1d3a5f;white-space:nowrap}
 .dir{display:inline-block;min-width:8mm;border-radius:3mm;background:#e8eef7;color:#1d3a5f;font-weight:800;font-size:7.5pt;padding:.4mm 1.8mm}
-.ds-diagrams{display:grid;grid-template-columns:1fr 1.2fr;gap:3.5mm;align-items:start}
-.ds-diagram{border:.35mm solid #d7dee8;border-radius:3mm;background:#fbfaf6;padding:2mm}
-.ds-diagram h3{font-size:8.5pt;color:#1d3a5f;font-weight:800;text-align:center;margin-bottom:1.5mm}
-.ds-diagram svg{width:100%;height:auto;max-height:52mm}
+.ds-diagrams{display:grid;grid-template-columns:1fr 1fr;gap:3.5mm;align-items:stretch}
+.ds-diagram{border:.35mm solid #d7dee8;border-radius:3mm;background:#fbfaf6;padding:2mm;display:flex;flex-direction:column;height:72mm}
+.ds-diagram h3{font-size:8.5pt;color:#1d3a5f;font-weight:800;text-align:center;margin-bottom:1.2mm}
+.ds-diagram .ds-fig{flex:1;min-height:0;display:flex;align-items:center;justify-content:center}
+.ds-diagram svg{width:100%;height:100%;max-height:100%}
+.ds-legend{display:flex;flex-wrap:wrap;gap:1mm 2.5mm;margin-top:1mm;font-size:6.8pt;color:#2c3f55;font-weight:700;justify-content:center}
+.ds-legend span{display:inline-flex;align-items:center;gap:.8mm;white-space:nowrap}
+.ds-legend i{width:3.2mm;height:2.4mm;border-radius:.6mm;display:inline-block}
+.ds-legend span.gold i{background:#f5c542;border:.25mm solid #a97712}
+.ds-cap{margin:1mm 0 0;font-size:6.6pt;color:#5f7186;line-height:1.45;text-align:center}
+.ds-opt{background:#fff6dc;border:.4mm solid #e3c36a;border-radius:2.5mm;padding:1.5mm 2mm 2mm;margin-bottom:3mm}
+.ds-opt .ds-sec h2{color:#7a5a10}
+.ds-opt small{color:#8a6d20}
 .ds-none{font-size:8pt;color:#8296ab;text-align:center;padding:6mm 0}
 .ds-qc{width:100%;font-size:8.5pt;text-align:center}
 .ds-qc thead th{background:#1d3a5f;color:#fff;padding:1.6mm 2.5mm;font-weight:700;border-left:.3mm solid #2d4d76}
@@ -270,21 +280,22 @@ export function buildTransformerReportHtml(data = {}) {
   const internal = data.kind === 'internal';
   const page1 = datasheetPage({ ...data, internal });
   const page2 = internal ? staffPage({ ...data, internal }) : '';
-  return `<!doctype html><html lang="${internal ? 'fa' : 'en'}" dir="${internal ? 'rtl' : 'ltr'}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(`${data.docCode || data.code || 'report'} — datasheet`)}</title><style>${reportCss}</style></head><body>${page1}${page2}<script>window.addEventListener('load',()=>setTimeout(()=>window.print(),300));</script></body></html>`;
+  return `<!doctype html><html lang="${internal ? 'fa' : 'en'}" dir="${internal ? 'rtl' : 'ltr'}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(`${data.docCode || data.code || 'report'} — datasheet`)}</title><style>${reportCss}</style></head><body>${page1}${page2}</body></html>`;
 }
 
+/* Preview/print flow identical to finance invoices/statements: a gray preview
+   screen with a single «چاپ / ذخیره PDF» button that opens the browser print
+   dialog (Save as PDF). No auto-print, no HTML download fallback. */
 export function openTransformerPdfReport(data) {
   const logoUrl = typeof window !== 'undefined' ? new URL('/assets/aryaman-report-logo.png', window.location.origin).href : '';
   const fontBaseUrl = getAryamanFontBaseUrl();
   const html = buildTransformerReportHtml({ ...data, logoUrl, fontBaseUrl });
-  const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+  const toolbar = `<div class="print-bar"><button type="button" class="print-btn" onclick="window.print()">چاپ / ذخیره PDF</button><span>پیش‌نمایش ${data.kind === 'internal' ? 'گزارش داخلی کارکنان' : 'دیتاشیت مشتری'} — ${esc(data.docCode || data.code || '')}</span></div>`;
+  const withToolbar = html.replace('</body>', `${toolbar}</body>`);
+  const css = `<style>.print-bar{position:sticky;top:0;z-index:50;display:flex;align-items:center;justify-content:center;gap:12px;background:#eef1f4;padding:10px 14px;border-bottom:1px solid #d7dee8}.print-btn{background:#10243d;color:#fff;border:0;border-radius:10px;padding:9px 18px;font:inherit;font-weight:900;cursor:pointer;box-shadow:0 8px 22px rgba(16,36,61,.2)}.print-btn:hover{background:#1b3a5e}.print-bar span{font-size:12px;font-weight:800;color:#52626f}@media print{.print-bar{display:none!important}}</style>`;
+  const finalHtml = withToolbar.replace('</head>', `${css}</head>`);
+  const blob = new Blob([finalHtml], { type: 'text/html;charset=utf-8' });
   const url = URL.createObjectURL(blob);
-  const reportWindow = window.open(url, '_blank');
-  if (!reportWindow) {
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `${data.kind === 'internal' ? 'staff' : 'customer'}-${data.docCode || data.code || 'preview'}.html`;
-    link.click();
-  }
+  window.open(url, '_blank');
   window.setTimeout(() => URL.revokeObjectURL(url), 120000);
 }

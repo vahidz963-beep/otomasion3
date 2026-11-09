@@ -152,10 +152,15 @@ export function calculateTransformerGeometry({ core, bobbin, wires = [], winding
       pushError(errors, 'LAYERS_INSUFFICIENT', `ردیف ${line}: ${calculatedLayers} لایه کافی نیست؛ حداقل ${automaticLayers} لایه لازم است.`, line);
     }
 
-    // Insulation: `insulationWrapsPerLayer` turns of tape after EVERY physical
-    // layer (thickness per turn = insulationMm). The last layer's wraps also
-    // act as the separator before the next winding, so no extra separator.
-    const layerInsulationMm = insulationWrapsPerLayer * insulationMm;
+    // Insulation: tape turns after EVERY physical layer. Default comes from
+    // `insulationWrapsPerLayer` (formula), but each winding row may override it
+    // with `insulation_wraps` (0-20) so the customer can choose fewer/more tape
+    // layers for that specific winding. Thickness per turn = insulationMm.
+    // The last layer's wraps also act as the separator before the next winding.
+    const windingWraps = source.insulation_wraps == null || source.insulation_wraps === ''
+      ? insulationWrapsPerLayer
+      : Math.min(20, Math.max(0, Math.trunc(finite(source.insulation_wraps, insulationWrapsPerLayer))));
+    const layerInsulationMm = windingWraps * insulationMm;
     const windingBuildMm = calculatedLayers * (bundleHeightMm + layerInsulationMm);
     const allocatedBuildMm = windingBuildMm;
     let windingTapeLengthMm = 0;
@@ -172,7 +177,7 @@ export function calculateTransformerGeometry({ core, bobbin, wires = [], winding
     // j of the layer sits at the layer's copper outer radius + j×thickness.
     for (let layer = 0; layer < calculatedLayers; layer += 1) {
       const layerOuterRadiusMm = cumulativeBuildMm + layer * (bundleHeightMm + layerInsulationMm) + bundleHeightMm;
-      for (let wrap = 0; wrap < insulationWrapsPerLayer; wrap += 1) {
+      for (let wrap = 0; wrap < windingWraps; wrap += 1) {
         windingTapeLengthMm += baseMltMm + 2 * Math.PI * (layerOuterRadiusMm + wrap * insulationMm);
       }
     }
@@ -204,6 +209,7 @@ export function calculateTransformerGeometry({ core, bobbin, wires = [], winding
       arrangement,
       layer_mode: layerMode,
       requested_layers: layerMode === 'manual' ? requestedLayers : null,
+      insulation_wraps: windingWraps,
       calculated_layers: calculatedLayers,
       direction: source.direction === 'ccw' ? 'ccw' : 'cw',
       bundle_width_mm: round(bundleWidthMm),

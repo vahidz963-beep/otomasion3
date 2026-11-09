@@ -31,6 +31,7 @@ import {
   confirmTransformer,
   consumeCalculatorQuote,
   convertCalculatorQuoteToAm,
+  createCalculatorConsumable,
   getCalculatorAdminSettings,
   getCalculatorCatalog,
   getCalculatorQuote,
@@ -48,8 +49,8 @@ import { openTransformerPdfReport } from './calculatorReports';
 import './CalculatorModule.css';
 
 const DEFAULT_WINDINGS = [
-  { id: 1, name: 'اولیه', start_pin: 1, end_pin: 2, turns: 100, wire_id: '', strands: 1, arrangement: 'side', layer_mode: 'auto', requested_layers: 1, direction: 'cw' },
-  { id: 2, name: 'ثانویه', start_pin: 3, end_pin: 4, turns: 20, wire_id: '', strands: 1, arrangement: 'side', layer_mode: 'auto', requested_layers: 1, direction: 'ccw' },
+  { id: 1, name: 'اولیه', start_pin: 1, end_pin: 2, turns: 100, wire_id: '', strands: 1, arrangement: 'side', layer_mode: 'auto', requested_layers: 1, insulation_wraps: 3, direction: 'cw' },
+  { id: 2, name: 'ثانویه', start_pin: 3, end_pin: 4, turns: 20, wire_id: '', strands: 1, arrangement: 'side', layer_mode: 'auto', requested_layers: 1, insulation_wraps: 3, direction: 'ccw' },
 ];
 
 const STATUS_LABELS = {
@@ -167,6 +168,7 @@ function TransformerDesigner({ catalog, onQuoteSaved }) {
   const [result, setResult] = useState(null);
   const [busy, setBusy] = useState(false);
   const [confirmBusy, setConfirmBusy] = useState(false);
+  const [confirmError, setConfirmError] = useState('');
   const [liveFill, setLiveFill] = useState({ loading: false, percent: null, status: 'idle', error: '' });
   const previewSequence = useRef(0);
   const calculationSequence = useRef(0);
@@ -266,7 +268,7 @@ function TransformerDesigner({ catalog, onQuoteSaved }) {
     if (windings.length >= 12) return;
     const id = Math.max(0, ...windings.map((row) => row.id)) + 1;
     const index = windings.length;
-    setWindings([...windings, { id, name: `سیم‌پیچ ${index + 1}`, start_pin: Math.min(maxPin, index * 2 + 1), end_pin: Math.min(maxPin, index * 2 + 2), turns: 10, wire_id: mappedWires[0]?.id || '', strands: 1, arrangement: 'side', layer_mode: 'auto', requested_layers: 1, direction: 'cw' }]);
+    setWindings([...windings, { id, name: `سیم‌پیچ ${index + 1}`, start_pin: Math.min(maxPin, index * 2 + 1), end_pin: Math.min(maxPin, index * 2 + 2), turns: 10, wire_id: mappedWires[0]?.id || '', strands: 1, arrangement: 'side', layer_mode: 'auto', requested_layers: 1, insulation_wraps: 3, direction: 'cw' }]);
     setResult(null);
   }
 
@@ -286,10 +288,10 @@ function TransformerDesigner({ catalog, onQuoteSaved }) {
   }
 
   async function confirmCalculation() {
-    setError(''); setSuccess('');
-    if (!result?.valid) { setError('ابتدا محاسبه معتبر را انجام دهید.'); return; }
+    setError(''); setSuccess(''); setConfirmError('');
+    if (!result?.valid) { setConfirmError('ابتدا محاسبه معتبر را انجام دهید.'); return; }
     if (!customer.customer_name.trim() || !customer.customer_phone.trim() || !customer.project_title.trim()) {
-      setError('برای تأیید نهایی، نام مشتری، شماره تماس و عنوان پروژه را کامل کنید.');
+      setConfirmError('برای تأیید نهایی، نام مشتری، شماره تماس و عنوان پروژه را کامل کنید.');
       return;
     }
     const sequence = ++calculationSequence.current;
@@ -302,10 +304,10 @@ function TransformerDesigner({ catalog, onQuoteSaved }) {
         setSuccess(`تأیید نهایی انجام شد؛ سفارش با کد ${data.quote.public_code} در بخش «سفارش‌های سایت و تولید» ثبت شد.`);
         onQuoteSaved?.();
       } else {
-        setError((data.errors || []).map((item) => item.message).join(' ') || 'ثبت نهایی سفارش ناموفق بود.');
+        setConfirmError((data.errors || []).map((item) => item.message).join(' ') || 'ثبت نهایی سفارش ناموفق بود.');
       }
     } catch (confirmationError) {
-      if (sequence === calculationSequence.current) setError(confirmationError.message);
+      if (sequence === calculationSequence.current) setConfirmError(confirmationError.message);
     } finally { setConfirmBusy(false); }
   }
 
@@ -352,9 +354,11 @@ function TransformerDesigner({ catalog, onQuoteSaved }) {
             const ready = (core.calculable) && readyCoreIds.has(core.id);
             return <option key={core.id} value={core.id} disabled={!ready}>{core.model_code}{ready ? '' : ' · نیازمند تکمیل/اتصال انبار'}</option>;
           })}</select>
+          {selectedCore && <div className={`calc-select-stock ${Number(selectedCore.available_qty) > 0 ? 'ok' : 'bad'}`}><span>موجودی قابل رزرو: {formatNumber(selectedCore.available_qty)} عدد</span></div>}
         </Field>
         <Field label="مدل بوبین" hint={selectedBobbin ? `موجودی قابل رزرو: ${formatNumber(selectedBobbin.available_qty)} عدد${selectedBobbin.warehouse_code ? ` · کد ${selectedBobbin.warehouse_code}` : ''}` : 'در گزینه فقط تعداد پین و جهت نصب نمایش داده می‌شود.'}>
           <select value={bobbinId} onChange={(event) => setBobbinId(event.target.value)} disabled={!coreId}><option value="">انتخاب بوبین</option>{bobbins.map((bobbin) => { const ready = bobbin.calculable; return <option key={bobbin.id} value={bobbin.id} disabled={!ready}>{bobbin.pins_left}+{bobbin.pins_right} پین · {bobbin.mount_orientation}{ready ? '' : ' · بدون اتصال معتبر انبار'}</option>; })}</select>
+          {selectedBobbin && <div className={`calc-select-stock ${Number(selectedBobbin.available_qty) > 0 ? 'ok' : 'bad'}`}><span>موجودی قابل رزرو: {formatNumber(selectedBobbin.available_qty)} عدد</span></div>}
         </Field>
         <Field label="تعداد">
           <input type="number" min={orderType === 'production' ? 100 : 1} max={orderType === 'sample' ? 99 : undefined} value={quantity} onChange={(event) => { setQuantity(event.target.value); setResult(null); }}/>
@@ -364,7 +368,7 @@ function TransformerDesigner({ catalog, onQuoteSaved }) {
         <Field label="شماره تماس"><input value={customer.customer_phone} maxLength={40} onChange={(event) => updateCustomer('customer_phone', event.target.value)}/></Field>
       </div>
       <label className="calc-check"><input type="checkbox" checked={hasGap} onChange={(event) => { setHasGap(event.target.checked); setResult(null); }}/><span>هسته دارای گپ است</span></label>
-      <details className="calc-test-data">
+      <details className="calc-test-data" open>
         <summary>داده‌های اختیاری آزمون (اندوکتانس و تست الکتریکی) — در صورت پرشدن در دیتاشیت چاپ می‌شود</summary>
         <div className="calc-test-grid">
           <Field label="اندوکتانس اولیه (Primary)"><input value={testData.ind_primary || ''} maxLength={80} placeholder="1.5 - 1.6 mH" onChange={(event) => updateTestData('ind_primary', event.target.value)}/></Field>
@@ -384,7 +388,7 @@ function TransformerDesigner({ catalog, onQuoteSaved }) {
     <section className="calc-card calc-winding-panel">
       <div className="calc-card-title"><div><Layers3/><h2>سیم‌پیچ‌ها</h2></div></div>
       <div className="calc-table-scroll">
-        <table className="calc-winding-table has-row-numbers"><thead><tr><th>ردیف</th><th>نام</th><th>شروع</th><th>پایان</th><th>دور</th><th>سیم</th><th>رشته</th><th>لایه</th><th>جهت</th><th></th></tr></thead><tbody>{windings.map((row, index) => <tr key={row.id}>
+        <table className="calc-winding-table has-row-numbers"><thead><tr><th>ردیف</th><th>نام</th><th>شروع</th><th>پایان</th><th>دور</th><th>سیم</th><th>رشته</th><th>لایه</th><th>چسب هر لایه (دور)</th><th>جهت</th><th></th></tr></thead><tbody>{windings.map((row, index) => <tr key={row.id}>
           <td>{formatNumber(index + 1)}</td>
           <td><input value={row.name} onChange={(event) => updateWinding(row.id, 'name', event.target.value)}/></td>
           <td><select value={row.start_pin} onChange={(event) => updateWinding(row.id, 'start_pin', event.target.value)}>{Array.from({ length: maxPin }, (_, pin) => <option key={pin + 1} value={pin + 1}>{formatNumber(pin + 1)}</option>)}</select></td>
@@ -393,6 +397,7 @@ function TransformerDesigner({ catalog, onQuoteSaved }) {
           <td><div className="calc-wire-select"><select value={row.wire_id} onChange={(event) => updateWinding(row.id, 'wire_id', event.target.value)}><option value="">انتخاب</option>{wires.map((wire) => { const ready = wire.calculable; return <option key={wire.id} value={wire.id} disabled={!ready}>{formatWireLabel(wire.diameter_mm, wire.awg)}{ready ? '' : ' · بدون اتصال معتبر انبار'}</option>; })}</select></div></td>
           <td><input type="number" min="1" max="20" value={row.strands} onChange={(event) => updateWinding(row.id, 'strands', event.target.value)}/></td>
           <td><div className="calc-layer-cell"><select value={row.layer_mode} onChange={(event) => updateWinding(row.id, 'layer_mode', event.target.value)}><option value="auto">خودکار</option><option value="manual">دستی</option></select>{row.layer_mode === 'manual' && <input type="number" min="1" value={row.requested_layers} onChange={(event) => updateWinding(row.id, 'requested_layers', event.target.value)}/>}</div></td>
+          <td><input type="number" min="0" max="20" title="دور چسب مایلار بعد از هر لایه همین سیم‌پیچ" value={row.insulation_wraps ?? 3} onChange={(event) => updateWinding(row.id, 'insulation_wraps', event.target.value)}/></td>
           <td><select value={row.direction} onChange={(event) => updateWinding(row.id, 'direction', event.target.value)}><option value="cw">ساعتگرد</option><option value="ccw">پادساعتگرد</option></select></td>
           <td><button type="button" className="calc-icon danger" aria-label="حذف سیم‌پیچ" disabled={windings.length === 1} onClick={() => { setWindings(windings.filter((item) => item.id !== row.id)); setResult(null); }}><Trash2/></button></td>
         </tr>)}</tbody></table>
@@ -426,8 +431,6 @@ function TransformerDesigner({ catalog, onQuoteSaved }) {
           <div className="total"><small>مبلغ نهایی</small><strong>{formatToman(result.public_result?.total_sale_rial)}</strong></div>
         </div>
         <div className="calc-table-scroll calc-inventory-result"><table><thead><tr><th>قلم مصرفی</th><th>مصرف هر عدد</th><th>نیاز کل</th><th>موجودی قابل رزرو</th><th>وضعیت</th></tr></thead><tbody>{(result.inventory || []).filter((item) => item.component_role !== 'wire').map((item, index) => <tr key={`${item.warehouse_item_id || item.component_role}-${index}`}><td><b>{item.label || (item.component_role === 'core' ? selectedCore?.model_code : item.component_role === 'bobbin' ? `${selectedBobbin?.pins_left}+${selectedBobbin?.pins_right} پین` : item.component_role === 'tape' ? 'نوار مایلار (چسب دوازده)' : item.component_role === 'glue' ? 'چسب هسته' : 'سیم مسی لاکی')}</b><small>{{ core: 'هسته', bobbin: 'بوبین', tape: 'چسب/نوار', glue: 'چسب', wire: 'سیم' }[item.component_role] || 'ماده مصرفی'}</small></td><td>{formatNumber(item.quantity_per_unit)} {item.unit}</td><td>{formatNumber(item.quantity_total)} {item.unit}</td><td>{formatNumber(item.available_qty)} {item.unit}</td><td><InventoryStatus compact row={item}/></td></tr>)}</tbody></table></div>
-        {!result.quote && result.valid && <div className="calc-confirm-box"><ShieldCheck/><div><b>تأیید و ثبت نهایی</b><p>پس از تأیید، قیمت و موجودی دوباره در Edge بررسی، Snapshot ثابت و سفارش ثبت می‌شود.</p></div><button type="button" className="calc-primary" disabled={confirmBusy} onClick={confirmCalculation}>{confirmBusy ? <RefreshCw className="spin"/> : <CheckCircle2/>}{confirmBusy ? 'در حال ثبت نهایی…' : 'تأیید نهایی و ثبت سفارش'}</button></div>}
-        {result.quote && <div className="calc-confirmed-box"><CheckCircle2/><span><b>سفارش ثبت شد</b><small>کد پیگیری: {result.quote.public_code}</small></span></div>}
       </section>
 
       <section className="calc-result-category technical">
@@ -453,6 +456,14 @@ function TransformerDesigner({ catalog, onQuoteSaved }) {
           <article className="calc-diagram-card pin"><header><span>تصویر ۲</span><h3>نمای بالای پایه و سیم‌پیچی</h3></header><div className="calc-svg-host pin" dangerouslySetInnerHTML={{ __html: pinSvg }}/></article>
         </div>
       </section>
+
+      {result.valid && <div className="calc-final-zone">
+        {!result.quote && <div className="calc-confirm-box"><ShieldCheck/><div><b>تأیید و ثبت نهایی</b><p>پس از تأیید، قیمت و موجودی دوباره در سرور بررسی، Snapshot ثابت و سفارش ثبت می‌شود.</p>
+          <div className="calc-confirm-totals"><div><small>تعداد سفارش</small><b>{formatNumber(quantity)} عدد</b></div><div><small>قیمت هر واحد</small><b>{formatToman(result.public_result?.unit_sale_rial)}</b></div><div><small>قیمت کل</small><strong>{formatToman(result.public_result?.total_sale_rial)}</strong></div></div>
+          {confirmError && <div className="calc-inline-warning"><AlertTriangle/>{confirmError}</div>}
+        </div><button type="button" className="calc-primary" disabled={confirmBusy} onClick={confirmCalculation}>{confirmBusy ? <RefreshCw className="spin"/> : <CheckCircle2/>}{confirmBusy ? 'در حال ثبت نهایی…' : 'تأیید نهایی و ثبت سفارش'}</button></div>}
+        {result.quote && <div className="calc-confirmed-box"><CheckCircle2/><span><b>سفارش ثبت شد</b><small>کد پیگیری: {result.quote.public_code}</small></span></div>}
+      </div>}
 
       {result.pricing_breakdown_visible && result.pricing && <InternalPricingBreakdown pricing={result.pricing}/>} 
       {result.valid && <div className="calc-report-actions"><button type="button" onClick={() => printReport('customer')}><FileText/>خروجی PDF مشتری</button><button type="button" onClick={() => printReport('internal')}><Printer/>PDF داخلی کارکنان{result.pricing ? ' + ریز محرمانه' : ''}</button></div>}
@@ -511,8 +522,8 @@ function SavedQuoteReportModal({ quote, onClose, canConvert = false, onConverted
   }
   const fallbackPins = String(input.bobbin_label || '').match(/(\d+)\+(\d+)/);
   const bobbin = input.bobbin || (fallbackPins ? { pins_left: Number(fallbackPins[1]), pins_right: Number(fallbackPins[2]), mount_orientation: input.bobbin_label } : null);
-  const fillSvg = buildWindowFillSvg(bobbin || {}, engineering);
-  const pinSvg = bobbin ? buildPinDiagramSvg(bobbin, engineering) : '';
+  const fillSvg = buildWindowFillSvg(bobbin || {}, engineering, { lang: 'en' });
+  const pinSvg = bobbin ? buildPinDiagramSvg(bobbin, engineering, { lang: 'en' }) : '';
   const rows = engineering.rows || [];
   function openReport(kind) {
     openTransformerPdfReport({
@@ -583,6 +594,38 @@ function OrdersView({ refreshToken, hasRole }) {
   </section>{reportQuote && <SavedQuoteReportModal quote={reportQuote} canConvert={hasRole('admin')} onConverted={async () => { setReportQuote(await getCalculatorQuote(reportQuote.id, true)); }} onClose={() => setReportQuote(null)}/>}</>;
 }
 
+function ConsumableModal({ mode, onClose, onSaved }) {
+  const isTape = mode === 'tape';
+  const [data, setData] = useState({ item_code: '', item_name_fa: isTape ? 'نوار مایلار (چسب دوازده)' : 'چسب هسته', item_name_en: isTape ? 'Mylar Tape' : 'Core Glue', initial_quantity: '', min_stock_threshold: '', price_currency: 'CNY', base_cost_price: '', base_sale_price: '' });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  function patch(key, value) { setData((current) => ({ ...current, [key]: value })); }
+  async function submit(event) {
+    event.preventDefault(); setBusy(true); setError('');
+    try {
+      const created = await createCalculatorConsumable(mode, { ...data, unit: isTape ? 'متر' : 'گرم', category: 'چسب و نوار مایلار' });
+      await onSaved?.(created?.warehouse_item_id, { item_code: data.item_code, item_name_fa: data.item_name_fa });
+    } catch (requestError) { setError(requestError.message); } finally { setBusy(false); }
+  }
+  return <Modal title={isTape ? 'قلم جدید نوار مایلار (متر)' : 'قلم جدید چسب هسته (گرم)'} onClose={onClose}>
+    <form onSubmit={submit} className="calc-component-form">
+      <div className="calc-form-grid">
+        <Field label="کد کالا"><input required maxLength={40} value={data.item_code} placeholder={isTape ? 'TP-01' : 'GL-01'} onChange={(event) => patch('item_code', event.target.value)}/></Field>
+        <Field label="نام قلم"><input required maxLength={80} value={data.item_name_fa} onChange={(event) => patch('item_name_fa', event.target.value)}/></Field>
+        <Field label="واحد (ثابت)"><input value={isTape ? 'متر' : 'گرم'} disabled/></Field>
+        <Field label="موجودی اولیه"><input type="number" min="0" step="0.01" value={data.initial_quantity} onChange={(event) => patch('initial_quantity', event.target.value)}/></Field>
+        <Field label="حداقل موجودی"><input type="number" min="0" step="0.01" value={data.min_stock_threshold} onChange={(event) => patch('min_stock_threshold', event.target.value)}/></Field>
+        <Field label="ارز قیمت"><select value={data.price_currency} onChange={(event) => patch('price_currency', event.target.value)}><option>CNY</option><option>USD</option><option>IRR</option></select></Field>
+        <Field label="قیمت خرید"><input required type="number" min="0" step="0.01" value={data.base_cost_price} onChange={(event) => patch('base_cost_price', event.target.value)}/></Field>
+        <Field label="قیمت فروش"><input type="number" min="0" step="0.01" value={data.base_sale_price} onChange={(event) => patch('base_sale_price', event.target.value)}/></Field>
+      </div>
+      <small className="calc-form-hint">نوار مایلار همیشه «متری» و چسب هسته همیشه «گرمی» ثبت می‌شود؛ مصرف هر ترانس بر اساس هندسه همان هسته/بوبین محاسبه و از همین قلم کسر می‌شود.</small>
+      <ErrorNotice message={error}/>
+      <footer><button type="button" className="calc-secondary" onClick={onClose}>انصراف</button><button type="submit" className="calc-primary" disabled={busy}>{busy ? 'در حال ثبت…' : 'ثبت قلم در انبار'}</button></footer>
+    </form>
+  </Modal>;
+}
+
 function ComponentModal({ kind, existing, prefill, catalog, canCreateWarehouse, onClose, onSaved }) {
   const initial = existing || prefill || {};
   const [data, setData] = useState({
@@ -596,7 +639,10 @@ function ComponentModal({ kind, existing, prefill, catalog, canCreateWarehouse, 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const compatibleWarehouseItems = (catalog.warehouse_items || []).filter((item) => isCompatibleWarehouseUnit(kind, item.unit));
+  const [tapeCreator, setTapeCreator] = useState(false);
+  const [addedTape, setAddedTape] = useState(null);
   const meterItems = (catalog.warehouse_items || []).filter((item) => ['متر', 'm', 'meter', 'meters'].includes(String(item.unit || '').trim().toLowerCase()));
+  const tapeChoices = addedTape ? [...meterItems, addedTape] : meterItems;
   const selectedWarehouseIsIncompatible = Boolean(data.warehouse_item_id && !(catalog.warehouse_items || []).some((item) => item.id === data.warehouse_item_id && isCompatibleWarehouseUnit(kind, item.unit)));
   function patch(key, value) { setData((current) => ({ ...current, [key]: value })); }
   async function submit(event) {
@@ -610,7 +656,7 @@ function ComponentModal({ kind, existing, prefill, catalog, canCreateWarehouse, 
     <form className="calc-component-form" onSubmit={submit}>
       <div className="calc-form-section"><h4>مشخصات دقیق قطعه</h4><div className="calc-form-grid">
         {kind === 'core' && <><Field label="مدل هسته"><input required value={data.model_code} onChange={(event) => patch('model_code', event.target.value)}/></Field><Field label="خانواده"><input required value={data.family} onChange={(event) => patch('family', event.target.value)}/></Field><Field label="جنس / گرید"><input value={data.material} onChange={(event) => patch('material', event.target.value)}/></Field><Field label="سطح مؤثر Ae (mm²)"><input required type="number" step="0.001" min="0.001" value={data.effective_area_mm2} onChange={(event) => patch('effective_area_mm2', event.target.value)}/></Field><Field label="عرض پایه مرکزی (mm)"><input required type="number" step="0.001" min="0.001" value={data.center_leg_mm} onChange={(event) => patch('center_leg_mm', event.target.value)}/></Field><Field label="وزن (g)"><input type="number" step="0.001" min="0" value={data.weight_g} onChange={(event) => patch('weight_g', event.target.value)}/></Field><Field label="زمان مونتاژ (ثانیه)"><input type="number" min="0" value={data.assembly_time_seconds} onChange={(event) => patch('assembly_time_seconds', event.target.value)}/></Field><Field label="روش مونتاژ"><select value={data.assembly_method} onChange={(event) => patch('assembly_method', event.target.value)}><option>دستی</option><option>ماشینی</option></select></Field></>}
-        {kind === 'bobbin' && <><Field label="هسته متناظر"><select required value={data.core_id} onChange={(event) => patch('core_id', event.target.value)}>{catalog.cores.map((core) => <option key={core.id} value={core.id}>{core.model_code}</option>)}</select></Field><Field label="جهت نصب"><select value={data.mount_orientation} onChange={(event) => patch('mount_orientation', event.target.value)}><option>افقی</option><option>عمودی</option></select></Field><Field label="پایه سمت چپ"><input required type="number" min="1" max="30" value={data.pins_left} onChange={(event) => patch('pins_left', event.target.value)}/></Field><Field label="پایه سمت راست"><input required type="number" min="1" max="30" value={data.pins_right} onChange={(event) => patch('pins_right', event.target.value)}/></Field><Field label="BW عرض پنجره (mm)"><input required type="number" min="0.001" step="0.001" value={data.window_width_mm} onChange={(event) => patch('window_width_mm', event.target.value)}/></Field><Field label="HW ارتفاع پنجره (mm)"><input required type="number" min="0.001" step="0.001" value={data.window_height_mm} onChange={(event) => patch('window_height_mm', event.target.value)}/></Field><Field label="MLT واقعی (mm)"><input required type="number" min="0.001" step="0.001" value={data.mean_turn_length_mm} onChange={(event) => patch('mean_turn_length_mm', event.target.value)}/></Field><Field label="طول فلنج (mm)"><input type="number" min="0" step="0.001" value={data.flange_length_mm} onChange={(event) => patch('flange_length_mm', event.target.value)}/></Field><Field label="عرض فلنج (mm)"><input type="number" min="0" step="0.001" value={data.flange_width_mm} onChange={(event) => patch('flange_width_mm', event.target.value)}/></Field><Field label="وزن (g)"><input type="number" min="0" step="0.001" value={data.weight_g} onChange={(event) => patch('weight_g', event.target.value)}/></Field><Field label="قلم چسب مایلار این بوبین (متر)"><select value={data.mylar_tape_warehouse_item_id || ''} onChange={(event) => patch('mylar_tape_warehouse_item_id', event.target.value)}><option value="">پیش‌فرض فرمول</option>{meterItems.map((item) => <option key={item.id} value={item.id}>{item.item_code} · {item.item_name_fa || ''} ({item.unit})</option>)}</select></Field></>}
+        {kind === 'bobbin' && <><Field label="هسته متناظر"><select required value={data.core_id} onChange={(event) => patch('core_id', event.target.value)}>{catalog.cores.map((core) => <option key={core.id} value={core.id}>{core.model_code}</option>)}</select></Field><Field label="جهت نصب"><select value={data.mount_orientation} onChange={(event) => patch('mount_orientation', event.target.value)}><option>افقی</option><option>عمودی</option></select></Field><Field label="پایه سمت چپ"><input required type="number" min="1" max="30" value={data.pins_left} onChange={(event) => patch('pins_left', event.target.value)}/></Field><Field label="پایه سمت راست"><input required type="number" min="1" max="30" value={data.pins_right} onChange={(event) => patch('pins_right', event.target.value)}/></Field><Field label="BW عرض پنجره (mm)"><input required type="number" min="0.001" step="0.001" value={data.window_width_mm} onChange={(event) => patch('window_width_mm', event.target.value)}/></Field><Field label="HW ارتفاع پنجره (mm)"><input required type="number" min="0.001" step="0.001" value={data.window_height_mm} onChange={(event) => patch('window_height_mm', event.target.value)}/></Field><Field label="MLT واقعی (mm)"><input required type="number" min="0.001" step="0.001" value={data.mean_turn_length_mm} onChange={(event) => patch('mean_turn_length_mm', event.target.value)}/></Field><Field label="طول فلنج (mm)"><input type="number" min="0" step="0.001" value={data.flange_length_mm} onChange={(event) => patch('flange_length_mm', event.target.value)}/></Field><Field label="عرض فلنج (mm)"><input type="number" min="0" step="0.001" value={data.flange_width_mm} onChange={(event) => patch('flange_width_mm', event.target.value)}/></Field><Field label="وزن (g)"><input type="number" min="0" step="0.001" value={data.weight_g} onChange={(event) => patch('weight_g', event.target.value)}/></Field><Field label="قلم چسب مایلار این بوبین (متر)"><select value={data.mylar_tape_warehouse_item_id || ''} onChange={(event) => patch('mylar_tape_warehouse_item_id', event.target.value)}><option value="">پیش‌فرض فرمول</option>{tapeChoices.map((item) => <option key={item.id} value={item.id}>{item.item_code} · {item.item_name_fa || ''} ({item.unit})</option>)}</select>{canCreateWarehouse && <button type="button" className="calc-consumable-add" onClick={() => setTapeCreator(true)}><Plus/>قلم چسب جدید</button>}</Field></>}
         {kind === 'wire' && <><Field label="قطر با احتساب لاک (mm)"><input required type="number" min="0.001" step="0.001" value={data.diameter_mm} onChange={(event) => patch('diameter_mm', event.target.value)}/></Field><Field label="AWG"><input type="number" min="1" value={data.awg} onChange={(event) => patch('awg', event.target.value)}/></Field><Field label="نوع سیم"><input required value={data.wire_type} onChange={(event) => patch('wire_type', event.target.value)}/></Field></>}
       </div></div>
       <div className="calc-form-section warehouse"><h4><Warehouse/> اتصال و همگام‌سازی انبار</h4><div className="calc-mode-switch"><button type="button" className={warehouseMode === 'existing' ? 'active' : ''} onClick={() => setWarehouseMode('existing')}>اتصال به قلم موجود</button>{canCreateWarehouse && <button type="button" className={warehouseMode === 'new' ? 'active' : ''} onClick={() => setWarehouseMode('new')}>ایجاد قلم جدید انبار</button>}<button type="button" className={warehouseMode === 'none' ? 'active' : ''} onClick={() => setWarehouseMode('none')}>ثبت مدل بدون اتصال</button></div>
@@ -620,6 +666,7 @@ function ComponentModal({ kind, existing, prefill, catalog, canCreateWarehouse, 
       </div>
       <ErrorNotice message={error}/><footer><button type="button" className="calc-secondary" onClick={onClose}>انصراف</button><button type="submit" className="calc-primary" disabled={busy}>{busy ? <RefreshCw className="spin"/> : <Save/>}ثبت و همگام‌سازی</button></footer>
     </form>
+  {tapeCreator && <ConsumableModal mode="tape" onClose={() => setTapeCreator(null)} onSaved={(itemId, meta) => { setTapeCreator(false); if (itemId) { patch('mylar_tape_warehouse_item_id', itemId); setAddedTape({ id: itemId, item_code: meta?.item_code || 'NEW', item_name_fa: meta?.item_name_fa || '', unit: 'متر' }); } }}/>}
   </Modal>;
 }
 
@@ -642,8 +689,12 @@ function FormulaModal({ catalog, onClose, onSaved }) {
   function patch(key, value) { setConfig((current) => ({ ...current, [key]: Number(value) })); }
   function patchBoolean(key, value) { setConfig((current) => ({ ...current, [key]: Boolean(value) })); }
   function patchText(key, value) { setConfig((current) => ({ ...current, [key]: value || null })); }
+  const [consumableCreator, setConsumableCreator] = useState(null);
+  const [addedConsumable, setAddedConsumable] = useState(null);
   const meterItems = (catalog?.warehouse_items || []).filter((item) => ['متر', 'm', 'meter', 'meters'].includes(String(item.unit || '').trim().toLowerCase()));
   const gramItems = (catalog?.warehouse_items || []).filter((item) => ['گرم', 'g', 'gr', 'gram', 'grams'].includes(String(item.unit || '').trim().toLowerCase()));
+  const tapeChoices = addedConsumable?.unit === 'متر' ? [...meterItems, addedConsumable] : meterItems;
+  const glueChoices = addedConsumable?.unit === 'گرم' ? [...gramItems, addedConsumable] : gramItems;
   async function submit(event) {
     event.preventDefault(); setBusy(true); setError('');
     try { await publishTransformerFormula(versionCode, config, notes); await onSaved(); }
@@ -655,10 +706,11 @@ function FormulaModal({ catalog, onClose, onSaved }) {
       <div className="calc-secret-banner"><ShieldCheck/><span><b>فقط مدیر</b><small>با ثبت، نسخه جدید ساخته می‌شود؛ Snapshot اسناد قبلی تغییر نمی‌کند.</small></span></div>
       <div className="calc-form-section"><h4>هندسه و تولید</h4><div className="calc-form-grid"><Field label="کد نسخه جدید"><input required value={versionCode} onChange={(event) => setVersionCode(event.target.value)}/></Field><Field label="ضریب پرشدگی"><input required type="number" min="0.05" max="1" step="0.01" value={config.packing_factor ?? ''} onChange={(event) => patch('packing_factor', event.target.value)}/></Field><Field label="عایق ثابت بین لایه‌ها (mm)"><input required type="number" min="0" step="0.001" value={config.inter_winding_insulation_mm ?? ''} onChange={(event) => patch('inter_winding_insulation_mm', event.target.value)}/></Field><Field label="سرعت سیم‌پیچی (دور/دقیقه)"><input required type="number" min="1" value={config.winding_speed_turns_per_minute ?? ''} onChange={(event) => patch('winding_speed_turns_per_minute', event.target.value)}/></Field><Field label="ستاپ هر سیم‌پیچ (دقیقه)"><input type="number" min="0" step="0.1" value={config.setup_minutes_per_winding ?? ''} onChange={(event) => patch('setup_minutes_per_winding', event.target.value)}/></Field><Field label="چگالی مس (g/cm³)"><input required type="number" min="0.01" step="0.01" value={config.copper_density_g_cm3 ?? ''} onChange={(event) => patch('copper_density_g_cm3', event.target.value)}/></Field></div></div>
       <div className="calc-form-section"><h4>هزینه و قیمت محرمانه</h4><div className="calc-form-grid"><Field label="سود افزایشی (%)"><input required type="number" min="0" step="0.1" value={config.profit_percent ?? ''} onChange={(event) => patch('profit_percent', event.target.value)}/></Field><Field label="ضریب قیمت نمونه"><input required type="number" min="1" step="0.1" value={config.sample_multiplier ?? ''} onChange={(event) => patch('sample_multiplier', event.target.value)}/></Field><Field label="ستاپ نمونه (ریال)"><input type="number" min="0" step="10000" value={config.sample_setup_rial ?? ''} onChange={(event) => patch('sample_setup_rial', event.target.value)}/></Field><Field label="دستمزد ساعتی (ریال)"><input type="number" min="0" step="10000" value={config.labor_hour_rial ?? ''} onChange={(event) => patch('labor_hour_rial', event.target.value)}/></Field><Field label="سربار (%)"><input type="number" min="0" step="0.1" value={config.overhead_percent ?? ''} onChange={(event) => patch('overhead_percent', event.target.value)}/></Field><Field label="گرد کردن قیمت (ریال)"><input type="number" min="1" step="1000" value={config.price_rounding_rial ?? ''} onChange={(event) => patch('price_rounding_rial', event.target.value)}/></Field><Field label="حوض قلع (ریال)"><input type="number" min="0" step="1000" value={config.solder_cost_rial ?? ''} onChange={(event) => patch('solder_cost_rial', event.target.value)}/></Field><Field label="شارلاک (ریال)"><input type="number" min="0" step="1000" value={config.varnish_cost_rial ?? ''} onChange={(event) => patch('varnish_cost_rial', event.target.value)}/></Field><Field label="تست (ریال)"><input type="number" min="0" step="1000" value={config.test_cost_rial ?? ''} onChange={(event) => patch('test_cost_rial', event.target.value)}/></Field><Field label="بسته‌بندی (ریال)"><input type="number" min="0" step="1000" value={config.packaging_cost_rial ?? ''} onChange={(event) => patch('packaging_cost_rial', event.target.value)}/></Field><Field label="عملیات گپ (ریال)"><input type="number" min="0" step="1000" value={config.gap_cost_rial ?? ''} onChange={(event) => patch('gap_cost_rial', event.target.value)}/></Field><Field label="یادداشت کالیبراسیون"><input value={notes} onChange={(event) => setNotes(event.target.value)}/></Field></div></div>
-      <div className="calc-form-section"><h4>چسب و نوار مایلار (محاسبه‌ای از هندسه)</h4><div className="calc-form-grid"><Field label="قلم پیش‌فرض نوار مایلار (وقتی بوبین انتخابی ندارد)"><select value={config.mylar_tape_warehouse_item_id || ''} onChange={(event) => patchText('mylar_tape_warehouse_item_id', event.target.value)}><option value="">— قطع از BOM —</option>{meterItems.map((item) => <option key={item.id} value={item.id}>{item.item_code} · {item.item_name_fa || ''} ({item.unit})</option>)}</select></Field><Field label="قلم انبار چسب هسته (گرم)"><select value={config.core_glue_warehouse_item_id || ''} onChange={(event) => patchText('core_glue_warehouse_item_id', event.target.value)}><option value="">— قطع از BOM —</option>{gramItems.map((item) => <option key={item.id} value={item.id}>{item.item_code} · {item.item_name_fa || ''} ({item.unit})</option>)}</select></Field><Field label="دور عایق بعد از هر لایه"><input type="number" min="0" step="1" value={config.insulation_wraps_per_layer ?? ''} onChange={(event) => patch('insulation_wraps_per_layer', event.target.value)}/></Field><Field label="ضخامت هر دور عایق (mm)"><input required type="number" min="0" step="0.001" value={config.inter_winding_insulation_mm ?? ''} onChange={(event) => patch('inter_winding_insulation_mm', event.target.value)}/></Field><Field label="طول هر رول چسب (متر)"><input type="number" min="1" step="1" value={config.mylar_tape_roll_length_m ?? ''} onChange={(event) => patch('mylar_tape_roll_length_m', event.target.value)}/></Field><Field label="دور چسب دور ترانس نهایی"><input type="number" min="0" step="1" value={config.finishing_tape_wraps ?? ''} onChange={(event) => patch('finishing_tape_wraps', event.target.value)}/></Field><Field label="مقطع مهر چسب هسته (mm²)"><input type="number" min="0" step="0.5" value={config.core_glue_bead_section_mm2 ?? ''} onChange={(event) => patch('core_glue_bead_section_mm2', event.target.value)}/></Field><Field label="چگالی چسب (g/cm³)"><input type="number" min="0.1" step="0.1" value={config.glue_density_g_cm3 ?? ''} onChange={(event) => patch('glue_density_g_cm3', event.target.value)}/></Field><Field label="حداقل چسب هر ترانس (g)"><input type="number" min="0" step="0.1" value={config.core_glue_min_g_per_unit ?? ''} onChange={(event) => patch('core_glue_min_g_per_unit', event.target.value)}/></Field></div><small className="calc-form-hint">انتخاب قطر چسب به‌ازای هر بوبین انجام می‌شود (در ویرایش هر بوبین، بر اساس طول پنجره)؛ اگر بوبین قلم چسب نداشته باشد این قلم پیش‌فرض به‌کار می‌رود. نوار مایلار پس از هر لایه هر سیم‌پیچ به تعداد «دور عایق» (پیش‌فرض ۳ دور × ضخامت هر دور = ۰٫۱۵ میلی‌متر برای هر لایه) و به‌علاوه «دور چسب دور ترانس نهایی» دور ترانس کامل محاسبه می‌شود؛ هر رول ۶۶ متر است و مصرف به‌صورت متر واقعی از قلم همان چسب انبار کسر و به همان اندازه قیمت می‌خورد. چسب دو نیمه هسته از محیط پایه مرکزی و مقطع مهر چسب محاسبه و از قلم انبار واحد «گرم» قیمت می‌خورد.</small></div>
+      <div className="calc-form-section"><h4>چسب و نوار مایلار (محاسبه‌ای از هندسه)</h4><div className="calc-form-grid"><Field label="قلم پیش‌فرض نوار مایلار (وقتی بوبین انتخابی ندارد)"><select value={config.mylar_tape_warehouse_item_id || ''} onChange={(event) => patchText('mylar_tape_warehouse_item_id', event.target.value)}><option value="">— قطع از BOM —</option>{tapeChoices.map((item) => <option key={item.id} value={item.id}>{item.item_code} · {item.item_name_fa || ''} ({item.unit})</option>)}</select><button type="button" className="calc-consumable-add" onClick={() => setConsumableCreator('tape')}><Plus/>قلم چسب جدید</button></Field><Field label="قلم انبار چسب هسته (گرم)"><select value={config.core_glue_warehouse_item_id || ''} onChange={(event) => patchText('core_glue_warehouse_item_id', event.target.value)}><option value="">— قطع از BOM —</option>{glueChoices.map((item) => <option key={item.id} value={item.id}>{item.item_code} · {item.item_name_fa || ''} ({item.unit})</option>)}</select><button type="button" className="calc-consumable-add" onClick={() => setConsumableCreator('glue')}><Plus/>قلم چسب جدید</button></Field><Field label="دور عایق بعد از هر لایه"><input type="number" min="0" step="1" value={config.insulation_wraps_per_layer ?? ''} onChange={(event) => patch('insulation_wraps_per_layer', event.target.value)}/></Field><Field label="ضخامت هر دور عایق (mm)"><input required type="number" min="0" step="0.001" value={config.inter_winding_insulation_mm ?? ''} onChange={(event) => patch('inter_winding_insulation_mm', event.target.value)}/></Field><Field label="طول هر رول چسب (متر)"><input type="number" min="1" step="1" value={config.mylar_tape_roll_length_m ?? ''} onChange={(event) => patch('mylar_tape_roll_length_m', event.target.value)}/></Field><Field label="دور چسب دور ترانس نهایی"><input type="number" min="0" step="1" value={config.finishing_tape_wraps ?? ''} onChange={(event) => patch('finishing_tape_wraps', event.target.value)}/></Field><Field label="مقطع مهر چسب هسته (mm²)"><input type="number" min="0" step="0.5" value={config.core_glue_bead_section_mm2 ?? ''} onChange={(event) => patch('core_glue_bead_section_mm2', event.target.value)}/></Field><Field label="چگالی چسب (g/cm³)"><input type="number" min="0.1" step="0.1" value={config.glue_density_g_cm3 ?? ''} onChange={(event) => patch('glue_density_g_cm3', event.target.value)}/></Field><Field label="حداقل چسب هر ترانس (g)"><input type="number" min="0" step="0.1" value={config.core_glue_min_g_per_unit ?? ''} onChange={(event) => patch('core_glue_min_g_per_unit', event.target.value)}/></Field></div><small className="calc-form-hint">انتخاب قطر چسب به‌ازای هر بوبین انجام می‌شود (در ویرایش هر بوبین، بر اساس طول پنجره)؛ اگر بوبین قلم چسب نداشته باشد این قلم پیش‌فرض به‌کار می‌رود. نوار مایلار پس از هر لایه هر سیم‌پیچ به تعداد «دور عایق» (پیش‌فرض ۳ دور × ضخامت هر دور = ۰٫۱۵ میلی‌متر برای هر لایه) و به‌علاوه «دور چسب دور ترانس نهایی» دور ترانس کامل محاسبه می‌شود؛ هر رول ۶۶ متر است و مصرف به‌صورت متر واقعی از قلم همان چسب انبار کسر و به همان اندازه قیمت می‌خورد. چسب دو نیمه هسته از محیط پایه مرکزی و مقطع مهر چسب محاسبه و از قلم انبار واحد «گرم» قیمت می‌خورد.</small></div>
       <div className="calc-form-section visibility"><h4>نمایش ریز قیمت‌گذاری در محاسبه‌گر</h4><label className="calc-setting-toggle"><input type="checkbox" checked={Boolean(config.show_internal_pricing_breakdown)} onChange={(event) => patchBoolean('show_internal_pricing_breakdown', event.target.checked)}/><span><b>نمایش تمام هزینه‌ها و محاسبات برای کارکنان مجاز</b><small>در صورت فعال‌بودن، بهای هسته، بوبین، سیم، دستمزد، عملیات، سربار و سود پایین همه محاسبات ترانس نمایش داده می‌شود. این اطلاعات هرگز در خروجی مشتری یا WordPress قرار نمی‌گیرد.</small></span></label></div>
       <ErrorNotice message={error}/><footer><button type="button" className="calc-secondary" onClick={onClose}>انصراف</button><button type="submit" className="calc-primary" disabled={busy}>{busy ? <RefreshCw className="spin"/> : <Save/>}انتشار نسخه داخلی جدید</button></footer>
     </form>}
+    {consumableCreator && <ConsumableModal mode={consumableCreator} onClose={() => setConsumableCreator(null)} onSaved={(itemId, meta) => { const kindKey = consumableCreator === 'tape' ? 'mylar_tape_warehouse_item_id' : 'core_glue_warehouse_item_id'; setConsumableCreator(null); if (itemId) { patchText(kindKey, itemId); setAddedConsumable({ id: itemId, item_code: meta?.item_code || 'NEW', item_name_fa: meta?.item_name_fa || '', unit: consumableCreator === 'tape' ? 'متر' : 'گرم' }); } }}/>}
   </Modal>;
 }
 

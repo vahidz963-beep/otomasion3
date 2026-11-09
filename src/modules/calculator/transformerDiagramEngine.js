@@ -116,7 +116,7 @@ const TransformerDiagram = (() => {
     var width = coreRight + G.labelMargin;
 
     var ops = [];
-    var view = 'نمای بالا';
+    var view = config.title || 'نمای بالا';
     ops.push(textOp(midX, coreTop - G.titleGap, view, { size: 22, weight: 600, align: 'middle' }));
     ops.push(pathOp(roundRectD(coreLeft, coreTop, G.coreWidth, coreBottom - coreTop, G.coreRadius), { stroke: COLOR.ink, width: 2.5 }));
     ops.push(pathOp('M ' + f(midX - 6) + ' ' + f(coreTop + 16) + ' L ' + f(midX - 6) + ' ' + f(coreBottom - 16), { stroke: COLOR.ink, width: 2 }));

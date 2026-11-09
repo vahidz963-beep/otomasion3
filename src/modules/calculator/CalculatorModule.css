@@ -288,3 +288,35 @@
 .calc-test-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 11px; }
 @media(max-width: 1100px) { .calc-test-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .calc-customer-summary { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; } }
 @media(max-width: 760px) { .calc-test-grid { grid-template-columns: 1fr; } .calc-customer-summary { grid-template-columns: 1fr 1fr !important; } }
+/* 140: quick-add consumable button + highlighted optional test inputs */
+.calc-consumable-add { display: inline-flex; align-items: center; gap: 4px; margin-top: 6px; border: 1px dashed #b27634; border-radius: 8px; background: #fffaf0; color: #8a5a1e; padding: 5px 9px; font: inherit; font-size: 10px; font-weight: 900; cursor: pointer; }
+.calc-consumable-add svg { width: 12px; }
+.calc-consumable-add:hover { background: #fff3dc; }
+.calc-test-grid input { background: #fff9ea; border-color: #e7c877; }
+.calc-test-grid input:focus { border-color: #b27634; box-shadow: 0 0 0 3px rgba(178, 118, 52, 0.12); }
+
+/* 140: core/bobbin stock chips right under the selects (bright green/red) */
+.calc-select-stock { margin-top: 6px; border-radius: 9px; padding: 7px 10px; font-size: 10.5px; font-weight: 900; display: flex; align-items: center; gap: 6px; }
+.calc-select-stock.ok { background: #e2f9ea; border: 1px solid #8fd8ab; color: #15723f; }
+.calc-select-stock.bad { background: #ffefee; border: 1px solid #f0b4ae; color: #99342c; }
+/* 140: equal-size diagram cards (display) */
+.calc-diagram-grid { align-items: stretch !important; }
+.calc-diagram-grid .calc-diagram-card { display: flex; flex-direction: column; }
+.calc-diagram-grid .calc-svg-host { flex: 1; min-height: 0; height: 340px; display: flex; align-items: center; justify-content: center; }
+.calc-diagram-grid .calc-svg-host svg { width: 100%; height: 100%; }
+@media(max-width: 1100px) { .calc-diagram-grid .calc-svg-host { height: 280px; } }
+/* 140: quantity input aligned & sized like the selects */
+.calc-form-grid .calc-field input[type="number"] { width: 100%; max-width: 100%; min-height: 37px; }
+/* 140: brighter green for stock summary cards */
+.calc-customer-summary .stock-bg.ok { background: #e2f9ea !important; border-color: #8fd8ab !important; }
+.calc-customer-summary .stock-bg.ok small { color: #15723f; }
+/* 140: final confirm zone after section 2 with totals beside the button */
+.calc-final-zone { margin-top: 16px; }
+.calc-confirm-totals { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 10px 0 4px; }
+.calc-confirm-totals > div { background: #f2f8f4; border: 1px solid #cfe8d8; border-radius: 10px; padding: 8px 10px; display: grid; gap: 3px; }
+.calc-confirm-totals small { color: #5c7263; font-size: 10px; font-weight: 800; }
+.calc-confirm-totals b { color: #185f40; font-size: 13px; }
+.calc-confirm-totals strong { color: #0f3d27; font-size: 15px; }
+.calc-final-zone .calc-confirm-box button { grid-column: auto; width: auto; min-width: 230px; white-space: nowrap; }
+.calc-final-zone .calc-confirm-box { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 14px; }
+@media(max-width: 1100px) { .calc-final-zone .calc-confirm-box { grid-template-columns: 1fr; } .calc-final-zone .calc-confirm-box button { width: 100%; } }

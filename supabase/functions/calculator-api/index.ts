@@ -74,6 +74,7 @@ function sanitizePayload(raw: Record<string, unknown>) {
     arrangement: row?.arrangement === 'bundle' ? 'bundle' : 'side',
     layer_mode: row?.layer_mode === 'manual' || row?.layerMode === 'manual' ? 'manual' : 'auto',
     requested_layers: Math.trunc(number(row?.requested_layers ?? row?.layers, 1)),
+    insulation_wraps: Math.min(20, Math.max(0, Math.trunc(number(row?.insulation_wraps ?? row?.insulationWraps, 3)))),
     direction: row?.direction === 'ccw' ? 'ccw' : 'cw',
   })) : [];
   return {

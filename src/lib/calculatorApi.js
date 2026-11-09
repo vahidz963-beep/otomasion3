@@ -85,6 +85,10 @@ export async function convertCalculatorQuoteToAm(quoteId) {
   return rpc('fn_calculator_convert_quote_to_am', { p_quote_id: quoteId }, 'تبدیل شماره سند به AM ناموفق بود');
 }
 
+export async function createCalculatorConsumable(kind, payload) {
+  return rpc('fn_calculator_save_consumable', { p_kind: kind, p_item: payload }, 'ثبت قلم چسب ناموفق بود');
+}
+
 export async function getCalculatorAdminSettings() {
   return rpc('fn_calculator_get_admin_settings', {}, 'دریافت تنظیمات محرمانه ناموفق بود');
 }
