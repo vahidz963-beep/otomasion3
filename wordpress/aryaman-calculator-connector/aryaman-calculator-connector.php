@@ -2,17 +2,17 @@
 /**
  * Plugin Name: Aryaman Calculator Connector
  * Description: اتصال امن مرکز محاسبه آریامن به WordPress/WooCommerce؛ قیمت‌گذاری فقط از Supabase Edge Function و با امضای HMAC انجام می‌شود.
- * Version: 1.3.0
+ * Version: 1.6.6
  * Author: Aryaman
- * Requires at least: 6.2
- * Requires PHP: 8.0
+ * Requires at least: 5.8
+ * Requires PHP: 7.4
  * Text Domain: aryaman-calculator
  */
 
 defined('ABSPATH') || exit;
 
 final class Aryaman_Calculator_Connector {
-    const VERSION = '1.3.0';
+    const VERSION = '1.6.6';
     const OPTION = 'aryaman_calculator_connector';
     const REST_NS = 'aryaman-calculator/v1';
     const QUOTE_META = '_aryaman_quote_id';
@@ -23,6 +23,7 @@ final class Aryaman_Calculator_Connector {
         add_action('admin_init', [$self, 'register_settings']);
         add_action('rest_api_init', [$self, 'register_routes']);
         add_shortcode('aryaman_calculator', [$self, 'shortcode']);
+        add_shortcode('aryaman_board_calculator', [$self, 'board_shortcode']);
         add_action('wp_enqueue_scripts', [$self, 'register_assets']);
         add_action('woocommerce_before_calculate_totals', [$self, 'apply_cart_prices'], 20);
         add_filter('woocommerce_update_cart_validation', [$self, 'lock_quote_quantity'], 10, 4);
@@ -78,7 +79,18 @@ final class Aryaman_Calculator_Connector {
                 <table class="form-table" role="presentation">
                     <tr><th><label for="ary-endpoint">نشانی Edge Function</label></th><td><input id="ary-endpoint" class="regular-text ltr" type="url" required name="<?php echo esc_attr(self::OPTION); ?>[endpoint_url]" value="<?php echo esc_attr($options['endpoint_url']); ?>"><p class="description">نمونه: https://PROJECT.supabase.co/functions/v1/calculator-api</p></td></tr>
                     <tr><th><label for="ary-secret">راز مشترک HMAC</label></th><td><input id="ary-secret" class="regular-text ltr" type="password" autocomplete="new-password" name="<?php echo esc_attr(self::OPTION); ?>[shared_secret]" value="" placeholder="برای حفظ مقدار فعلی خالی بگذارید"><p class="description">حداقل ۳۲ نویسه؛ همان مقدار باید در Secret با نام WORDPRESS_SHARED_SECRET ثبت شود.</p></td></tr>
-                    <tr><th><label for="ary-product">شناسه محصول WooCommerce</label></th><td><input id="ary-product" type="number" min="0" name="<?php echo esc_attr(self::OPTION); ?>[woocommerce_product_id]" value="<?php echo esc_attr($options['woocommerce_product_id']); ?>"><p class="description">یک محصول ساده/مجازی برای افزودن محاسبه به سبد. قیمت توسط Snapshot امن جایگزین می‌شود.</p></td></tr>
+                    <tr><th><label for="ary-product">شناسه محصول WooCommerce</label></th><td><input id="ary-product" type="number" min="0" name="<?php echo esc_attr(self::OPTION); ?>[woocommerce_product_id]" value="<?php echo esc_attr($options['woocommerce_product_id']); ?>"><p class="description">یک محصول ساده/مجازی برای افزودن محاسبه به سبد. قیمت توسط Snapshot امن جایگزین می‌شود.</p>
+<?php if (!class_exists('WooCommerce')): ?>
+<p class="description" style="color:#a5453f;font-weight:700">⚠ WooCommerce فعال نیست — دکمه «افزودن به سبد و پرداخت» نمایش داده نمی‌شود. اول WooCommerce را نصب/فعال کنید.</p>
+<?php else:
+    $ary_currency = strtoupper((string) get_woocommerce_currency());
+    $ary_ok = in_array($ary_currency, ['IRR', 'IRT', 'TMN', 'TOMAN'], true);
+    $ary_pid = absint($options['woocommerce_product_id']);
+    $ary_prod_ok = $ary_pid && wc_get_product($ary_pid);
+?>
+<p class="description" style="color:<?php echo $ary_ok ? '#17633f' : '#a5453f'; ?>;font-weight:700">ارز فروشگاه: <?php echo esc_html($ary_currency); ?> — <?php echo $ary_ok ? 'مناسب ✓' : 'غیرمجاز ✗ (فقط ریال یا تومان)'; ?></p>
+<p class="description" style="color:<?php echo $ary_prod_ok ? '#17633f' : '#a5453f'; ?>;font-weight:700"><?php echo $ary_prod_ok ? 'محصول اتصال: معتبر ✓' : 'شناسه محصول را وارد کنید (و محصول باید موجود باشد).'; ?></p>
+<?php endif; ?></td></tr>
                 </table>
                 <?php submit_button('ذخیره اتصال'); ?>
             </form>
@@ -91,21 +103,38 @@ final class Aryaman_Calculator_Connector {
     public function register_assets(): void {
         $base = plugin_dir_url(__FILE__);
         wp_register_style('aryaman-calculator', $base . 'assets/calculator.css', [], self::VERSION);
-        wp_register_script('aryaman-calculator', $base . 'assets/calculator.js', [], self::VERSION, true);
+        wp_register_script('aryaman-report', $base . 'assets/aryaman-report.js', [], self::VERSION, true);
+        wp_register_script('aryaman-calculator', $base . 'assets/calculator.js', ['aryaman-report'], self::VERSION, true);
     }
 
-    public function shortcode(): string {
-        wp_enqueue_style('aryaman-calculator');
-        wp_enqueue_script('aryaman-calculator');
+    private function enqueue_config(): void {
         wp_localize_script('aryaman-calculator', 'AryamanCalculatorConfig', [
             'catalogUrl' => esc_url_raw(rest_url(self::REST_NS . '/catalog')),
             'quoteUrl' => esc_url_raw(rest_url(self::REST_NS . '/quote')),
             'confirmUrl' => esc_url_raw(rest_url(self::REST_NS . '/confirm')),
             'cartUrl' => esc_url_raw(rest_url(self::REST_NS . '/cart')),
+            'boardQuoteUrl' => esc_url_raw(rest_url(self::REST_NS . '/board-quote')),
+            'boardConfirmUrl' => esc_url_raw(rest_url(self::REST_NS . '/board-confirm')),
             'nonce' => wp_create_nonce('wp_rest'),
             'woocommerce' => class_exists('WooCommerce'),
+            'cartPageUrl' => (class_exists('WooCommerce') && function_exists('wc_get_cart_url')) ? wc_get_cart_url() : '',
+            'cartCount' => (class_exists('WooCommerce') && function_exists('WC') && WC()->cart) ? (int) WC()->cart->get_cart_contents_count() : 0,
+            'pluginUrl' => plugin_dir_url(__FILE__),
         ]);
+    }
+
+    public function shortcode(): string {
+        wp_enqueue_style('aryaman-calculator');
+        wp_enqueue_script('aryaman-calculator');
+        $this->enqueue_config();
         return '<div class="aryaman-calculator" data-aryaman-calculator><div class="aryaman-calculator__loading">در حال دریافت مدل‌های قابل محاسبه…</div></div>';
+    }
+
+    public function board_shortcode(): string {
+        wp_enqueue_style('aryaman-calculator');
+        wp_enqueue_script('aryaman-calculator');
+        $this->enqueue_config();
+        return '<div class="aryaman-calculator aryaman-board" data-aryaman-board><div class="aryaman-calculator__loading">در حال آماده‌سازی محاسبه‌گر برد…</div></div>';
     }
 
     public function register_routes(): void {
@@ -126,6 +155,18 @@ final class Aryaman_Calculator_Connector {
             'args' => ['payload' => ['required' => true, 'type' => 'object']],
             'callback' => [$this, 'confirm_route'],
         ]);
+        register_rest_route(self::REST_NS, '/board-quote', [
+            'methods' => WP_REST_Server::CREATABLE,
+            'permission_callback' => '__return_true',
+            'args' => ['payload' => ['required' => true, 'type' => 'object']],
+            'callback' => [$this, 'board_quote_route'],
+        ]);
+        register_rest_route(self::REST_NS, '/board-confirm', [
+            'methods' => WP_REST_Server::CREATABLE,
+            'permission_callback' => '__return_true',
+            'args' => ['payload' => ['required' => true, 'type' => 'object']],
+            'callback' => [$this, 'board_confirm_route'],
+        ]);
         register_rest_route(self::REST_NS, '/cart', [
             'methods' => WP_REST_Server::CREATABLE,
             'permission_callback' => function (WP_REST_Request $request): bool {
@@ -133,6 +174,51 @@ final class Aryaman_Calculator_Connector {
             },
             'callback' => [$this, 'cart_route'],
         ]);
+    }
+
+    public function board_quote_route(WP_REST_Request $request) {
+        $payload = $this->sanitize_board_payload((array) $request->get_param('payload'));
+        return $this->proxy(['action' => 'public_board_preview', 'payload' => $payload], 'board-preview-' . wp_generate_uuid4());
+    }
+
+    public function board_confirm_route(WP_REST_Request $request) {
+        $payload = $this->sanitize_board_payload((array) $request->get_param('payload'));
+        $response = $this->proxy(['action' => 'public_board_confirm', 'payload' => $payload], 'board-confirm-' . wp_generate_uuid4());
+        if (is_wp_error($response)) return $response;
+        $data = $response->get_data();
+        if (!empty($data['valid']) && !empty($data['quote_id']) && !empty($data['result']['sale']['total_sale_rial'])) {
+            set_transient('aryaman_quote_' . sanitize_key($data['quote_id']), [
+                'calculator_type' => 'transformer',
+                'quote_id' => sanitize_text_field($data['quote_id']),
+                'quote_code' => sanitize_text_field($data['quote_code']),
+                'quantity' => max(1, absint($data['result']['sale']['quantity'] ?? 1)),
+                'result' => ['total_sale_rial' => (float) $data['result']['sale']['total_sale_rial']],
+                'calculator_type' => 'board',
+            ], HOUR_IN_SECONDS);
+        }
+        return $response;
+    }
+
+    /* Board payload whitelist — keep in sync with the plugin JS fields. */
+    private function sanitize_board_payload(array $payload): array {
+        $features = [];
+        foreach ((array) ($payload['features'] ?? []) as $feature) {
+            $feature = sanitize_key((string) $feature);
+            if (in_array($feature, ['isolation', 'pfc', 'digital', 'communication', 'protection', 'emi', 'thermal'], true)) $features[] = $feature;
+        }
+        return [
+            'width_mm' => (float) ($payload['width_mm'] ?? 0),
+            'height_mm' => (float) ($payload['height_mm'] ?? 0),
+            'power_w' => (float) ($payload['power_w'] ?? 0),
+            'layers' => (int) ($payload['layers'] ?? 2),
+            'complexity' => in_array((string) ($payload['complexity'] ?? ''), ['basic', 'medium', 'advanced'], true) ? (string) $payload['complexity'] : 'medium',
+            'features' => $features,
+            'quantity' => (int) ($payload['quantity'] ?? 1),
+            'customer_name' => sanitize_text_field((string) ($payload['customer_name'] ?? '')),
+            'customer_phone' => sanitize_text_field((string) ($payload['customer_phone'] ?? '')),
+            'customer_email' => sanitize_email((string) ($payload['customer_email'] ?? '')),
+            'project_title' => sanitize_text_field((string) ($payload['project_title'] ?? '')),
+        ];
     }
 
     public function quote_route(WP_REST_Request $request) {
@@ -147,6 +233,7 @@ final class Aryaman_Calculator_Connector {
         $data = $response->get_data();
         if (!empty($data['valid']) && !empty($data['quote_id'])) {
             set_transient('aryaman_quote_' . sanitize_key($data['quote_id']), [
+                'calculator_type' => 'transformer',
                 'quote_id' => sanitize_text_field($data['quote_id']),
                 'quote_code' => sanitize_text_field($data['quote_code'] ?? ''),
                 'result' => (array) ($data['result'] ?? []),
@@ -174,6 +261,7 @@ final class Aryaman_Calculator_Connector {
                 'arrangement' => ($row['arrangement'] ?? '') === 'bundle' ? 'bundle' : 'side',
                 'layer_mode' => ($row['layer_mode'] ?? '') === 'manual' ? 'manual' : 'auto',
                 'requested_layers' => max(1, absint($row['requested_layers'] ?? 1)),
+                'insulation_wraps' => max(0, min(20, absint($row['insulation_wraps'] ?? 3))),
                 'direction' => ($row['direction'] ?? '') === 'ccw' ? 'ccw' : 'cw',
             ];
         }
@@ -278,10 +366,24 @@ final class Aryaman_Calculator_Connector {
         $endpoint = (string) $options['endpoint_url'];
         $secret = (string) $options['shared_secret'];
         if (!$endpoint || strlen($secret) < 32) return new WP_Error('connector_not_configured', 'اتصال امن مرکز محاسبه هنوز پیکربندی نشده است.', ['status' => 503]);
-        $json = wp_json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         $timestamp = (string) time();
+        // Some hosts strip custom X- headers; timestamp/eventId also travel inside
+        // the signed body so the handshake survives both worlds.
+        $payload['wp_timestamp'] = $timestamp;
+        $payload['wp_event_id'] = $event_id;
+        // Key inside the encrypted body: invisible to URL logs, survives header stripping.
+        $payload['wp_api_key'] = $secret;
+        $json = wp_json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         $signature = hash_hmac('sha256', $timestamp . '.' . $event_id . '.' . $json, $secret);
-        $response = wp_remote_post($endpoint, [
+        // Hosts that strip custom X- headers also strip the signature header; query
+        // params cannot be stripped, so all three travel on the URL as well.
+        $request_url = add_query_arg([
+            'api_key' => $secret,
+            'aryaman_ts' => $timestamp,
+            'aryaman_event' => $event_id,
+            'aryaman_sig' => 'v1=' . $signature,
+        ], $endpoint);
+        $response = wp_remote_post($request_url, [
             'timeout' => 20,
             'redirection' => 0,
             'headers' => [
@@ -297,7 +399,21 @@ final class Aryaman_Calculator_Connector {
         $status = wp_remote_retrieve_response_code($response);
         $body = json_decode(wp_remote_retrieve_body($response), true);
         if ($status < 200 || $status >= 300) {
-            return new WP_Error('calculator_api_error', sanitize_text_field($body['error'] ?? 'خطا در سرویس محاسبه آریامن'), ['status' => $status ?: 502]);
+            $code = sanitize_text_field($body['code'] ?? '');
+            $message = sanitize_text_field($body['error'] ?? 'خطا در سرویس محاسبه آریامن');
+            if ($code !== '') $message .= ' [' . $code . ']';
+            if (!empty($body['diag'])) $message .= ' {' . sanitize_text_field($body['diag']) . '}';
+            if (!empty($body['errors']) && is_array($body['errors'])) {
+                $msgs = [];
+                foreach (array_slice($body['errors'], 0, 3) as $item) {
+                    if (is_array($item)) { if (!empty($item['message'])) $msgs[] = sanitize_text_field((string) $item['message']); }
+                    elseif (is_string($item) && $item !== '') $msgs[] = sanitize_text_field($item);
+                }
+                if ($msgs) $message .= ' {' . implode(' | ', $msgs) . '}';
+            }
+            $security_codes = ['WP_SECRET_MISSING', 'WP_TIMESTAMP', 'WP_SIGNATURE', 'WP_RATE_LIMIT', 'WP_FAILED'];
+            if (in_array($code, $security_codes, true)) $message .= ' [secret=' . substr(hash('sha256', $secret), 0, 6) . ']';
+            return new WP_Error('calculator_api_error', $message, ['status' => $status ?: 502]);
         }
         return rest_ensure_response(is_array($body) ? $body : []);
     }

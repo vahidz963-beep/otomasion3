@@ -7,7 +7,8 @@ import { shouldPersistTransformerAction, transformerActionPolicy } from '../_sha
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') || '';
 const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY') || '';
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
-const WORDPRESS_SHARED_SECRET = Deno.env.get('WORDPRESS_SHARED_SECRET') || '';
+const WORDPRESS_SHARED_SECRET = (Deno.env.get('WORDPRESS_SHARED_SECRET') || '').trim();
+const BUILD_TAG = 'calc-api-141A';
 const MAX_BODY_BYTES = 64 * 1024;
 const INTERNAL_ROLES = new Set(['admin', 'sales', 'sales_manager', 'production', 'warehouse']);
 const CORS = {
@@ -135,13 +136,53 @@ function constantTimeEqual(left: string, right: string) {
 
 async function verifyWordPress(req: Request, rawBody: string) {
   if (!WORDPRESS_SHARED_SECRET || WORDPRESS_SHARED_SECRET.length < 32) throw new Error('اتصال WordPress روی سرور پیکربندی نشده است');
-  const timestamp = req.headers.get('x-aryaman-timestamp') || '';
-  const signature = (req.headers.get('x-aryaman-signature') || '').replace(/^v1=/, '').toLowerCase();
-  const eventId = req.headers.get('x-aryaman-event-id') || '';
+  // Timestamp window widened to 24h: many shared hosts run skewed local clocks,
+  // and the requestId/idempotency layer below already blocks replayed events.
+  // Some shared hosts / firewalls strip custom X- request headers entirely, so
+  // timestamp and eventId may also arrive inside the signed JSON body.
+  // Hosts that strip custom headers cannot strip URL query params, so the plugin
+  // also sends aryaman_ts / aryaman_event / aryaman_sig on the URL itself.
+  const url = new URL(req.url);
+  const headerTimestamp = (req.headers.get('x-aryaman-timestamp') || url.searchParams.get('aryaman_ts') || '').trim();
+  const signature = (req.headers.get('x-aryaman-signature') || url.searchParams.get('aryaman_sig') || '').replace(/^v1=/i, '').trim().toLowerCase();
+  const headerEventId = (req.headers.get('x-aryaman-event-id') || url.searchParams.get('aryaman_event') || '').trim();
+  let timestamp = headerTimestamp;
+  let eventId = headerEventId;
+  let bodyApiKey = '';
+  try {
+    const parsed = JSON.parse(rawBody || '{}');
+    timestamp = timestamp || String(parsed.wp_timestamp ?? '');
+    eventId = eventId || String(parsed.wp_event_id ?? '');
+    bodyApiKey = String(parsed.wp_api_key ?? '').trim();
+  } catch { /* body already parsed by the caller; JSON.parse here only for header fallback */ }
+  // SIMPLE KEY MODE: some shared hosts strip every custom X- header (including the
+  // signature header itself). The key then travels inside the encrypted JSON body
+  // (hosts cannot strip or alter bodies) or on the URL query — both survive any host.
+  // If it matches the shared secret, the request is authenticated without HMAC checks.
+  const apiKey = (bodyApiKey || url.searchParams.get('api_key') || req.headers.get('x-aryaman-api-key') || '').trim();
+  if (apiKey && WORDPRESS_SHARED_SECRET && constantTimeEqual(apiKey, WORDPRESS_SHARED_SECRET)) {
+    if (!eventId) throw new Error('زمان یا شناسه درخواست سایت معتبر نیست');
+    const simpleIp = cleanText(req.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown', 80);
+    const { data: simpleAllowed, error: simpleError } = await service.rpc('fn_calculator_rate_limit', { p_bucket_key: `wordpress:${simpleIp}`, p_limit: 60, p_window_seconds: 60 });
+    if (simpleError || !simpleAllowed) throw new Error('تعداد درخواست‌های سایت بیش از حد مجاز است');
+    return { eventId };
+  }
   const unix = Number(timestamp);
-  if (!eventId || !Number.isFinite(unix) || Math.abs(Date.now() / 1000 - unix) > 300) throw new Error('زمان یا شناسه درخواست سایت معتبر نیست');
+  if (!eventId || !Number.isFinite(unix) || Math.abs(Date.now() / 1000 - unix) > 86400) throw new Error('زمان یا شناسه درخواست سایت معتبر نیست');
   const expected = await hmacHex(WORDPRESS_SHARED_SECRET, `${timestamp}.${eventId}.${rawBody}`);
-  if (!/^[a-f0-9]{64}$/.test(signature) || !constantTimeEqual(expected, signature)) throw new Error('امضای درخواست سایت معتبر نیست');
+  const signatureHex = signature.toLowerCase().replace(/^v1=/, '');
+  if (!/^[a-f0-9]{64}$/.test(signatureHex) || !constantTimeEqual(expected, signatureHex)) {
+    const fingerprint = async (value: string) => (await sha256Hex(value)).slice(0, 6);
+    console.error('wp-signature-mismatch', {
+      timestampFingerprint: await fingerprint(timestamp),
+      eventIdFingerprint: await fingerprint(eventId),
+      bodyFingerprint: await fingerprint(rawBody),
+      expectedPrefix: expected.slice(0, 8),
+      receivedPrefix: signature.slice(0, 8),
+      bodyLength: rawBody.length,
+    });
+    throw new Error(`امضای درخواست سایت معتبر نیست (srv=${expected.slice(0, 6)}|rcv=${signature.slice(0, 6)}|ts=${timestamp}|ev=${eventId.slice(0, 12)}|len=${rawBody.length})`);
+  }
   const ip = cleanText(req.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown', 80);
   const { data: allowed, error } = await service.rpc('fn_calculator_rate_limit', { p_bucket_key: `wordpress:${ip}`, p_limit: 60, p_window_seconds: 60 });
   if (error || !allowed) throw new Error('تعداد درخواست‌های سایت بیش از حد مجاز است');
@@ -292,6 +333,52 @@ async function calculateAndSaveBoard(raw: Record<string, unknown>, actorId: stri
   return { model, result, saved };
 }
 
+/* Public (WordPress) board estimate — same engine and formula knobs as the
+   internal designer; the sale price comes from the server-side formula only. */
+async function calculateBoardForSite(raw: Record<string, unknown>, shouldSave: boolean) {
+  if (!cleanText(raw.customer_name, 160) || !cleanText(raw.customer_phone, 40) || !cleanText(raw.project_title, 200)) {
+    throw new Error('نام مشتری، شماره تماس و عنوان پروژه برای ثبت برد الزامی است');
+  }
+  const model = {
+    project_title: cleanText(raw.project_title, 200),
+    width_mm: Math.max(1, number(raw.width_mm, 100)),
+    height_mm: Math.max(1, number(raw.height_mm, 80)),
+    power_w: Math.max(1, number(raw.power_w, 100)),
+    complexity: ['basic', 'medium', 'advanced'].includes(String(raw.complexity)) ? String(raw.complexity) : 'medium',
+    layers: [2, 4, 6, 8].includes(Number(raw.layers)) ? Number(raw.layers) : 2,
+    features: Array.isArray(raw.features) ? raw.features.map((item) => cleanText(item, 40)).slice(0, 12) : [],
+  };
+  const quantity = Math.max(1, Math.min(999, Math.trunc(number(raw.quantity, 1))));
+  const { data: formula, error: formulaError } = await service.rpc('fn_calculator_get_board_context');
+  if (formulaError) throw formulaError;
+  if (formula.engine_version !== CALCULATOR_ENGINE_VERSION) throw new Error('نسخه موتور و فرمول هم‌خوان نیست؛ استقرار را کامل کنید');
+  const result = calculateBoardEstimate(model, formula.config, { quantity });
+  if (!shouldSave) return { model, result, saved: null };
+  const { data: saved, error } = await service.rpc('fn_calculator_save_quote', { p_payload: {
+    actor_id: null,
+    calculator_type: 'board',
+    source: 'wordpress',
+    order_type: null,
+    quantity,
+    customer_name: cleanText(raw.customer_name, 160),
+    customer_phone: cleanText(raw.customer_phone, 40),
+    customer_email: cleanText(raw.customer_email, 200) || null,
+    project_title: model.project_title,
+    site_order_id: null,
+    formula_version_id: formula.id,
+    input_snapshot: { ...model, quantity },
+    engineering_snapshot: { area_cm2: result.area_cm2, lines: result.lines, layers: model.layers },
+    pricing_snapshot: { currency: 'IRR', total_rial: result.total_rial, sale: result.sale },
+    public_result_snapshot: { currency: 'IRR', status: 'estimate', quantity, unit_sale_rial: result.sale.unit_sale_rial, total_sale_rial: result.sale.total_sale_rial, lines: result.lines },
+    inventory_snapshot: [],
+    windings: [],
+    requirements: [],
+    expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+  } });
+  if (error) throw error;
+  return { model, result, saved };
+}
+
 function safePublicEngineering(engineering: any) {
   return {
     occupancy_percent: engineering?.occupancy_percent,
@@ -301,11 +388,15 @@ function safePublicEngineering(engineering: any) {
     copper_weight_per_unit_g: engineering?.copper_weight_per_unit_g,
     total_build_mm: engineering?.total_build_mm,
     insulation_mm: engineering?.insulation_mm,
+    insulation_wraps_per_layer: engineering?.insulation_wraps_per_layer,
     rows: (engineering?.rows || []).map((row: any) => ({
       line_no: row.line_no, name: row.name, start_pin: row.start_pin, end_pin: row.end_pin,
       turns: row.turns, wire_diameter_mm: row.wire_diameter_mm, awg: row.awg,
       strands: row.strands, calculated_layers: row.calculated_layers, direction: row.direction,
       window_share_percent: row.window_share_percent,
+      // geometry for the customer datasheet diagrams (colors/builds are not secret)
+      color: row.color, build_mm: row.build_mm,
+      allocated_build_mm: row.allocated_build_mm, separator_before_mm: row.separator_before_mm,
     })),
   };
 }
@@ -338,6 +429,12 @@ function internalComponents(context: any) {
   };
 }
 
+/* Human-readable first validation message (e.g. window overfill) for site visitors. */
+function publicValidationMessage(errors: any) {
+  const messages = (Array.isArray(errors) ? errors : []).map((item: any) => String(item?.message || (typeof item === 'string' ? item : '')).trim()).filter(Boolean);
+  return messages.join(' | ') || 'محاسبه ناموفق بود؛ مشخصات را بررسی و دوباره تلاش کنید.';
+}
+
 function safePublicComponents(context: any) {
   return {
     core: {
@@ -347,6 +444,7 @@ function safePublicComponents(context: any) {
     },
     bobbin: {
       pins: `${context.bobbin?.pins_left || '—'}+${context.bobbin?.pins_right || '—'}`,
+      pins_left: context.bobbin?.pins_left, pins_right: context.bobbin?.pins_right,
       mount_orientation: context.bobbin?.mount_orientation, window_width_mm: context.bobbin?.window_width_mm,
       window_height_mm: context.bobbin?.window_height_mm, mean_turn_length_mm: context.bobbin?.mean_turn_length_mm,
       available: Number(context.bobbin?.available_qty) > 0,
@@ -369,8 +467,8 @@ function safePublicInventory(inventory: any[]) {
 function safeCatalog(catalog: any) {
   const mappedCoreIds = new Set((catalog.bobbins || []).filter((row: any) => row.calculable).map((row: any) => row.core_id));
   return {
-    cores: (catalog.cores || []).map((row: any) => ({ id: row.id, model_code: row.model_code, family: row.family, available: row.calculable && mappedCoreIds.has(row.id) && Number(row.available_qty) > 0, calculable: row.calculable && mappedCoreIds.has(row.id) })),
-    bobbins: (catalog.bobbins || []).filter((row: any) => row.calculable).map((row: any) => ({ id: row.id, core_id: row.core_id, pins: `${row.pins_left}+${row.pins_right}`, mount_orientation: row.mount_orientation, available: Number(row.available_qty) > 0 })),
+    cores: (catalog.cores || []).map((row: any) => ({ id: row.id, model_code: row.model_code, family: row.family, available: row.calculable && mappedCoreIds.has(row.id) && Number(row.available_qty) > 0, available_qty: Math.max(0, Math.trunc(Number(row.available_qty) || 0)), calculable: row.calculable && mappedCoreIds.has(row.id) })),
+    bobbins: (catalog.bobbins || []).filter((row: any) => row.calculable).map((row: any) => ({ id: row.id, core_id: row.core_id, pins: `${row.pins_left}+${row.pins_right}`, pins_left: row.pins_left, pins_right: row.pins_right, mount_orientation: row.mount_orientation, window_width_mm: row.window_width_mm, window_height_mm: row.window_height_mm, mean_turn_length_mm: row.mean_turn_length_mm, available: Number(row.available_qty) > 0, available_qty: Math.max(0, Math.trunc(Number(row.available_qty) || 0)) })),
     wires: (catalog.wires || []).filter((row: any) => row.calculable).map((row: any) => ({ id: row.id, diameter_mm: row.diameter_mm, awg: row.awg, available: Number(row.available_qty) > 0 })),
   };
 }
@@ -386,25 +484,30 @@ Deno.serve(async (req: Request) => {
     try { body = JSON.parse(rawBody || '{}'); } catch { return response({ error: 'JSON معتبر نیست' }, 400); }
     const action = cleanText(body.action, 50);
 
-    if (['public_catalog', 'public_quote', 'public_quote_preview', 'public_quote_confirm', 'site_event'].includes(action)) {
+    if (['public_catalog', 'public_quote', 'public_quote_preview', 'public_quote_confirm', 'public_board_preview', 'public_board_confirm', 'site_event'].includes(action)) {
       publicRequest = true;
       const { eventId } = await verifyWordPress(req, rawBody);
       if (action !== 'site_event' && !(await publicEnabled())) return response({ error: 'محاسبه و قیمت عمومی تا پایان کالیبراسیون غیرفعال است', code: 'PUBLIC_QUOTE_DISABLED' }, 503);
       if (action === 'public_catalog') {
         const { data, error } = await service.rpc('fn_calculator_get_catalog');
         if (error) throw error;
-        return response({ catalog: safeCatalog(data) });
+        return response({ catalog: safeCatalog(data), build: BUILD_TAG });
       }
       if (action === 'public_quote_preview') {
         const output = await calculateAndMaybeSave(body.payload || {}, null, 'wordpress', shouldPersistTransformerAction(action));
-        if (!output.result.valid) return response({ valid: false, errors: output.result.errors, warnings: output.result.warnings, engineering: safePublicEngineering(output.result.engineering), components: safePublicComponents(output.context), inventory: safePublicInventory(output.result.inventorySnapshot) }, 422);
+        if (!output.result.valid) return response({ valid: false, error: publicValidationMessage(output.result.errors), errors: output.result.errors, warnings: output.result.warnings, engineering: safePublicEngineering(output.result.engineering), components: safePublicComponents(output.context), inventory: safePublicInventory(output.result.inventorySnapshot) }, 422);
         return response({ valid: true, result: output.result.publicResult, engineering: safePublicEngineering(output.result.engineering), components: safePublicComponents(output.context), inventory: safePublicInventory(output.result.inventorySnapshot), warnings: output.result.warnings });
       }
       if (action === 'public_quote' || action === 'public_quote_confirm') {
         if (action === 'public_quote_confirm') assertConfirmationMetadata(body.payload || {});
         const output = await calculateAndMaybeSave(body.payload || {}, null, 'wordpress', shouldPersistTransformerAction(action));
-        if (!output.result.valid) return response({ valid: false, errors: output.result.errors, warnings: output.result.warnings }, 422);
+        if (!output.result.valid) return response({ valid: false, error: publicValidationMessage(output.result.errors), errors: output.result.errors, warnings: output.result.warnings }, 422);
         return response({ valid: true, quote_id: output.saved.id, quote_code: output.saved.public_code, result: output.result.publicResult, engineering: safePublicEngineering(output.result.engineering), components: safePublicComponents(output.context), inventory: safePublicInventory(output.result.inventorySnapshot) });
+      }
+      if (action === 'public_board_preview' || action === 'public_board_confirm') {
+        const output = await calculateBoardForSite(body.payload || {}, action === 'public_board_confirm');
+        if (action === 'public_board_preview') return response({ valid: true, result: output.result });
+        return response({ valid: true, quote_id: output.saved.id, quote_code: output.saved.public_code, result: output.result });
       }
       const eventType = cleanText(body.event_type, 50);
       if (!['payment_confirmed', 'order_approved', 'order_cancelled'].includes(eventType)) return response({ error: 'نوع رویداد سایت مجاز نیست' }, 400);
@@ -478,6 +581,16 @@ Deno.serve(async (req: Request) => {
     const message = error instanceof Error ? error.message : 'خطای پیش‌بینی‌نشده';
     console.error('calculator-api', { message });
     const status = /دسترسی|نشست|حساب کاربری|امضا/.test(message) ? 403 : 400;
-    return response({ error: publicRequest ? 'پردازش امن درخواست سایت ناموفق بود.' : message }, status);
+    if (publicRequest) {
+      // Diagnosis codes keep the generic Persian message for visitors while
+      // telling the site owner exactly which side of the HMAC handshake failed.
+      const code = message.includes('پیکربندی نشده') ? 'WP_SECRET_MISSING'
+        : message.includes('زمان یا شناسه') ? 'WP_TIMESTAMP'
+        : message.includes('امضا') ? 'WP_SIGNATURE'
+        : message.includes('بیش از حد مجاز') ? 'WP_RATE_LIMIT' : 'WP_FAILED';
+      // Config/engine failures carry no secrets; surfacing them helps the site owner fix deployment issues fast.
+      return response({ error: 'پردازش امن درخواست سایت ناموفق بود.', code, diag: code === 'WP_FAILED' ? message : undefined, build: BUILD_TAG }, status);
+    }
+    return response({ error: message }, status);
   }
 });

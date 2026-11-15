@@ -457,23 +457,52 @@ export function calculateTransformerQuote(input = {}) {
   };
 }
 
-export function calculateBoardEstimate(model = {}, settings = {}) {
+/* Board design estimate — every price knob is formula-configurable (Migration 142
+   exposes them in the automation UI); defaults keep the pre-142 baseline intact. */
+const BOARD_FEATURE_LABELS = { isolation: 'عایق ایمنی', pfc: 'اصلاح ضریب توان (PFC)', digital: 'کنترل دیجیتال', communication: 'ارتباطات و پایش', protection: 'زنجیره حفاظت', emi: 'سازگاری الکترومغناطیسی (EMI)', thermal: 'مدیریت حرارتی' };
+export function calculateBoardEstimate(model = {}, settings = {}, extra = {}) {
   const lines = [];
-  const base = positive(settings.base_design_rial, 300000000);
+  const base = positive(settings.board_base_design_rial ?? settings.base_design_rial, 300000000);
   lines.push({ key: 'base', label: 'قیمت پایه طراحی', amount_rial: base });
   let total = base;
   const width = Math.max(1, positive(model.width_mm, 100));
   const height = Math.max(1, positive(model.height_mm, 80));
   const areaCm2 = width * height / 100;
-  const areaCost = areaCm2 <= 50 ? 0 : areaCm2 <= 100 ? 30000000 : areaCm2 <= 200 ? 70000000 : 120000000;
+  const areaCost = areaCm2 <= 50 ? 0 : areaCm2 <= 100 ? positive(settings.board_area_cost_1_rial, 30000000) : areaCm2 <= 200 ? positive(settings.board_area_cost_2_rial, 70000000) : positive(settings.board_area_cost_3_rial, 120000000);
   if (areaCost) { lines.push({ key: 'area', label: `اندازه برد (${round(areaCm2, 1)} cm²)`, amount_rial: areaCost }); total += areaCost; }
   const power = Math.max(1, positive(model.power_w, 100));
-  const powerCost = power <= 100 ? 0 : power <= 300 ? 50000000 : power <= 700 ? 100000000 : 180000000;
+  const powerCost = power <= 100 ? 0 : power <= 300 ? positive(settings.board_power_cost_1_rial, 50000000) : power <= 700 ? positive(settings.board_power_cost_2_rial, 100000000) : positive(settings.board_power_cost_3_rial, 180000000);
   if (powerCost) { lines.push({ key: 'power', label: `توان ${power} وات`, amount_rial: powerCost }); total += powerCost; }
-  const complexityCosts = { basic: 0, medium: 80000000, advanced: 180000000 };
+  const layersCost = [2, 4, 6, 8].includes(Number(model.layers)) && Number(model.layers) > 2 ? Number(model.layers) * positive(settings.board_extra_layer_rial, 0) : 0;
+  if (layersCost) { lines.push({ key: 'layers', label: `تعداد لایه برد (${Number(model.layers)} لایه)`, amount_rial: layersCost }); total += layersCost; }
+  const complexityCosts = { basic: 0, medium: positive(settings.board_complexity_medium_rial, 80000000), advanced: positive(settings.board_complexity_advanced_rial, 180000000) };
   const complexityCost = complexityCosts[model.complexity] || 0;
   if (complexityCost) { lines.push({ key: 'complexity', label: 'پیچیدگی طراحی', amount_rial: complexityCost }); total += complexityCost; }
-  const featureCosts = { isolation: 30000000, pfc: 70000000, digital: 80000000, communication: 50000000, protection: 40000000, emi: 50000000, thermal: 40000000 };
-  [...new Set(Array.isArray(model.features) ? model.features : [])].forEach((feature) => { const amount = featureCosts[feature] || 0; if (amount) { lines.push({ key: feature, label: feature, amount_rial: amount }); total += amount; } });
-  return { valid: true, engine_version: CALCULATOR_ENGINE_VERSION, area_cm2: round(areaCm2, 2), lines, total_rial: total };
+  const featureCosts = {
+    isolation: positive(settings.board_feature_isolation_rial, 30000000),
+    pfc: positive(settings.board_feature_pfc_rial, 70000000),
+    digital: positive(settings.board_feature_digital_rial, 80000000),
+    communication: positive(settings.board_feature_communication_rial, 50000000),
+    protection: positive(settings.board_feature_protection_rial, 40000000),
+    emi: positive(settings.board_feature_emi_rial, 50000000),
+    thermal: positive(settings.board_feature_thermal_rial, 40000000),
+  };
+  [...new Set(Array.isArray(model.features) ? model.features : [])].forEach((feature) => { const amount = featureCosts[feature] || 0; if (amount) { lines.push({ key: feature, label: BOARD_FEATURE_LABELS[feature] || feature, amount_rial: amount }); total += amount; } });
+  const quantity = Math.max(1, Math.trunc(positive(extra.quantity, 1)));
+  const profitPercent = Math.max(0, positive(settings.board_profit_percent, 30));
+  const rounding = Math.max(1000, positive(settings.board_price_rounding_rial, 10000));
+  const unitSaleRial = roundTo(total * (1 + profitPercent / 100), rounding);
+  return {
+    valid: true,
+    engine_version: CALCULATOR_ENGINE_VERSION,
+    area_cm2: round(areaCm2, 2),
+    lines,
+    total_rial: total,
+    sale: {
+      quantity,
+      profit_percent: profitPercent,
+      unit_sale_rial: unitSaleRial,
+      total_sale_rial: unitSaleRial * quantity,
+    },
+  };
 }

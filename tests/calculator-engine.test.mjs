@@ -352,6 +352,11 @@ assert.match(edgeSource, /واحد آن «متر» نیست/, 'edge guards the m
 assert.match(edgeSource, /sanitizeTestData/, 'edge sanitizes optional test data');
 assert.match(edgeSource, /test_data: payload\.test_data/, 'edge stores the sanitized test data with the quote snapshot');
 assert.match(edgeSource, /insulation_wraps/, 'edge forwards the per-winding tape wraps');
+assert.match(edgeSource, /WP_SECRET_MISSING/, 'public errors carry diagnosis codes for the HMAC handshake');
+assert.match(edgeSource, /86400/, 'HMAC timestamp window tolerates skewed host clocks (24h)');
+assert.match(edgeSource, /wp_timestamp/, 'edge falls back to signed-body timestamp/eventId when X- headers are stripped');
+const pluginSource = fs.readFileSync(path.join(root, 'wordpress/aryaman-calculator-connector/aryaman-calculator-connector.php'), 'utf8');
+assert.match(pluginSource, /wp_timestamp/, 'plugin embeds timestamp/eventId in the signed body for header-stripping hosts');
 assert.match(edgeSource, /pricing_breakdown_visible: showPricingBreakdown/);
 const safeInventorySource = edgeSource.match(/function safePublicInventory[\s\S]*?\n}/)?.[0] || '';
 assert.doesNotMatch(safeInventorySource, /available_qty|quantity_total|warehouse_item_id|cost/i, 'public inventory exposes status only, never raw stock or cost');
@@ -370,18 +375,65 @@ assert.doesNotMatch(previewRouteSource, /set_transient|public_quote['"]/, 'publi
 const pluginJs = fs.readFileSync(path.join(root, 'wordpress/aryaman-calculator-connector/assets/calculator.js'), 'utf8');
 assert.doesNotMatch(pluginJs, /Ø|data-key="arrangement"/);
 assert.match(pluginJs, /mm\$\{wire\.awg \? ` \(AWG/);
+assert.match(pluginJs, /mm\$\{wire\.awg/, 'wire unit hugs the number (0.15mm)');
 assert.match(pluginJs, /config\.confirmUrl/);
 assert.match(pluginJs, /پرشدگی زنده پنجره/);
 assert.match(pluginJs, /خلاصه امکان ساخت، موجودی و قیمت نهایی/);
 assert.match(pluginJs, /پرونده فنی و جدول سیم‌پیچی/);
 assert.match(pluginJs, /دریافت خروجی PDF مشتری/);
-assert.match(pluginJs, /ary-stock-hint/);
+assert.doesNotMatch(pluginJs, /data-wire-stock/, 'wire stock hints removed from the WordPress calculator (v1.4.0)');
+assert.doesNotMatch(pluginJs, /AryReport\.buildWindowFillSvg/);
 assert.match(pluginJs, /سفارش نمونه ترانس/);
 assert.match(pluginJs, /pendingPayload = null;[\s\S]*resultHost\.innerHTML = ''/, 'WordPress input changes invalidate the preview');
-assert.match(pluginJs, /Aryaman Vazirmatn/, 'WordPress print output uses the site typography');
 const pluginCss = fs.readFileSync(path.join(root, 'wordpress/aryaman-calculator-connector/assets/calculator.css'), 'utf8');
 assert.match(pluginCss, /@font-face[\s\S]*Aryaman Vazirmatn/);
 assert.match(pluginCss, /fonts\/vazirmatn\/vazirmatn-v16-arabic-wght-normal\.woff2/);
 assert.ok(fs.existsSync(path.join(root, 'wordpress/aryaman-calculator-connector/assets/fonts/vazirmatn/OFL.txt')));
+
+// ---------- v1.4.0: board calculator + 136-style customer datasheet ----------
+const reportJs = fs.readFileSync(path.join(root, 'wordpress/aryaman-calculator-connector/assets/aryaman-report.js'), 'utf8');
+assert.match(reportJs, /Aryaman Vazirmatn/, 'WordPress datasheet embeds the shared typography stack');
+assert.match(reportJs, /Switching Transformer Datasheet/, 'customer datasheet matches the automation print base 136');
+assert.match(reportJs, /Figure 1 — Window Fill/);
+assert.match(reportJs, /Figure 2 — Top View/);
+assert.match(reportJs, /گزارش برآورد طراحی برد/, 'board one-sheet report present');
+assert.match(reportJs, /دانلود PDF \(ذخیره فایل\)/, 'preview toolbar with download-PDF button, no auto-print');
+assert.doesNotMatch(reportJs, /window\.onload/, 'no auto-print on any report');
+assert.match(pluginJs, /data-aryaman-board/);
+assert.match(pluginJs, /boardQuoteUrl/);
+assert.match(pluginJs, /AryDiagramFill/);
+assert.match(pluginJs, /AryDiagramPin/);
+assert.match(plugin, /aryaman_board_calculator/);
+assert.match(plugin, /public_board_preview/);
+assert.match(plugin, /public_board_confirm/);
+assert.match(plugin, /sanitize_board_payload/);
+assert.doesNotMatch(pluginJs, /data-wire-stock/);
+
+// board engine: baseline defaults (pre-142 knobs) + configurable override + sale pricing
+const engineSrc = fs.readFileSync(path.join(root, 'supabase/functions/_shared/calculator-engine.js'), 'utf8');
+assert.match(engineSrc, /board_base_design_rial/);
+assert.match(engineSrc, /board_profit_percent/);
+assert.match(engineSrc, /BOARD_FEATURE_LABELS/);
+const { calculateBoardEstimate } = await import('./../supabase/functions/_shared/calculator-engine.js');
+const boardBase = calculateBoardEstimate({ width_mm: 100, height_mm: 80, power_w: 100, complexity: 'basic', layers: 2, features: [] }, {});
+assert.ok(boardBase.valid);
+assert.strictEqual(boardBase.total_rial, 330000000, 'board baseline (80cm2 tier + base) matches the pre-142 estimate');
+assert.strictEqual(boardBase.sale.unit_sale_rial, 429000000, 'board sale applies 30% profit and 10000 rounding');
+const boardBig = calculateBoardEstimate({ width_mm: 160, height_mm: 140, power_w: 500, complexity: 'advanced', layers: 4, features: ['pfc', 'digital'] }, { board_base_design_rial: 200000000, board_area_cost_2_rial: 80000000, board_power_cost_2_rial: 90000000, board_complexity_advanced_rial: 150000000, board_extra_layer_rial: 10000000, board_feature_pfc_rial: 60000000, board_feature_digital_rial: 90000000, board_profit_percent: 25, board_price_rounding_rial: 50000 });
+// cost: 200M base + 120M area (224cm2 -> top tier) + 90M power + 40M layers(4*10M) + 150M advanced + 60M + 90M = 750M → sale round(x1.25 /50000) = 937.5M
+assert.strictEqual(boardBig.total_rial, 750000000, 'board knobs fully control the cost lines');
+assert.strictEqual(boardBig.sale.unit_sale_rial, 937500000, 'board sale uses configured profit and rounding');
+const boardPublicEdge = fs.readFileSync(path.join(root, 'supabase/functions/calculator-api/index.ts'), 'utf8');
+assert.match(boardPublicEdge, /public_board_preview/);
+assert.match(boardPublicEdge, /public_board_confirm/);
+assert.match(boardPublicEdge, /calculateBoardForSite/);
+assert.match(boardPublicEdge, /'wordpress',\s*\n\s*order_type: null,\s*\n\s*quantity,/, 'site board quotes persist with the WordPress source');
+const migration142 = fs.readFileSync(path.join(root, 'supabase/migrations/142_calculator_board_pricing.sql'), 'utf8');
+assert.match(migration142, /board_base_design_rial/);
+assert.match(migration142, /board_profit_percent/);
+assert.match(migration142, /calculator-engine-1\.2\.0/);
+const moduleSrc2 = fs.readFileSync(path.join(root, 'src/modules/calculator/CalculatorModule.jsx'), 'utf8');
+assert.match(moduleSrc2, /board_base_design_rial/, 'automation formula modal exposes board pricing knobs');
+assert.match(moduleSrc2, /board_profit_percent/);
 
 console.log('calculator-engine.test.mjs: PASS');
