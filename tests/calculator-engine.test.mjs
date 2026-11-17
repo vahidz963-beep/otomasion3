@@ -301,7 +301,9 @@ assert.match(moduleSource, /نوار مایلار \(چسب ترانس\)/, 'catal
 assert.match(moduleSource, /calc-wh-results/, 'live-search dropdown results');
 assert.match(moduleSource, /calc-wh-row/, 'clickable result rows');
 assert.doesNotMatch(moduleSource.match(/قلم انبار \(واحد باید[\s\S]{0,240}/)?.[0] || '', /<option value=""/, 'main link uses the searchable picker, not a bare select');
-assert.match(moduleSource, /قلم انبار چسب این بوبین \(اختیاری — مستقیم از انبار\)/, 'bobbin can link a meter-unit warehouse item (Glue category included) directly');
+assert.match(moduleSource, /قلم انبار چسب این بوبین \(کل انبار با جست‌وجو\)/, 'bobbin tape picker searches the ENTIRE warehouse (any category/unit)');
+assert.match(moduleSource, /const coreIssue = !core\.mapped/, 'core card shows the exact reason it is not ready');
+assert.match(moduleSource, /const bobbinIssue = coreReady/, 'bobbin readiness reason surfaced');
 assert.match(moduleSource, /calc-warehouse-search/, 'search box styles exist');
 assert.match(moduleSource, /عرض جدید مایلار/, 'admin can add a custom tape width');
 assert.match(moduleSource, /tape_id/, 'per-bobbin tape width selection via catalog');
