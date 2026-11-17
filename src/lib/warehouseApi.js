@@ -130,9 +130,23 @@ export async function recordStockMovement({ itemId, direction, quantity, reason,
   return res.data;
 }
 
+/* پوش خودکار موجودی به سایت فروش (پل انبار) — بعد از هر تغییری که موجودی مؤثر سند خروج را عوض می‌کند.
+   بی‌صدا: اگر پل غیرفعال/در دسترس نباشد، همگام‌سازی دستی در تنظیمات پل جایگزین است. */
+async function pushOutStockToSite(documentId) {
+  try {
+    const docRes = await supabase.from('warehouse_documents').select('type').eq('id', documentId).maybeSingle();
+    if (docRes.error || !docRes.data || docRes.data.type !== 'out') return;
+    const lines = await fetchWarehouseDocumentLines(documentId);
+    const codes = [...new Set((lines || []).map((l) => l.warehouse_items?.item_code).filter(Boolean))];
+    if (!codes.length) return;
+    supabase.functions.invoke('warehouse-bridge', { body: { event: 'push_stock_to_site', item_codes: codes } }).catch(() => {});
+  } catch { /* بی‌صدا */ }
+}
+
 export async function finalizeWarehouseDocument(documentId) {
   const res = await supabase.rpc('fn_finalize_document', { p_document_id: documentId });
   assertNoError(res, 'خطا در ثبت نهایی سند');
+  pushOutStockToSite(documentId); // سند خروج نهایی شد → موجودی سایت همان لحظه به‌روزرسانی شود
   return res.data;
 }
 
@@ -148,6 +162,7 @@ export async function cancelWarehouseDocument(documentId, reason = 'حذف/لغ�
     p_reason: reason || null,
   });
   assertNoError(res, 'خطا در حذف/لغو سند انبار');
+  pushOutStockToSite(documentId); // لغو سند نهایی خروج → آزادسازی موجودی سایت
   return res.data;
 }
 

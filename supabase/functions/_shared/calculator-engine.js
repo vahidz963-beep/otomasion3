@@ -84,9 +84,7 @@ export function calculateTransformerGeometry({ core, bobbin, wires = [], winding
   const insulationWrapsPerLayer = Math.max(0, Math.trunc(finite(settings.insulation_wraps_per_layer, 3)));
   const tapeRollLengthM = positive(settings.mylar_tape_roll_length_m, 66);
   const finishingTapeWraps = Math.max(0, Math.trunc(finite(settings.finishing_tape_wraps, 3)));
-  const glueBeadSectionMm2 = Math.max(0, finite(settings.core_glue_bead_section_mm2, 6));
-  const glueDensity = positive(settings.glue_density_g_cm3, 1.3);
-  const coreGlueMinG = positive(settings.core_glue_min_g_per_unit, 0.5);
+  const coreTapeWraps = Math.max(0, finite(settings.core_tape_wraps, 2)); /* دورهای چسب مایلار حول پایه مرکزی هسته */
 
   if (!core) pushError(errors, 'CORE_REQUIRED', 'هسته انتخاب نشده است.');
   if (!bobbin) pushError(errors, 'BOBBIN_REQUIRED', 'بوبین سازگار انتخاب نشده است.');
@@ -249,7 +247,7 @@ export function calculateTransformerGeometry({ core, bobbin, wires = [], winding
     };
   });
 
-  // Finishing tape around the fully built transformer + core glue between the
+  // نوار مایلار دور ترانسِ نهایی + دور هسته (همه متر — یک قلم)
   // two core halves — both computed from real geometry, not flat amounts.
   let finishingTapeLengthMm = 0;
   for (let wrap = 0; wrap < finishingTapeWraps; wrap += 1) {
@@ -258,10 +256,10 @@ export function calculateTransformerGeometry({ core, bobbin, wires = [], winding
   const finishingTapeLengthM = finishingTapeLengthMm / 1000;
   const mylarTapePerUnitM = round(totalTapeLengthM + finishingTapeLengthM);
   const mylarTapeRollsNeeded = tapeRollLengthM > 0 ? Math.ceil((mylarTapePerUnitM * safeQuantity) / tapeRollLengthM) : 0;
+  /* چسب هسته: همان نوار مایلار با واحد «متر» — متراژ = محیط پایه مرکزی × دورهای دور هسته */
   const coreLegMm = positive(core?.center_leg_mm);
-  const coreGluePerUnitG = coreLegMm > 0
-    ? round(Math.max((4 * coreLegMm * glueBeadSectionMm2) / 1000 * glueDensity, coreGlueMinG), 6)
-    : coreGlueMinG;
+  const coreTapeLengthMm = coreLegMm > 0 ? 4 * coreLegMm * coreTapeWraps : 0;
+  const coreTapeLengthM = coreTapeLengthMm / 1000;
 
   return {
     valid: errors.length === 0,
@@ -287,7 +285,7 @@ export function calculateTransformerGeometry({ core, bobbin, wires = [], winding
     mylar_tape_rolls_needed: mylarTapeRollsNeeded,
     mylar_tape_roll_length_m: tapeRollLengthM,
     finishing_tape_length_per_unit_m: round(finishingTapeLengthM),
-    core_glue_per_unit_g: coreGluePerUnitG,
+    core_tape_length_per_unit_m: round(coreTapeLengthM, 6),
     wire_usage: wireUsage,
   };
 }
@@ -303,7 +301,6 @@ export function calculateTransformerQuote(input = {}) {
   const geometry = calculateTransformerGeometry(input);
   const { core, bobbin, wires = [], settings = {}, orderType = 'sample' } = input;
   const tape = input.tape || input.mylarTape || null;
-  const glue = input.glue || input.coreGlue || null;
   const errors = [...geometry.errors];
   requireMappedAndPriced(core, 'core', errors);
   requireMappedAndPriced(bobbin, 'bobbin', errors);
@@ -312,10 +309,7 @@ export function calculateTransformerQuote(input = {}) {
     if (!isMeterUnit(tape?.unit)) pushError(errors, 'TAPE_UNIT_INVALID', 'واحد قلم انبار چسب/نوار مایلار باید «متر» باشد.');
     if (positive(tape?.current_cost_rial) <= 0) pushError(errors, 'TAPE_PRICE_MISSING', 'بهای روز چسب/نوار مایلار در انبار ثبت نشده است.');
   }
-  if (glue?.warehouse_item_id) {
-    if (!isGramUnit(glue?.unit)) pushError(errors, 'GLUE_UNIT_INVALID', 'واحد قلم انبار چسب هسته باید «گرم» باشد.');
-    if (positive(glue?.current_cost_rial) <= 0) pushError(errors, 'GLUE_PRICE_MISSING', 'بهای روز چسب هسته در انبار ثبت نشده است.');
-  }
+
 
   geometry.wire_usage.forEach((usage) => {
     const wire = wireMap.get(usage.wire_id);
@@ -355,16 +349,12 @@ export function calculateTransformerQuote(input = {}) {
     };
   });
   const directCostBeforeMaterials = coreCostRial + bobbinCostRial + wireCostRial + laborCostRial + operationCostRial;
-  // Meter-priced Mylar tape (per-layer wraps + finishing wrap) and gram-priced
-  // core glue are real per-unit BOM rows priced from warehouse items — the
-  // order quantity is applied once at total_sale_rial, exactly like wire.
-  const tapeLengthPerUnitM = positive(geometry.mylar_tape_length_per_unit_m);
+  // همهٔ چسب‌ها فقط مایلار با واحد «متر»: عایق لایه‌ها + دور ترانس نهایی + دور هسته.
+  // یک ردیف BOM واحد «tape» با متراژ کل؛ قیمت از قلم انبار مایلار همان بوبین.
+  const tapeLengthPerUnitM = positive(geometry.mylar_tape_length_per_unit_m) + positive(geometry.core_tape_length_per_unit_m);
   const tapeCostPerUnitRial = tapeLengthPerUnitM * positive(tape?.current_cost_rial);
   const tapeCostRial = tapeCostPerUnitRial;
-  const gluePerUnitG = positive(geometry.core_glue_per_unit_g);
-  const glueCostPerUnitRial = gluePerUnitG * positive(glue?.current_cost_rial);
-  const glueCostRial = glueCostPerUnitRial;
-  const directCostRial = directCostBeforeMaterials + tapeCostRial + glueCostRial;
+  const directCostRial = directCostBeforeMaterials + tapeCostRial;
   const overheadPercent = positive(settings.overhead_percent);
   const overheadCostRial = directCostRial * overheadPercent / 100;
   const totalCostRial = directCostRial + overheadCostRial;
@@ -388,20 +378,17 @@ export function calculateTransformerQuote(input = {}) {
   if (tape?.warehouse_item_id && tapeLengthPerUnitM > 0) {
     requirements.push({ component_role: 'tape', label: tape.model_code || 'چسب/نوار مایلار', warehouse_code: tape.warehouse_code || null, warehouse_item_id: tape.warehouse_item_id, quantity_per_unit: tapeLengthPerUnitM, quantity_total: round(tapeLengthPerUnitM * geometry.quantity, 6), unit: 'متر' });
   }
-  if (glue?.warehouse_item_id && gluePerUnitG > 0) {
-    requirements.push({ component_role: 'glue', label: glue.model_code || 'چسب هسته', warehouse_code: glue.warehouse_code || null, warehouse_item_id: glue.warehouse_item_id, quantity_per_unit: gluePerUnitG, quantity_total: round(gluePerUnitG * geometry.quantity, 6), unit: 'گرم' });
-  }
+
 
   const availability = requirements.map((requirement) => {
     let available = 0;
     if (requirement.component_role === 'core') available = positive(core?.available_qty);
     else if (requirement.component_role === 'bobbin') available = positive(bobbin?.available_qty);
     else if (requirement.component_role === 'tape') available = positive(tape?.available_qty);
-    else if (requirement.component_role === 'glue') available = positive(glue?.available_qty);
     else available = positive([...wireMap.values()].find((wire) => asId(wire.warehouse_item_id) === asId(requirement.warehouse_item_id))?.available_qty);
     return { ...requirement, available_qty: round(available, 9), sufficient: available >= requirement.quantity_total };
   });
-  availability.filter((row) => !row.sufficient).forEach((row) => errors.push({ code: 'STOCK_INSUFFICIENT', message: `موجودی ${row.component_role === 'core' ? 'هسته' : row.component_role === 'bobbin' ? 'بوبین' : row.component_role === 'tape' ? 'چسب/نوار مایلار' : row.component_role === 'glue' ? 'چسب هسته' : 'سیم'} برای این تعداد کافی نیست.` }));
+  availability.filter((row) => !row.sufficient).forEach((row) => errors.push({ code: 'STOCK_INSUFFICIENT', message: `موجودی ${row.component_role === 'core' ? 'هسته' : row.component_role === 'bobbin' ? 'بوبین' : row.component_role === 'tape' ? 'چسب مایلار' : 'سیم'} برای این تعداد کافی نیست.` }));
 
   const valid = errors.length === 0;
   return {
@@ -417,8 +404,6 @@ export function calculateTransformerQuote(input = {}) {
       wire_cost_lines: wireCostLines,
       tape_length_per_unit_m: round(tapeLengthPerUnitM, 6),
       tape_cost_rial: round(tapeCostRial),
-      glue_quantity_per_unit_g: round(gluePerUnitG, 6),
-      glue_cost_rial: round(glueCostRial),
       winding_minutes: round(windingMinutes),
       assembly_minutes: round(assemblyMinutes),
       labor_minutes: round(laborMinutes),

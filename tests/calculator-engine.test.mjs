@@ -25,9 +25,7 @@ const settings = {
   insulation_wraps_per_layer: 3,
   mylar_tape_roll_length_m: 66,
   finishing_tape_wraps: 3,
-  core_glue_bead_section_mm2: 6,
-  glue_density_g_cm3: 1.3,
-  core_glue_min_g_per_unit: 0.5,
+  core_tape_wraps: 2,
   profit_percent: 30,
   sample_multiplier: 2,
   sample_setup_rial: 5000000,
@@ -87,7 +85,7 @@ assert.equal(geometry.occupancy_percent, 76.9037);
 assert.equal(geometry.mylar_tape_length_per_unit_m, 0.599695, 'per-layer insulation wraps + finishing wraps are metered');
 assert.equal(geometry.finishing_tape_length_per_unit_m, 0.134642);
 assert.equal(geometry.mylar_tape_rolls_needed, 1, 'a 66m roll covers the whole order');
-assert.equal(geometry.core_glue_per_unit_g, 0.5, 'core glue bead floor wins on this small core');
+assert.equal(geometry.core_tape_length_per_unit_m, 0, 'core without center_leg_mm contributes zero core wraps (test core has no center leg)');
 
 const fillSvg = buildWindowFillSvg(bobbin, geometry);
 assert.equal(countWindingBands(fillSvg), windings.length, 'image 1 must have exactly one colored band per winding');
@@ -119,7 +117,7 @@ assert.doesNotMatch(pinSvg, /From the bottom view|نمای پایین/);
 assert.doesNotMatch(pinSvg, /Winding Specification/);
 
 const mylarTape = { id: 'tape-12', model_code: 'چسب دوازده 12mm', warehouse_item_id: 'wh-tape-12', warehouse_code: 'TAPE-12', unit: 'متر', current_cost_rial: 25000, current_qty: 500, available_qty: 500 };
-const coreGlue = { id: 'glue-core', model_code: 'چسب هسته', warehouse_item_id: 'wh-glue', warehouse_code: 'GLUE-CORE', unit: 'گرم', current_cost_rial: 900000, current_qty: 2000, available_qty: 2000 };
+
 const sample = calculateTransformerQuote({ core, bobbin, wires, windings, settings, orderType: 'sample', quantity: 1 });
 assert.equal(sample.valid, true);
 assert.equal(sample.pricing.unit_sale_rial, sample.pricing.regular_unit_sale_rial * 2);
@@ -139,23 +137,20 @@ assert.equal(sample.requirements.some((row) => /terminal|lug/i.test(row.componen
 assert.equal(sample.pricing.tape_cost_rial, 0, 'tape stays out of the BOM until a warehouse item is configured');
 assert.equal(sample.requirements.some((row) => row.component_role === 'tape'), false);
 
-const withMaterials = calculateTransformerQuote({ core, bobbin, wires, tape: mylarTape, glue: coreGlue, windings, settings, orderType: 'sample', quantity: 1 });
+const withMaterials = calculateTransformerQuote({ core, bobbin, wires, tape: mylarTape, windings, settings, orderType: 'sample', quantity: 1 });
 assert.equal(withMaterials.valid, true);
 const tapeRow = withMaterials.requirements.find((row) => row.component_role === 'tape');
-const glueRow = withMaterials.requirements.find((row) => row.component_role === 'glue');
-assert.ok(tapeRow, 'metered mylar tape becomes a real BOM row');
+assert.ok(tapeRow, 'metered mylar tape becomes the single tape BOM row (layers + finishing + core)');
 assert.equal(tapeRow.unit, 'متر');
-assert.ok(Math.abs(tapeRow.quantity_per_unit - withMaterials.engineering.mylar_tape_length_per_unit_m) < 0.000001);
-assert.ok(glueRow && glueRow.unit === 'گرم');
-assert.ok(Math.abs(withMaterials.pricing.tape_cost_rial - withMaterials.engineering.mylar_tape_length_per_unit_m * 25000) < 0.01, 'tape price = consumed meters x meter price');
-assert.ok(Math.abs(withMaterials.pricing.glue_cost_rial - withMaterials.engineering.core_glue_per_unit_g * 900000) < 0.01, 'glue price = consumed grams x gram price');
-assert.ok(Math.abs(withMaterials.pricing.direct_cost_rial - (sample.pricing.direct_cost_rial + withMaterials.pricing.tape_cost_rial + withMaterials.pricing.glue_cost_rial)) < 0.01, 'tape/glue extend the per-unit direct cost');
-assert.ok(Math.abs(withMaterials.pricing.total_sale_rial - sample.pricing.total_sale_rial) > 0, 'tape/glue affect the sale price');
+const totalTapePerUnit = withMaterials.engineering.mylar_tape_length_per_unit_m + withMaterials.engineering.core_tape_length_per_unit_m;
+assert.ok(Math.abs(tapeRow.quantity_per_unit - totalTapePerUnit) < 0.000001, 'tape row includes core wraps');
+assert.ok(Math.abs(withMaterials.pricing.tape_cost_rial - totalTapePerUnit * 25000) < 0.01, 'tape price = consumed meters x meter price');
+assert.ok(Math.abs(withMaterials.pricing.direct_cost_rial - (sample.pricing.direct_cost_rial + withMaterials.pricing.tape_cost_rial)) < 0.01, 'tape extends the per-unit direct cost');
+assert.ok(Math.abs(withMaterials.pricing.total_sale_rial - sample.pricing.total_sale_rial) > 0, 'tape affects the sale price');
 
-const wrongTapeUnit = calculateTransformerQuote({ core, bobbin, wires, tape: { ...mylarTape, unit: 'عدد' }, glue: coreGlue, windings, settings, orderType: 'sample', quantity: 1 });
+const wrongTapeUnit = calculateTransformerQuote({ core, bobbin, wires, tape: { ...mylarTape, unit: 'عدد' }, windings, settings, orderType: 'sample', quantity: 1 });
 assert.ok(wrongTapeUnit.errors.some((error) => error.code === 'TAPE_UNIT_INVALID'), 'tape warehouse unit must be meters');
-const wrongGlueUnit = calculateTransformerQuote({ core, bobbin, wires, tape: mylarTape, glue: { ...coreGlue, unit: 'عدد' }, windings, settings, orderType: 'sample', quantity: 1 });
-assert.ok(wrongGlueUnit.errors.some((error) => error.code === 'GLUE_UNIT_INVALID'), 'glue warehouse unit must be grams');
+
 
 const production = calculateTransformerQuote({ core, bobbin, wires, windings, settings, orderType: 'production', quantity: 100 });
 assert.equal(production.valid, true);
@@ -199,8 +194,8 @@ assert.match(staffReport, /Switching Transformer Datasheet/, 'staff page 1 share
 assert.match(staffReport, /جدول محاسبات قیمت/, 'staff page 2 keeps the confidential cost table');
 assert.match(staffReport, /پارامترهای محاسبه و تولید/);
 assert.match(staffReport, /چک‌لیست کنترل کیفیت/);
-assert.match(staffReport, /نوار مایلار \(چسب دوازده\)/, 'staff cost table includes metered mylar tape');
-assert.match(staffReport, /چسب هسته/, 'staff cost table includes core glue');
+assert.match(staffReport, /چسب مایلار/, 'staff cost table includes metered mylar tape');
+assert.doesNotMatch(staffReport, /چسب هسته/, 'core glue label is fully removed from reports');
 assert.match(staffReport, /insulation_per_layer_mm|عایق هر لایه/, 'staff parameters include per-layer insulation');
 assert.equal((customerReport.match(/class="page(?: [^"]*)?"/g) || []).length, 1, 'customer datasheet is exactly one page');
 assert.equal((staffReport.match(/class="page(?: [^"]*)?"/g) || []).length, 2, 'staff PDF is the datasheet plus one confidential page');
@@ -245,7 +240,15 @@ assert.match(migration139, /'calculator-engine-1\.2\.0'/);
 assert.match(migration139, /insulation_wraps_per_layer/);
 assert.match(migration139, /mylar_tape_roll_length_m/);
 assert.match(migration139, /قلم انبار چسب\/نوار مایلار باید فعال و با واحد «متر» باشد/);
-assert.match(migration139, /قلم انبار چسب هسته باید فعال و با واحد «گرم» باشد/);
+const migration149 = fs.readFileSync(path.join(root, 'supabase/migrations/149_calculator_tape_meter_only.sql'), 'utf8');
+assert.match(migration149, /GLUE-CORE-EPXY/, 'migration 149 retires the gram glue item per user directive');
+assert.match(migration149, /calculator\.mylar_tapes/, 'tape width catalog table');
+assert.match(migration149, /4,5,7,8,9,10,11,12,14,15,17,18,20,25,30,35,40/, 'all user-requested widths are seeded');
+assert.match(migration149, /fn_calculator_save_tape/, 'tape widths are linked to existing warehouse items like wires/cores');
+assert.match(migration149, /'tapes'/, 'catalog payload exposes tapes');
+const migration146 = fs.readFileSync(path.join(root, 'supabase/migrations/146_calculator_tape_glue_per_bobbin.sql'), 'utf8');
+assert.doesNotMatch(migration146, /insert into public\.warehouse_items/i, 'migration 146 no longer creates warehouse items (user links existing ones)');
+
 assert.match(migration139, /'packing_factor',coalesce\(\(p_config->>'packing_factor'\)::numeric,0\.40\)/);
 assert.match(migration139, /mylar_tape_warehouse_item_id',b\.mylar_tape_warehouse_item_id/);
 assert.match(migration139, /mylar_tape_warehouse_item_id=excluded\.mylar_tape_warehouse_item_id/);
@@ -285,13 +288,17 @@ assert.match(moduleSource, /پرونده فنی، جدول‌ها و نقشه‌
 assert.match(moduleSource, /ریز محرمانه محاسبات و قیمت‌گذاری/);
 assert.match(moduleSource, /show_internal_pricing_breakdown/);
 assert.match(moduleSource, /قلم پیش‌فرض نوار مایلار/, 'formula modal exposes the default tape item');
-assert.match(moduleSource, /قلم انبار چسب هسته \(گرم\)/);
-assert.match(moduleSource, /قلم چسب مایلار این بوبین \(متر\)/, 'per-bobbin tape width selection');
+assert.doesNotMatch(moduleSource, /چسب هسته \(گرم\)/, 'gram glue field removed from formula settings');
+assert.match(moduleSource, /دور چسب مایلار دور هسته/, 'core-wrap turns field replaces glue gram settings');
+assert.match(moduleSource, /عرض چسب مایلار این بوبین/, 'bobbin links a tape WIDTH from the catalog, not a raw warehouse item');
+assert.match(moduleSource, /نوار مایلار \(چسب ترانس\)/, 'catalog exposes the mylar tape width linking grid');
+assert.match(moduleSource, /عرض جدید مایلار/, 'admin can add a custom tape width');
+assert.match(moduleSource, /tape_id/, 'per-bobbin tape width selection via catalog');
 assert.match(moduleSource, /mylar_tape_warehouse_item_id/);
 assert.match(moduleSource, /insulation_wraps_per_layer/);
 assert.match(moduleSource, /calc-test-data/, 'designer exposes the optional test-data block');
 assert.match(moduleSource, /details className="calc-test-data" open/, 'optional test-data block is visible by default with a hide toggle');
-assert.match(moduleSource, /createCalculatorConsumable/, 'designer can create metered tape / weighted glue items on the fly');
+assert.match(moduleSource, /createCalculatorConsumable/, 'designer can create metered tape items on the fly');
 assert.match(moduleSource, /calc-consumable-add/, 'quick-add consumable button is present in the formula and bobbin forms');
 assert.match(moduleSource, /\{ lang: 'en' \}/, 'print reports render the diagrams with English labels');
 assert.match(moduleSource, /convertCalculatorQuoteToAm/, 'admin can convert AMS to AM');
@@ -347,7 +354,7 @@ assert.match(edgeSource, /safePublicEngineering/);
 assert.doesNotMatch(edgeSource.match(/function safePublicEngineering[\s\S]*?\n}/)?.[0] || '', /pricing|cost|inventory|warehouse/i, 'public engineering response excludes sensitive pricing and inventory');
 assert.match(edgeSource, /showPricingBreakdown = isAdmin \|\| Boolean/);
 assert.match(edgeSource, /mylar_tape_warehouse_item_id/);
-assert.match(edgeSource, /core_glue_warehouse_item_id/);
+assert.doesNotMatch(edgeSource, /core_glue_warehouse_item_id/, 'edge no longer wires a gram glue item');
 assert.match(edgeSource, /واحد آن «متر» نیست/, 'edge guards the meter-unit tape item');
 assert.match(edgeSource, /sanitizeTestData/, 'edge sanitizes optional test data');
 assert.match(edgeSource, /test_data: payload\.test_data/, 'edge stores the sanitized test data with the quote snapshot');

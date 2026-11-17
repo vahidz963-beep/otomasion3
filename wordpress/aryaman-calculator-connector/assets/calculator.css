@@ -154,3 +154,15 @@
 .ary-wind-table th:nth-child(6),.ary-wind-table td:nth-child(6){width:200px}  /* سیم */
 .ary-wind-table td:nth-child(6){white-space:nowrap}
 .ary-wind-table td:nth-child(6) select{min-width:180px}
+
+/* بخش ۴ تاشو — اطلاعات اختیاری */
+.ary-optional{border:1px dashed #2b3d66;border-radius:9px;padding:10px 12px;margin:0 0 12px;background:rgba(13,24,48,.35)}
+.ary-optional summary{cursor:pointer;display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;list-style:none;font:inherit}
+.ary-optional summary::-webkit-details-marker{display:none}
+.ary-optional summary::before{content:'▸';color:#f2b705;font-weight:900;transition:transform .15s}
+.ary-optional[open] summary::before{transform:rotate(90deg)}
+.ary-optional summary b{color:#f2b705;font-size:13.5px}
+.ary-optional summary small{color:#93a5c9;font-size:11.5px}
+.ary-optional label{display:block;font-size:12.5px;color:#c9d4ea;margin:8px 0 4px}
+.ary-optional input,.ary-optional textarea{width:100%;background:#0d1830;border:1px solid #2b3d66;color:#fff;border-radius:6px;padding:8px 10px;font:inherit;font-size:13px}
+.ary-optional textarea{resize:vertical;min-height:64px}

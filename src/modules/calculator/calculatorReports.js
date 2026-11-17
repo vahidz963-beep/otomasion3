@@ -138,8 +138,8 @@ function staffPage(data) {
   const engineering = data.engineering || {};
   const costRows = pricing ? (() => {
     const wires = (pricing.wire_cost_lines || []).map((row) => `<tr><td>سیم ${esc(row.label || '')}</td><td>${number(row.quantity_per_unit_g)} گرم × ${toman(row.unit_cost_rial_per_g)}</td><td>${toman(row.amount_rial)}</td></tr>`).join('');
-    const tapeRow = Number(pricing.tape_length_per_unit_m) > 0 ? `<tr><td>نوار مایلار (چسب دوازده)</td><td>${number(pricing.tape_length_per_unit_m)} متر هر عدد × بهای متر</td><td>${toman(pricing.tape_cost_rial)}</td></tr>` : '';
-    const glueRow = Number(pricing.glue_quantity_per_unit_g) > 0 ? `<tr><td>چسب هسته</td><td>${number(pricing.glue_quantity_per_unit_g)} گرم هر عدد × بهای گرم</td><td>${toman(pricing.glue_cost_rial)}</td></tr>` : '';
+    const tapeRow = Number(pricing.tape_length_per_unit_m) > 0 ? `<tr><td>چسب مایلار</td><td>${number(pricing.tape_length_per_unit_m)} متر هر عدد × بهای متر</td><td>${toman(pricing.tape_cost_rial)}</td></tr>` : '';
+    const glueRow = '';
     const operations = (pricing.operation_breakdown || []).map((row) => `<tr><td>${esc(row.label)}</td><td>هزینه عملیات هر عدد</td><td>${toman(row.amount_rial)}</td></tr>`).join('');
     return `<tr><td>هسته</td><td>۱ عدد برای هر ترانس</td><td>${toman(pricing.core_cost_rial)}</td></tr><tr><td>بوبین</td><td>۱ عدد برای هر ترانس</td><td>${toman(pricing.bobbin_cost_rial)}</td></tr>${wires}${tapeRow}${glueRow}<tr><td>دستمزد</td><td>${number(pricing.labor_minutes)} دقیقه · نرخ ساعتی ${toman(pricing.labor_hour_rial)}</td><td>${toman(pricing.labor_cost_rial)}</td></tr>${operations}<tr class="total"><td>بهای مستقیم</td><td>قطعات + کار + عملیات</td><td>${toman(pricing.direct_cost_rial)}</td></tr><tr><td>سربار</td><td>${number(pricing.overhead_percent)}٪</td><td>${toman(pricing.overhead_cost_rial)}</td></tr><tr class="total"><td>بهای تمام‌شده</td><td>مبنای قیمت‌گذاری</td><td>${toman(pricing.total_cost_rial)}</td></tr><tr><td>سود افزایشی</td><td>${number(pricing.profit_percent)}٪</td><td>${toman(pricing.profit_amount_rial)}</td></tr><tr><td>قیمت عادی هر عدد</td><td>پس از گردکردن</td><td>${toman(pricing.regular_unit_sale_rial)}</td></tr>${Number(pricing.sample_surcharge_rial) !== 0 ? `<tr><td>افزایش سفارش نمونه</td><td>ضریب ${number(pricing.sample_multiplier)}</td><td>${toman(pricing.sample_surcharge_rial)}</td></tr>` : ''}<tr><td>ستاپ سفارش</td><td>یک‌بار برای سفارش</td><td>${toman(pricing.setup_fee_rial)}</td></tr><tr class="grand"><td>مبلغ نهایی سفارش</td><td>${number(pricing.quantity, 0)} عدد</td><td>${toman(pricing.total_sale_rial)}</td></tr>`;
   })() : '';
@@ -157,7 +157,7 @@ function staffPage(data) {
         <tr><td>طول سیم</td><td>${number(engineering.total_length_m)} متر</td></tr>
         <tr><td>وزن مس</td><td>${number(engineering.copper_weight_per_unit_g)} گرم</td></tr>
         <tr><td>نوار مایلار هر عدد</td><td>${number(engineering.mylar_tape_length_per_unit_m)} متر</td></tr>
-        <tr><td>چسب هسته هر عدد</td><td>${number(engineering.core_glue_per_unit_g)} گرم</td></tr>
+        <tr><td>چسب دور هسته هر عدد</td><td>${number(engineering.core_tape_length_per_unit_m)} متر</td></tr>
       </tbody></table></div>
       <div class="ds-wrap"><table class="ds-fin"><thead><tr><th>زمان و قیمت</th><th>مقدار</th></tr></thead><tbody>
         <tr><td>زمان سیم‌پیچی</td><td>${pricing ? `${number(pricing.winding_minutes)} دقیقه` : '—'}</td></tr>

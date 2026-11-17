@@ -9,7 +9,7 @@
     boardConfirmUrl: '/wp-json/aryaman-calculator/v1/board-confirm',
     nonce: '',
     woocommerce: false,
-  }, window.AriamanCalculatorConfig || {});
+  }, window.AryamanCalculatorConfig || {});
   const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
   const numberFa = (value, digits = 0) => Number(value || 0).toLocaleString('fa-IR', { maximumFractionDigits: digits });
   const toman = (rial) => `${numberFa(Math.round(Number(rial || 0) / 10))} تومان`;
@@ -53,7 +53,7 @@
     const options = { lang: 'en' };
     const fillSvg = window.AryDiagramFill(bobbin, engineering, options);
     const pinSvg = window.AryDiagramPin(bobbin, engineering, options);
-    window.AryReportLogo = `${(window.AriamanCalculatorConfig || {}).pluginUrl || ''}assets/aryaman-report-logo.png`;
+    window.AryReportLogo = `${(window.AryamanCalculatorConfig || {}).pluginUrl || ''}assets/aryaman-report-logo.png`;
     const html = window.AryReportBuildTransformer({
       code,
       createdAt: quoteData.createdAt || new Date().toISOString(),
@@ -91,10 +91,11 @@
     const cores = catalog.cores || [];
     const bobbins = catalog.bobbins || [];
     const wires = catalog.wires || [];
-    root.innerHTML = `<div class="ary-head"><span>مرکز محاسبه آریامن</span><h2>محاسبه ترانس سفارشی</h2>${config.cartPageUrl ? `<a class="ary-cart-link" href="${config.cartPageUrl}">سبد خرید${config.cartCount > 0 ? ` (${config.cartCount})` : ``}</a>` : ``}</div><div class="ary-body">
-<section class="ary-fieldset"><div class="ary-legend"><i>۱</i><div><h3>اطلاعات مشتری و سفارش</h3><small>نوع سفارش، تعداد و مشخصات تماس</small></div></div><div class="ary-grid"><label>نوع سفارش<select data-order-type><option value="sample">سفارش نمونه ترانس · ۱–۹۹ عدد</option><option value="production">سفارش تعداد · +۱۰۰ عدد</option></select></label><label>تعداد<input data-quantity type="number" min="1" max="99" value="1"></label><label>نام مشتری<input data-customer-name autocomplete="name"></label><label>شماره تماس<input data-customer-phone inputmode="tel" autocomplete="tel"></label><label class="ary-span-2">عنوان پروژه<input data-project></label></div></section>
+    root.innerHTML = `<div class="ary-head"><span>مرکز محاسبه آریامن</span><h2>محاسبه ترانس سفارشی</h2></div><div class="ary-body">
+<section class="ary-fieldset"><div class="ary-legend"><i>۱</i><div><h3>اطلاعات مشتری و سفارش</h3><small>نوع سفارش، تعداد و مشخصات تماس</small></div></div><div class="ary-grid"><label>نوع سفارش<select data-order-type><option value="sample">سفارش نمونه ترانس · ۱–۹۹ عدد</option><option value="production">سفارش تعداد · +۱۰۰ عدد</option></select></label><label>تعداد سفارش<input data-quantity type="number" min="1" max="99" value="1"></label></div><div class="ary-grid" style="margin-top:10px"><label>عنوان پروژه<input data-project></label><label>نام مشتری<input data-customer-name autocomplete="name"></label><label>شماره تماس<input data-customer-phone inputmode="tel" autocomplete="tel"></label></div></section>
 <section class="ary-fieldset"><div class="ary-legend"><i>۲</i><div><h3>انتخاب هسته و بوبین</h3><small>مدل فریت، بوبین متناظر و وضعیت گپ</small></div></div><div class="ary-grid"><label>مدل هسته<select data-core><option value="">انتخاب هسته</option>${cores.map((core) => `<option value="${esc(core.id)}" ${core.calculable ? '' : 'disabled'}>${esc(core.model_code)}${core.calculable ? '' : ' · نیازمند تکمیل'}</option>`).join('')}</select><small data-core-stock class="ary-stock-hint">پس از انتخاب، وضعیت موجودی نمایش داده می‌شود.</small></label><label>مدل بوبین<select data-bobbin disabled><option value="">ابتدا هسته را انتخاب کنید</option></select><small data-bobbin-stock class="ary-stock-hint">پس از انتخاب، وضعیت موجودی نمایش داده می‌شود.</small></label><label class="ary-check ary-span-2"><input data-gap type="checkbox"><span>هسته دارای گپ است</span></label></div></section>
 <section class="ary-fieldset"><div class="ary-legend"><i>۳</i><div><h3>اطلاعات سیم‌پیچ‌ها</h3><small>دور، سیم، رشته، چسب هر لایه و جهت هر سیم‌پیچ</small></div></div><div data-windings-shell></div><div class="ary-winding-footer"><button type="button" data-add-winding>+ افزودن سیم‌پیچ</button></div><div class="ary-live-fill" data-live-fill><div><span>پرشدگی زنده پنجره</span><b>—</b></div><div class="ary-live-fill__track"><i></i></div><small>پس از انتخاب هسته، بوبین و سیم به‌صورت خودکار نمایش داده می‌شود.</small></div></section>
+<details class="ary-optional"><summary><b>۴ · اطلاعات اختیاری</b><small>اندوکتانس‌ها و توضیحات — در صورت نیاز باز کنید؛ خالی بماند لحاظ نمی‌شود.</small></summary><div class="ary-grid" style="margin-top:10px"><label>اندوکتانس اولیه (mH)<input data-ind-primary inputmode="decimal" placeholder="مثلاً 12.5"></label><label>اندوکتانس ثانویه (mH)<input data-ind-secondary inputmode="decimal" placeholder="مثلاً 3.2"></label><label>اندوکتانس نشتی (µH)<input data-ind-leakage inputmode="decimal" placeholder="مثلاً 45"></label></div><label style="margin-top:10px">شرح و توضیحات تکمیلی<textarea data-notes rows="3" placeholder="هر نکتهٔ اضافه دربارهٔ طراحی، ساخت یا تست"></textarea></label></details>
 <div data-message></div><button type="button" class="ary-submit" data-submit>محاسبه و نمایش نتیجه</button><div data-result></div></div>`;
     const coreSelect = root.querySelector('[data-core]');
     const bobbinSelect = root.querySelector('[data-bobbin]');
@@ -123,6 +124,12 @@
         customer_phone: root.querySelector('[data-customer-phone]').value,
         project_title: root.querySelector('[data-project]').value,
         has_gap: root.querySelector('[data-gap]').checked,
+        test_data: {
+          ind_primary: (root.querySelector('[data-ind-primary]')?.value || '').trim(),
+          ind_secondary: (root.querySelector('[data-ind-secondary]')?.value || '').trim(),
+          ind_leakage: (root.querySelector('[data-ind-leakage]')?.value || '').trim(),
+          notes: (root.querySelector('[data-notes]')?.value || '').trim(),
+        },
         windings: rows.map((row) => ({ ...row, arrangement: 'side', layer_mode: 'auto', requested_layers: 1 })),
       };
     }
@@ -280,7 +287,7 @@
     ['communication', 'ارتباطات و پایش'], ['protection', 'زنجیره حفاظت'], ['emi', 'سازگاری الکترومغناطیسی (EMI)'], ['thermal', 'مدیریت حرارتی'],
   ];
   function renderBoardApp(root) {
-    root.innerHTML = `<div class="ary-head"><span>مرکز محاسبه آریامن</span><h2>محاسبه و برآورد طراحی برد</h2>${config.cartPageUrl ? `<a class="ary-cart-link" href="${config.cartPageUrl}">سبد خرید${config.cartCount > 0 ? ` (${config.cartCount})` : ``}</a>` : ``}</div><div class="ary-body"><div class="ary-grid">
+    root.innerHTML = `<div class="ary-head"><span>مرکز محاسبه آریامن</span><h2>محاسبه و برآورد طراحی برد</h2></div><div class="ary-body"><div class="ary-grid">
       <label>عرض برد (mm)<input data-board-width type="number" min="1" step="0.1" value="100"></label>
       <label>ارتفاع برد (mm)<input data-board-height type="number" min="1" step="0.1" value="80"></label>
       <label>توان (وات)<input data-board-power type="number" min="1" step="1" value="100"></label>
@@ -351,7 +358,7 @@
               } catch (error) { showError(error.message); boardCartButton.disabled = false; }
             });
             zone.querySelector('[data-board-print]').addEventListener('click', () => {
-              window.AryReportLogo = `${(window.AriamanCalculatorConfig || {}).pluginUrl || ''}assets/aryaman-report-logo.png`;
+              window.AryReportLogo = `${(window.AryamanCalculatorConfig || {}).pluginUrl || ''}assets/aryaman-report-logo.png`;
               const html = window.AryReportBuildBoard({ code: confirmed.quote_code, projectTitle: pendingBoard.project_title, customerName: pendingBoard.customer_name, model: pendingBoard, result: (lastBoard || {}).result || {} });
               openReportInPage(html, `برآورد برد — ${confirmed.quote_code}`);
             });

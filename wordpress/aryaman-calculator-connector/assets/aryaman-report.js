@@ -562,7 +562,7 @@ function buildPinDiagramSvg(bobbin, engineering, options = {}) {
     right: Number(bobbin.pins_right),
     view: 'top',
     allowCrossSide: true,
-    title: options.lang === 'en' ? 'Top View — Pins & Windings' : undefined,
+    title: options.lang === 'en' ? 'Top View — Pins & Windings' : 'نمای بالا',
     windings: rows.map((row, index) => ({
       name: options.lang === 'en' ? `N${index + 1}` : row.name,
       start: Number(row.start_pin),

@@ -52,13 +52,16 @@ const OPTIONAL_TEST_KEYS = [
   'ind_primary', 'ind_primary_condition', 'ind_leakage', 'ind_leakage_condition', 'ind_secondary', 'ind_secondary_condition',
   'turns_ratio', 'turns_ratio_condition', 'hipot', 'hipot_condition',
   'dcr_primary', 'dcr_primary_condition', 'dcr_secondary', 'dcr_secondary_condition', 'dcr_auxiliary', 'dcr_auxiliary_condition',
+  'notes',
 ];
+const LONG_TEST_KEYS = ['notes'];
+const TEST_TEXT_LIMIT = (key: string) => (LONG_TEST_KEYS.includes(key) ? 500 : 80);
 
 function sanitizeTestData(raw) {
   const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
   const cleaned = {};
   OPTIONAL_TEST_KEYS.forEach((key) => {
-    const value = cleanText(source[key] ?? source?.inductance?.[key] ?? '', 80);
+    const value = cleanText(source[key] ?? source?.inductance?.[key] ?? '', TEST_TEXT_LIMIT(key));
     if (value) cleaned[key] = value;
   });
   return cleaned;
@@ -213,19 +216,16 @@ async function calculateAndMaybeSave(raw: Record<string, unknown>, actorId: stri
   const payload = sanitizePayload(raw);
   const context = await getContext(payload);
   if (context.formula?.engine_version !== CALCULATOR_ENGINE_VERSION) throw new Error('نسخه موتور و فرمول هم‌خوان نیست؛ استقرار را کامل کنید');
-  // Meter-priced Mylar tape and gram-priced core glue are optional formula-
+  // Meter-priced Mylar tape (only material for layer insulation, finishing and core wraps) is optional formula-
   // configured warehouse items; when configured they must resolve to a valid
   // active item with the correct unit (guaranteed by fn_calculator_get_context).
   const tapeItemId = safeUuid(context.formula?.config?.mylar_tape_warehouse_item_id);
-  const glueItemId = safeUuid(context.formula?.config?.core_glue_warehouse_item_id);
-  if (tapeItemId && !context.tape_item) throw new Error('قلم انبار چسب/نوار مایلار معتبر نیست یا واحد آن «متر» نیست');
-  if (glueItemId && !context.glue_item) throw new Error('قلم انبار چسب هسته معتبر نیست یا واحد آن «گرم» نیست');
+  if (tapeItemId && !context.tape_item) throw new Error('قلم انبار چسب مایلار معتبر نیست یا واحد آن «متر» نیست');
   const result = calculateTransformerQuote({
     core: context.core,
     bobbin: context.bobbin,
     wires: context.wires,
     tape: tapeItemId ? context.tape_item : null,
-    glue: glueItemId ? context.glue_item : null,
     windings: payload.windings,
     settings: context.formula.config,
     orderType: payload.order_type,
@@ -260,12 +260,6 @@ async function calculateAndMaybeSave(raw: Record<string, unknown>, actorId: stri
       warehouse_code: context.tape_item.warehouse_code,
       warehouse_name: context.tape_item.warehouse_name,
       unit: context.tape_item.unit,
-    } : null,
-    core_glue: glueItemId && context.glue_item ? {
-      warehouse_item_id: context.glue_item.warehouse_item_id,
-      warehouse_code: context.glue_item.warehouse_code,
-      warehouse_name: context.glue_item.warehouse_name,
-      unit: context.glue_item.unit,
     } : null,
     formula_version_code: context.formula.version_code,
     pricing_breakdown_visible: Boolean(context.formula.config?.show_internal_pricing_breakdown),
@@ -423,8 +417,7 @@ function internalComponents(context: any) {
     mylar_tape: context.tape_item ? {
       warehouse_code: context.tape_item.warehouse_code, available_qty: context.tape_item.available_qty, unit: context.tape_item.unit,
     } : null,
-    core_glue: context.glue_item ? {
-      warehouse_code: context.glue_item.warehouse_code, available_qty: context.glue_item.available_qty, unit: context.glue_item.unit,
+
     } : null,
   };
 }

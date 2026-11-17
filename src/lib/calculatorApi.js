@@ -28,6 +28,7 @@ export async function saveCalculatorComponent(kind, payload, newWarehouseItem = 
     core: 'fn_calculator_save_core',
     bobbin: 'fn_calculator_save_bobbin',
     wire: 'fn_calculator_save_wire',
+    tape: 'fn_calculator_save_tape',
   };
   if (!functions[kind]) throw new Error('نوع قطعه معتبر نیست');
   return rpc(functions[kind], { p_payload: payload, p_new_warehouse_item: newWarehouseItem }, 'ثبت قطعه ناموفق بود');
