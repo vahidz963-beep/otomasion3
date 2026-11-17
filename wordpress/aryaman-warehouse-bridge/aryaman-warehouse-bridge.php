@@ -14,7 +14,7 @@ if (!defined('ABSPATH')) exit;
 
 final class AryamanWarehouseBridge {
 
-    const VERSION      = '1.0.0';
+    const VERSION      = '1.0.1';
     const OPTION_KEY   = 'aryaman_bridge_settings';
     const SECRET_KEY   = 'aryaman_bridge_secret';
     const REST_NS      = 'aryaman-bridge/v1';
@@ -47,6 +47,8 @@ final class AryamanWarehouseBridge {
         add_action('admin_post_aryaman_bridge_test', [$this, 'handle_connection_test']);
         add_action('admin_post_aryaman_bridge_fullsync', [$this, 'handle_full_sync']);
         add_action('admin_post_aryaman_bridge_regenerate_secret', [$this, 'handle_regenerate_secret']);
+        add_action('add_meta_boxes', [$this, 'product_metabox']);
+        add_action('save_post_product', [$this, 'save_product_metabox'], 20, 1);
 
         /* پرداخت = رزرو در اتوماسیون */
         add_action('woocommerce_payment_complete', [$this, 'on_order_paid'], 20, 1);
@@ -432,6 +434,42 @@ final class AryamanWarehouseBridge {
                 ];
             },
         ]);
+    }
+
+    /**
+     * کادر «کد قلم انبار» در ویرایش محصول — چون بسیاری از قالب‌ها فیلد SKU را پنهان می‌کنند،
+     * نگاشت مستقیم با متای اختصاصی _aryaman_item_code (اولویت یک mapping) اینجا در دسترس است.
+     */
+    public function product_metabox(): void {
+        add_meta_box('aryaman_bridge_item_code', 'پل انبار آریامن — کد قلم انبار', [$this, 'render_product_metabox'], 'product', 'side', 'default');
+    }
+
+    public function render_product_metabox($post): void {
+        wp_nonce_field('aryaman_bridge_item_code', 'aryaman_bridge_item_code_nonce');
+        $code = get_post_meta($post->ID, '_aryaman_item_code', true);
+        $sku = '';
+        $product = wc_get_product($post->ID);
+        if ($product && $product->get_sku()) $sku = $product->get_sku();
+        ?>
+        <p style="margin:0 0 6px">
+            <label style="display:block;font-weight:600;margin-bottom:4px">کد قلم انبار (item_code)</label>
+            <input type="text" class="widefat ltr" dir="ltr" name="aryaman_item_code" value="<?php echo esc_attr($code); ?>" placeholder="مثلاً BOB-PQ3230-V66 یا 1015">
+        </p>
+        <p style="margin:0;font-size:11px;color:#646970;line-height:1.7">
+            پرداخت این محصول ← رزرو همین کد در انبار اتوماسیون؛ خروج انبار ← آپدیت موجودی همین محصول.
+            <?php if ($sku !== '') : ?>SKU فعلی: <code dir="ltr"><?php echo esc_html($sku); ?></code><?php endif; ?>
+            <?php if ($code !== '') : ?><br>وضعیت: متصل به <code dir="ltr"><?php echo esc_html($code); ?></code><?php else : ?><br>وضعیت: بدون نگاشت (در همگام‌سازی بی‌اثر).<?php endif; ?>
+        </p>
+        <?php
+    }
+
+    public function save_product_metabox($postId): void {
+        if (!isset($_POST['aryaman_bridge_item_code_nonce']) || !wp_verify_nonce(sanitize_text_field(wp_unslash($_POST['aryaman_bridge_item_code_nonce'])), 'aryaman_bridge_item_code')) return;
+        if (defined('DOING_AUTOSAVE') && DOING_AUTOSAVE) return;
+        if (!current_user_can('edit_post', $postId)) return;
+        $code = isset($_POST['aryaman_item_code']) ? strtoupper(trim(sanitize_text_field(wp_unslash($_POST['aryaman_item_code'])))) : '';
+        if ($code === '') delete_post_meta($postId, '_aryaman_item_code');
+        else update_post_meta($postId, '_aryaman_item_code', $code);
     }
 
     public function handle_connection_test(): void {

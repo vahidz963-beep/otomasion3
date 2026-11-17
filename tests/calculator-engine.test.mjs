@@ -247,6 +247,9 @@ assert.match(migration149, /4,5,7,8,9,10,11,12,14,15,17,18,20,25,30,35,40/, 'all
 assert.match(migration149, /fn_calculator_save_tape/, 'tape widths are linked to existing warehouse items like wires/cores');
 const migration150 = fs.readFileSync(path.join(root, 'supabase/migrations/150_bridge_rest_grants.sql'), 'utf8');
 assert.match(migration150, /grant select on public\.v_app_inventory_catalog to service_role/, 'bridge full-sync REST read for service_role');
+assert.match(migration150, /grant select on public\.v_sales_stock_overview to service_role/, 'security_invoker chain: sales stock view');
+assert.match(migration150, /grant select on public\.v_warehouse_current_stock to service_role/, 'security_invoker chain: current stock view');
+assert.match(migration150, /grant select on public\.v_finance_item_last_sale to service_role/, 'security_invoker chain: finance view');
 assert.match(migration150, /grant select on public\.warehouse_items to service_role/, 'bridge connection-test REST read for service_role');
 assert.match(migration149, /'tapes'/, 'catalog payload exposes tapes');
 const migration146 = fs.readFileSync(path.join(root, 'supabase/migrations/146_calculator_tape_glue_per_bobbin.sql'), 'utf8');
@@ -295,8 +298,10 @@ assert.doesNotMatch(moduleSource, /چسب هسته \(گرم\)/, 'gram glue field
 assert.match(moduleSource, /دور چسب مایلار دور هسته/, 'core-wrap turns field replaces glue gram settings');
 assert.match(moduleSource, /عرض چسب مایلار این بوبین/, 'bobbin links a tape WIDTH from the catalog, not a raw warehouse item');
 assert.match(moduleSource, /نوار مایلار \(چسب ترانس\)/, 'catalog exposes the mylar tape width linking grid');
-assert.match(moduleSource, /WarehouseItemPicker/, 'warehouse item picker with search');
-assert.match(moduleSource, /قلم انبار چسب این بوبین \(اختیاری — مستقیم\)/, 'bobbin can link a meter-unit warehouse item (Glue category included) directly');
+assert.match(moduleSource, /calc-wh-results/, 'live-search dropdown results');
+assert.match(moduleSource, /calc-wh-row/, 'clickable result rows');
+assert.doesNotMatch(moduleSource.match(/قلم انبار \(واحد باید[\s\S]{0,240}/)?.[0] || '', /<option value=""/, 'main link uses the searchable picker, not a bare select');
+assert.match(moduleSource, /قلم انبار چسب این بوبین \(اختیاری — مستقیم از انبار\)/, 'bobbin can link a meter-unit warehouse item (Glue category included) directly');
 assert.match(moduleSource, /calc-warehouse-search/, 'search box styles exist');
 assert.match(moduleSource, /عرض جدید مایلار/, 'admin can add a custom tape width');
 assert.match(moduleSource, /tape_id/, 'per-bobbin tape width selection via catalog');
