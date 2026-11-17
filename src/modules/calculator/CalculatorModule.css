@@ -320,3 +320,6 @@
 .calc-final-zone .calc-confirm-box button { grid-column: auto; width: auto; min-width: 230px; white-space: nowrap; }
 .calc-final-zone .calc-confirm-box { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 14px; }
 @media(max-width: 1100px) { .calc-final-zone .calc-confirm-box { grid-template-columns: 1fr; } .calc-final-zone .calc-confirm-box button { width: 100%; } }
+
+.calc-warehouse-search { width: 100%; margin-bottom: 6px; padding: 7px 10px; border: 1px solid #d7dee8; border-radius: 8px; font: inherit; font-size: 12.5px; }
+.calc-warehouse-search:focus { outline: 2px solid #2e7bf6; outline-offset: -1px; }

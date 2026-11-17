@@ -245,6 +245,9 @@ assert.match(migration149, /GLUE-CORE-EPXY/, 'migration 149 retires the gram glu
 assert.match(migration149, /calculator\.mylar_tapes/, 'tape width catalog table');
 assert.match(migration149, /4,5,7,8,9,10,11,12,14,15,17,18,20,25,30,35,40/, 'all user-requested widths are seeded');
 assert.match(migration149, /fn_calculator_save_tape/, 'tape widths are linked to existing warehouse items like wires/cores');
+const migration150 = fs.readFileSync(path.join(root, 'supabase/migrations/150_bridge_rest_grants.sql'), 'utf8');
+assert.match(migration150, /grant select on public\.v_app_inventory_catalog to service_role/, 'bridge full-sync REST read for service_role');
+assert.match(migration150, /grant select on public\.warehouse_items to service_role/, 'bridge connection-test REST read for service_role');
 assert.match(migration149, /'tapes'/, 'catalog payload exposes tapes');
 const migration146 = fs.readFileSync(path.join(root, 'supabase/migrations/146_calculator_tape_glue_per_bobbin.sql'), 'utf8');
 assert.doesNotMatch(migration146, /insert into public\.warehouse_items/i, 'migration 146 no longer creates warehouse items (user links existing ones)');
@@ -292,6 +295,9 @@ assert.doesNotMatch(moduleSource, /چسب هسته \(گرم\)/, 'gram glue field
 assert.match(moduleSource, /دور چسب مایلار دور هسته/, 'core-wrap turns field replaces glue gram settings');
 assert.match(moduleSource, /عرض چسب مایلار این بوبین/, 'bobbin links a tape WIDTH from the catalog, not a raw warehouse item');
 assert.match(moduleSource, /نوار مایلار \(چسب ترانس\)/, 'catalog exposes the mylar tape width linking grid');
+assert.match(moduleSource, /WarehouseItemPicker/, 'warehouse item picker with search');
+assert.match(moduleSource, /قلم انبار چسب این بوبین \(اختیاری — مستقیم\)/, 'bobbin can link a meter-unit warehouse item (Glue category included) directly');
+assert.match(moduleSource, /calc-warehouse-search/, 'search box styles exist');
 assert.match(moduleSource, /عرض جدید مایلار/, 'admin can add a custom tape width');
 assert.match(moduleSource, /tape_id/, 'per-bobbin tape width selection via catalog');
 assert.match(moduleSource, /mylar_tape_warehouse_item_id/);

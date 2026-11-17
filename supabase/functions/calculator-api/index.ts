@@ -417,8 +417,6 @@ function internalComponents(context: any) {
     mylar_tape: context.tape_item ? {
       warehouse_code: context.tape_item.warehouse_code, available_qty: context.tape_item.available_qty, unit: context.tape_item.unit,
     } : null,
-
-    } : null,
   };
 }
 
