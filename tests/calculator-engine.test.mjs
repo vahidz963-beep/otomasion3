@@ -149,7 +149,7 @@ assert.ok(Math.abs(withMaterials.pricing.direct_cost_rial - (sample.pricing.dire
 assert.ok(Math.abs(withMaterials.pricing.total_sale_rial - sample.pricing.total_sale_rial) > 0, 'tape affects the sale price');
 
 const wrongTapeUnit = calculateTransformerQuote({ core, bobbin, wires, tape: { ...mylarTape, unit: 'عدد' }, windings, settings, orderType: 'sample', quantity: 1 });
-assert.ok(wrongTapeUnit.errors.some((error) => error.code === 'TAPE_UNIT_INVALID'), 'tape warehouse unit must be meters');
+assert.ok(!wrongTapeUnit.errors.some((error) => error.code === 'TAPE_UNIT_INVALID'), 'tape unit guard removed per user directive');
 
 
 const production = calculateTransformerQuote({ core, bobbin, wires, windings, settings, orderType: 'production', quantity: 100 });
@@ -251,6 +251,11 @@ assert.match(migration150, /grant select on public\.v_sales_stock_overview to se
 assert.match(migration150, /grant select on public\.v_warehouse_current_stock to service_role/, 'security_invoker chain: current stock view');
 assert.match(migration150, /grant select on public\.v_finance_item_last_sale to service_role/, 'security_invoker chain: finance view');
 assert.match(migration150, /grant select on public\.warehouse_items to service_role/, 'bridge connection-test REST read for service_role');
+const migration151 = fs.readFileSync(path.join(root, 'supabase/migrations/151_bobbin_warehouse_item_uniqueness.sql'), 'utf8');
+assert.match(migration151, /drop constraint if exists transformer_bobbins_warehouse_item_id_key/, 'one warehouse item may map to multiple logical bobbins');
+const migration152 = fs.readFileSync(path.join(root, 'supabase/migrations/152_tape_item_no_unit_guard.sql'), 'utf8');
+assert.doesNotMatch(migration152, /قلم چسب بوبین باید فعال و با واحد «متر» باشد/, 'tape link accepts ANY active warehouse item per user directive');
+assert.match(migration152, /where wi\.id=v_tape and wi\.is_active\n    \) end/, 'context tape_item has no unit filter');
 assert.match(migration149, /'tapes'/, 'catalog payload exposes tapes');
 const migration146 = fs.readFileSync(path.join(root, 'supabase/migrations/146_calculator_tape_glue_per_bobbin.sql'), 'utf8');
 assert.doesNotMatch(migration146, /insert into public\.warehouse_items/i, 'migration 146 no longer creates warehouse items (user links existing ones)');

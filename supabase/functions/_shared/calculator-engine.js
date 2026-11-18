@@ -306,8 +306,8 @@ export function calculateTransformerQuote(input = {}) {
   requireMappedAndPriced(bobbin, 'bobbin', errors);
   const wireMap = new Map(wires.map((wire) => [asId(wire.id), wire]));
   if (tape?.warehouse_item_id) {
-    if (!isMeterUnit(tape?.unit)) pushError(errors, 'TAPE_UNIT_INVALID', 'واحد قلم انبار چسب/نوار مایلار باید «متر» باشد.');
-    if (positive(tape?.current_cost_rial) <= 0) pushError(errors, 'TAPE_PRICE_MISSING', 'بهای روز چسب/نوار مایلار در انبار ثبت نشده است.');
+    // بدون گارد واحد — کاربر هر قلم انباری را برای چسب انتخاب می‌کند؛ فقط قیمت لازم است.
+    if (positive(tape?.current_cost_rial) <= 0) pushError(errors, 'TAPE_PRICE_MISSING', 'بهای روز چسب انتخابی در انبار ثبت نشده است.');
   }
 
 
