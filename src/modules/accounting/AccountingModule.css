@@ -619,3 +619,18 @@
 .direct-transfer-line-kind{display:inline-flex;padding:4px 8px;border-radius:999px;font-size:10.5px;font-weight:900;white-space:nowrap}.direct-transfer-line-kind.expense{background:#fff1eb;color:#9a3b1c}.direct-transfer-line-kind.party{background:#edf4ff;color:#24588e}
 .direct-transfer-detail-table{min-width:940px}
 @media(max-width:700px){.direct-transfer-card>.finance-card-header{align-items:stretch;flex-direction:column}.direct-transfer-card>.finance-card-header>button{width:100%}.direct-transfer-toolbar{align-items:stretch;flex-direction:column}.direct-transfer-toolbar input{min-width:0;width:100%}}
+
+/* پرداخت وام: انتخاب حالت، سلول سند و دکمهٔ سند در گردش حساب */
+.loan-pay-mode-picker{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-bottom:12px}
+.loan-pay-mode-picker button{display:grid;gap:3px;text-align:right;border:1px solid #d8dee3;background:#fff;border-radius:12px;padding:9px 11px;cursor:pointer}
+.loan-pay-mode-picker button b{font-size:12px;color:#10243d}
+.loan-pay-mode-picker button small{font-size:10.5px;color:#75838d;line-height:1.6}
+.loan-pay-mode-picker button.active{border-color:#a8672e;background:#fffaf5;box-shadow:0 0 0 3px rgba(168,103,46,.12)}
+.loan-pay-mode-picker button.active b{color:#a8672e}
+.loan-voucher-btn{border:1px solid #cfd8de;background:#f8fafb;color:#10243d;border-radius:8px;padding:3px 9px;font:800 11px/1.4 inherit;font-weight:800;cursor:pointer;direction:ltr}
+.loan-voucher-btn:hover{border-color:#a8672e;color:#a8672e}
+.loan-voucher-btn.void{border-color:#f1c5c0;background:#fff8f7;color:#a5453f;text-decoration:line-through}
+.loan-voucher-none{color:#889199;font-size:11px}
+.ledger-voucher-btn{display:inline-flex;margin-top:3px;border:1px solid #cfd8de;background:#f8fafb;color:#10243d;border-radius:999px;padding:2px 9px;font-size:10.5px;font-weight:800;cursor:pointer;direction:ltr}
+.ledger-voucher-btn:hover{border-color:#a8672e;color:#a8672e}
+

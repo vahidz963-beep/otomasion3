@@ -493,7 +493,7 @@ Deno.serve(async (req: Request) => {
         if (action === 'public_quote_confirm') assertConfirmationMetadata(body.payload || {});
         const output = await calculateAndMaybeSave(body.payload || {}, null, 'wordpress', shouldPersistTransformerAction(action));
         if (!output.result.valid) return response({ valid: false, error: publicValidationMessage(output.result.errors), errors: output.result.errors, warnings: output.result.warnings }, 422);
-        return response({ valid: true, quote_id: output.saved.id, quote_code: output.saved.public_code, result: output.result.publicResult, engineering: safePublicEngineering(output.result.engineering), components: safePublicComponents(output.context), inventory: safePublicInventory(output.result.inventorySnapshot) });
+        return response({ valid: true, quote_id: output.saved.id, quote_code: output.saved.public_code, ams_code: output.saved.ams_code, result: output.result.publicResult, engineering: safePublicEngineering(output.result.engineering), components: safePublicComponents(output.context), inventory: safePublicInventory(output.result.inventorySnapshot) });
       }
       if (action === 'public_board_preview' || action === 'public_board_confirm') {
         const output = await calculateBoardForSite(body.payload || {}, action === 'public_board_confirm');

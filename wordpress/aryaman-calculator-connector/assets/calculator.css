@@ -100,6 +100,7 @@
 .ary-board-note{margin:10px 0 0;background:#fff6dc;border:1px solid #e3c36a;border-radius:10px;padding:10px 13px;font-size:13px;font-weight:800;color:#6b4d0d;line-height:1.9}
 /* 4) overfill live bar: full red with strong text */
 .ary-live-fill.danger b{color:#8f2f27}
+.ary-live-fill.danger small{color:#a5453f;font-weight:800}
 .ary-live-fill.danger .ary-live-fill__track{background:#ffe1de;border:1px solid #e8b6b2}
 .ary-live-fill.danger .ary-live-fill__track i{background:linear-gradient(90deg,#bf4e46,#a5453f)!important}
 /* 2) winding rows look like the automation table (grid rows inside a framed table) */
@@ -155,14 +156,29 @@
 .ary-wind-table td:nth-child(6){white-space:nowrap}
 .ary-wind-table td:nth-child(6) select{min-width:180px}
 
-/* بخش ۴ تاشو — اطلاعات اختیاری */
-.ary-optional{border:1px dashed #2b3d66;border-radius:9px;padding:10px 12px;margin:0 0 12px;background:rgba(13,24,48,.35)}
-.ary-optional summary{cursor:pointer;display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;list-style:none;font:inherit}
+/* اسکلت بارگذاری ماشین‌حساب ترانس — جای «در حال دریافت مدل‌ها…» برای حس سرعت */
+.ary-skeleton{display:grid;gap:12px;padding:14px;background:#fff;border:1px solid #dce2e6;border-radius:13px}
+.ary-skeleton .ary-sk{background:linear-gradient(90deg,#eef1f4 25%,#f8fafb 42%,#eef1f4 60%);background-size:400% 100%;animation:ary-sk 1.15s linear infinite;border-radius:8px}
+.ary-sk-title{display:flex;align-items:center;gap:9px}
+.ary-sk-title i{width:24px;height:24px;border-radius:50%;background:linear-gradient(135deg,#a8672e,#d7a51d);flex:none}
+.ary-sk-line{height:14px}
+.ary-sk-box{display:grid;gap:9px;border:1px solid #e5e9ec;border-radius:10px;padding:11px}
+.ary-sk-row{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.ary-sk-field{height:40px;border-radius:9px}
+.ary-sk-btn{height:44px;border-radius:10px}
+.ary-sk-note{color:#697781;font-size:12px}
+@keyframes ary-sk{0%{background-position:100% 0}100%{background-position:-100% 0}}
+
+/* بخش ۴ تاشو — اطلاعات اختیاری؛ کادر و سربرگ دقیقاً مثل بخش‌های ۱-۲-۳ */
+.ary-optional{background:#fff;border:1px solid #dde4ea;border-radius:16px;padding:16px;margin-bottom:16px;box-shadow:0 6px 18px rgba(16,36,61,.05);border-top:3px solid #16304d}
+.ary-optional summary{cursor:pointer;display:flex;align-items:center;list-style:none;font:inherit}
 .ary-optional summary::-webkit-details-marker{display:none}
-.ary-optional summary::before{content:'▸';color:#f2b705;font-weight:900;transition:transform .15s}
-.ary-optional[open] summary::before{transform:rotate(90deg)}
-.ary-optional summary b{color:#f2b705;font-size:13.5px}
-.ary-optional summary small{color:#93a5c9;font-size:11.5px}
-.ary-optional label{display:block;font-size:12.5px;color:#c9d4ea;margin:8px 0 4px}
-.ary-optional input,.ary-optional textarea{width:100%;background:#0d1830;border:1px solid #2b3d66;color:#fff;border-radius:6px;padding:8px 10px;font:inherit;font-size:13px}
+.ary-optional summary .ary-legend{margin-bottom:0;flex:1}
+.ary-optional summary::after{content:'▸';color:#5d6d7c;font-weight:900;font-size:15px;transition:transform .15s;flex:none}
+.ary-optional[open] summary{padding-bottom:9px;border-bottom:1px dashed #e3e9ee;margin-bottom:11px}
+.ary-optional[open] summary::after{transform:rotate(90deg)}
+.ary-optional label{display:block;font-size:12.5px;color:#53616d;margin:8px 0 4px}
+.ary-optional input,.ary-optional textarea{width:100%;background:#fff;border:1px solid #d4dce1;color:#142c44;border-radius:9px;padding:9px 10px;font:inherit;font-size:13px;box-sizing:border-box}
+.ary-optional input:focus,.ary-optional textarea:focus{outline:0;border-color:#1e4768;box-shadow:0 0 0 3px rgba(30,71,104,.14)}
+.ary-optional input::placeholder,.ary-optional textarea::placeholder{color:#9aa7b5}
 .ary-optional textarea{resize:vertical;min-height:64px}

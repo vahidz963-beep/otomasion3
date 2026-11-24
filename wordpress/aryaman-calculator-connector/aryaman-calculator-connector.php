@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Aryaman Calculator Connector
  * Description: اتصال امن مرکز محاسبه آریامن به WordPress/WooCommerce؛ قیمت‌گذاری فقط از Supabase Edge Function و با امضای HMAC انجام می‌شود.
- * Version: 1.7.0
+ * Version: 1.8.2
  * Author: Aryaman
  * Requires at least: 5.8
  * Requires PHP: 7.4
@@ -12,7 +12,7 @@
 defined('ABSPATH') || exit;
 
 final class Aryaman_Calculator_Connector {
-    const VERSION = '1.7.0';
+    const VERSION = '1.8.2';
     const OPTION = 'aryaman_calculator_connector';
     const REST_NS = 'aryaman-calculator/v1';
     const QUOTE_META = '_aryaman_quote_id';
@@ -56,6 +56,7 @@ final class Aryaman_Calculator_Connector {
         $old = $this->options();
         $secret = isset($input['shared_secret']) ? trim((string) $input['shared_secret']) : '';
         if ($secret === '') $secret = (string) $old['shared_secret'];
+        delete_transient('aryaman_catalog_v' . self::VERSION);
         return [
             'endpoint_url' => esc_url_raw(rtrim((string) ($input['endpoint_url'] ?? ''), '/')),
             'shared_secret' => sanitize_text_field($secret),
@@ -141,7 +142,7 @@ final class Aryaman_Calculator_Connector {
         register_rest_route(self::REST_NS, '/catalog', [
             'methods' => WP_REST_Server::READABLE,
             'permission_callback' => '__return_true',
-            'callback' => fn() => $this->proxy(['action' => 'public_catalog'], 'catalog'),
+            'callback' => [$this, 'catalog_route'],
         ]);
         register_rest_route(self::REST_NS, '/quote', [
             'methods' => WP_REST_Server::CREATABLE,
@@ -359,6 +360,32 @@ final class Aryaman_Calculator_Connector {
         } else {
             $order->add_order_note('رویداد «' . $event_type . '» با موفقیت به اتوماسیون آریامن ارسال شد.');
         }
+    }
+
+    /*
+     * Public catalog with a server-side transient cache. The board calculator
+     * renders instantly because its form is static; the transformer calculator
+     * previously paid the full chain (WP → Supabase Edge → DB RPC) on every
+     * page view with zero caching. Now the Edge round-trip happens at most
+     * once per TTL and every other visitor gets a millisecond cached response.
+     * TTL: filterable via aryaman_catalog_cache_ttl (default 10 minutes,
+     * 0 = bypass). Cache busts itself on plugin upgrades (VERSION in the key)
+     * and is purged whenever the admin saves connection settings.
+     */
+    public function catalog_route() {
+        $ttl = (int) apply_filters('aryaman_catalog_cache_ttl', 600);
+        $cache_key = 'aryaman_catalog_v' . self::VERSION;
+        $cached = ($ttl > 0) ? get_transient($cache_key) : false;
+        if (is_array($cached)) {
+            $response = rest_ensure_response($cached);
+        } else {
+            $response = $this->proxy(['action' => 'public_catalog'], 'catalog');
+            if (is_wp_error($response)) return $response;
+            if ($ttl > 0) set_transient($cache_key, $response->get_data(), $ttl);
+        }
+        $browser = min(300, max(0, $ttl));
+        if ($browser > 0) $response->header('Cache-Control', 'public, max-age=' . $browser . ', stale-while-revalidate=600');
+        return $response;
     }
 
     private function proxy(array $payload, string $event_id) {

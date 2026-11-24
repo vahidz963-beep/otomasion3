@@ -292,7 +292,7 @@ assert.doesNotMatch(moduleSource, /<th>آرایش<\/th>/, 'arrangement column mu
 assert.doesNotMatch(moduleSource, /Ø/, 'wire labels must use mm and parenthesized AWG without the diameter symbol');
 assert.match(moduleSource, /mm\$\{awg \? ` \(AWG/);
 assert.doesNotMatch(moduleSource, /sample_multiplier\s*:/, 'private formula config must not be bundled in the module');
-assert.match(moduleSource, /پرشدگی زنده پنجره/);
+assert.match(moduleSource, /درصد پرشدگی پنجره/);
 assert.match(moduleSource, /aria-valuemin="1"[\s\S]*aria-valuemax="100"/);
 assert.match(moduleSource, /خلاصه امکان ساخت، موجودی و قیمت نهایی/);
 assert.match(moduleSource, /پرونده فنی، جدول‌ها و نقشه‌های پیش از تأیید/);
@@ -402,7 +402,7 @@ assert.doesNotMatch(pluginJs, /Ø|data-key="arrangement"/);
 assert.match(pluginJs, /mm\$\{wire\.awg \? ` \(AWG/);
 assert.match(pluginJs, /mm\$\{wire\.awg/, 'wire unit hugs the number (0.15mm)');
 assert.match(pluginJs, /config\.confirmUrl/);
-assert.match(pluginJs, /پرشدگی زنده پنجره/);
+assert.match(pluginJs, /درصد پرشدگی پنجره/);
 assert.match(pluginJs, /خلاصه امکان ساخت، موجودی و قیمت نهایی/);
 assert.match(pluginJs, /پرونده فنی و جدول سیم‌پیچی/);
 assert.match(pluginJs, /دریافت خروجی PDF مشتری/);
@@ -412,6 +412,26 @@ assert.match(pluginJs, /سفارش نمونه ترانس/);
 assert.match(pluginJs, /pendingPayload = null;[\s\S]*resultHost\.innerHTML = ''/, 'WordPress input changes invalidate the preview');
 const pluginCss = fs.readFileSync(path.join(root, 'wordpress/aryaman-calculator-connector/assets/calculator.css'), 'utf8');
 assert.match(pluginCss, /@font-face[\s\S]*Aryaman Vazirmatn/);
+/* v1.8.1 — catalog caching + instant skeleton (transformer calculator load speed) */
+const pluginPhpV181 = fs.readFileSync(path.join(root, 'wordpress/aryaman-calculator-connector/aryaman-calculator-connector.php'), 'utf8');
+const catalogRouteSource = pluginPhpV181.match(/public function catalog_route[\s\S]*?private function proxy/)?.[0] || '';
+assert.match(catalogRouteSource, /\$cache_key = 'aryaman_catalog_v' \. self::VERSION/, 'catalog cache key is versioned (busts on plugin upgrade)');
+assert.match(catalogRouteSource, /get_transient\(\$cache_key\)/, 'catalog served from a versioned transient cache');
+assert.match(catalogRouteSource, /apply_filters\('aryaman_catalog_cache_ttl', 600\)/, 'catalog cache TTL is filterable, default 10 minutes');
+assert.match(catalogRouteSource, /set_transient\(\$cache_key, \$response->get_data\(\), \$ttl\)/, 'fresh catalog responses are cached');
+assert.match(catalogRouteSource, /Cache-Control/, 'catalog response exposes browser cache headers');
+assert.match(pluginPhpV181, /delete_transient\('aryaman_catalog_v' \. self::VERSION\)/, 'saving connection settings purges the catalog cache');
+assert.match(pluginJs, /renderSkeleton\(root\)/, 'transformer form paints an instant skeleton before the catalog arrives');
+assert.match(pluginCss, /@keyframes ary-sk/);
+/* v1.8.2 — section-4 header like sections 1-3, over-100% live fill in red with the full-capacity phrase */
+assert.match(pluginJs, /<summary><div class="ary-legend"><i>۴<\/i><div><h3>اطلاعات اختیاری<\/h3>/, 'section 4 header uses the same circular badge and h3 font as sections 1-3');
+assert.match(pluginCss, /\.ary-optional\{background:#fff;border:1px solid #dde4ea;border-radius:16px;padding:16px;margin-bottom:16px;box-shadow:0 6px 18px rgba\(16,36,61,\.05\);border-top:3px solid #16304d\}/, 'section 4 card matches the ary-fieldset card exactly');
+assert.match(pluginJs, /ظرفیت بوبین پر شده/, 'live fill names the overfull bobbin state in words');
+assert.match(pluginJs, /over \? 'danger'/, 'live fill turns red above 100% like the automation');
+assert.match(pluginCss, /\.ary-live-fill\.danger small\{color:#a5453f/, 'over-100% caption is red');
+const globalCssV182 = fs.readFileSync(path.join(root, 'src/styles.css'), 'utf8');
+assert.match(globalCssV182, /\.product-picker:focus-within\{z-index:60\}/, 'open product-picker menu paints above later order rows (staged edit modal)');
+assert.match(globalCssV182, /\.searchable-select:focus-within\{z-index:60\}/);
 assert.match(pluginCss, /fonts\/vazirmatn\/vazirmatn-v16-arabic-wght-normal\.woff2/);
 assert.ok(fs.existsSync(path.join(root, 'wordpress/aryaman-calculator-connector/assets/fonts/vazirmatn/OFL.txt')));
 

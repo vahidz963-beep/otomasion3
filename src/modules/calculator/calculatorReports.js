@@ -82,19 +82,15 @@ function optionalSections(testData) {
 }
 
 function orderSummary(engineering, publicResult, quantity) {
-  return `<div class="ds-summary"><div class="bars">
-    <div class="cell"><small>WINDOW OCCUPANCY</small><b>${en(engineering?.occupancy_percent)}%</b></div>
-    <div class="cell"><small>COPPER WIRE WEIGHT</small><b>${en(engineering?.copper_weight_per_unit_g)} g / pc</b></div>
-    <div class="cell"><small>ORDER QUANTITY</small><b>${enInt.format(Math.max(0, Number(quantity) || 0))} pcs</b></div>
-  </div><div class="price">
-    <div><small>UNIT PRICE</small><b>${irr(publicResult?.unit_sale_rial)}</b></div>
-    <div><small>SETUP FEE</small><b>${Number(publicResult?.setup_fee_rial) > 0 ? irr(publicResult?.setup_fee_rial) : '—'}</b></div>
-    <div class="grand"><small>TOTAL PRICE</small><b>${irr(publicResult?.total_sale_rial)}</b></div>
-  </div></div>`;
+  return `<div class="ds-wrap"><table class="ds-info"><thead><tr><th>Item</th><th>Value</th></tr></thead><tbody>
+    <tr><td class="k">Unit Price — One Transformer</td><td class="v">${irr(publicResult?.unit_sale_rial)}</td></tr>
+    <tr><td class="k">Total Order Price</td><td class="v">${irr(publicResult?.total_sale_rial)}</td></tr>
+    <tr><td class="k">Total Order Quantity</td><td class="v">${enInt.format(Math.max(0, Number(quantity) || 0))} pcs</td></tr>
+  </tbody></table></div>`;
 }
 
 function datasheetPage(data) {
-  const docCode = { model: data.core?.model_code || 'AM', doc: data.docCode || data.code || 'PREVIEW' };
+  const docCode = { model: data.quote?.ams_code || data.core?.model_code || 'AM', doc: data.docCode || data.code || 'PREVIEW' };
   const createdAt = data.createdAt ? new Date(data.createdAt) : new Date();
   const bobbin = data.bobbin || {};
   const coreRows = [
@@ -240,19 +236,6 @@ table{border-collapse:collapse}
 .ds-qc td{border-top:.3mm solid #dde4ee;border-left:.3mm solid #e4eaf2;padding:1.5mm 2.5mm}
 .ds-qc td:last-child{border-left:none}
 .ds-qc tr:nth-child(even) td{background:#f4f7fb}
-.ds-summary{border-radius:3.5mm;overflow:hidden;border:.35mm solid #c9d3e0;margin-top:1mm}
-.ds-summary .bars{display:grid;grid-template-columns:repeat(3,1fr);background:#fff}
-.ds-summary .cell{padding:2.6mm 2mm;text-align:center;border-left:.3mm solid #e4eaf2}
-.ds-summary .cell:last-child{border-left:none}
-.ds-summary .cell small{display:block;font-size:6.8pt;color:#5a6b7d;margin-bottom:1mm;font-weight:700;letter-spacing:.4px}
-.ds-summary .cell b{font-size:11pt;color:#1d3a5f;font-weight:800}
-.ds-summary .price{display:grid;grid-template-columns:1fr 1fr 1.3fr;background:#1d3a5f;color:#fff}
-.ds-summary .price>div{padding:2.6mm 2mm;text-align:center;border-left:.3mm solid #2d4d76}
-.ds-summary .price>div:last-child{border-left:none}
-.ds-summary .price small{display:block;font-size:6.8pt;opacity:.85;margin-bottom:1mm;font-weight:700;letter-spacing:.4px}
-.ds-summary .price b{font-size:11pt;font-weight:800}
-.ds-summary .price .grand{background:#f2b705;color:#233246}
-.ds-summary .price .grand small{color:#5c4a00}
 .ds-foot{margin-top:auto;border-top:.7mm solid #1d3a5f;padding-top:2mm;display:flex;justify-content:center;gap:4mm;font-size:8.5pt;color:#44566b}
 .ds-foot b{color:#1d3a5f}
 .staff-rtl{direction:rtl;font-family:${ARYAMAN_FONT_FAMILY_CSS}}

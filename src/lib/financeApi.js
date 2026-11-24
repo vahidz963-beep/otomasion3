@@ -628,7 +628,7 @@ export async function createFinancePayment({ payment, allocations = [], rows = [
     if (cleanAllocations.length > 0) { const allocationRes = await supabase.from('finance_payment_allocations').insert(cleanAllocations); assertNoError(allocationRes, 'خطا در تخصیص پرداخت به فاکتور'); }
     if (post) await postFinancePayment(paymentId);
     if (rowPayment.method === 'loan_payment' && rowPayment.loan_id) {
-      const loanRes = await supabase.rpc('fn_finance_apply_loan_payment', { p_loan_id: rowPayment.loan_id, p_start_installment_id: null, p_paid_amount: Number(rowPayment.amount || 0), p_paid_at: rowPayment.payment_date || new Date().toISOString().slice(0, 10), p_payment_id: paymentId, p_notes: rowPayment.description || 'پرداخت از بخش دریافت/پرداخت حسابداری' });
+      const loanRes = await supabase.rpc('fn_finance_apply_loan_payment', { p_loan_id: rowPayment.loan_id, p_start_installment_id: payment.loan_start_installment_id || null, p_paid_amount: Number(rowPayment.amount || 0), p_paid_at: rowPayment.payment_date || new Date().toISOString().slice(0, 10), p_payment_id: paymentId, p_notes: rowPayment.description || 'پرداخت از بخش دریافت/پرداخت حسابداری' });
       assertNoError(loanRes, 'خطا در اتصال پرداخت به وام');
     }
   }
@@ -1412,11 +1412,25 @@ export async function updateFinanceLoanInstallment(installmentId, payload = {}) 
 }
 
 // ابطال امن سند پرداخت از خودِ قسط؛ همان سند مشترک صندوق/وام باطل می‌شود.
+// حذف امن پرداخت قسط؛ هم برای پرداختِ متصل به سند مشترک و هم برای پرداختِ بدون سند.
 export async function voidFinanceLoanInstallmentPayment(installmentId, reason = '') {
   const row = await supabase.from('v_finance_loan_installments').select('payment_id').eq('id', installmentId).single();
   assertNoError(row, 'سند پرداخت مرتبط با قسط پیدا نشد');
-  if (!row.data?.payment_id) throw new Error('برای این قسط سند پرداخت مشترک ثبت نشده است');
-  return voidFinancePayment(row.data.payment_id, reason || 'ابطال سند پرداخت از جزئیات قسط');
+  if (row.data?.payment_id) {
+    return voidFinancePayment(row.data.payment_id, reason || 'ابطال سند پرداخت از جزئیات قسط');
+  }
+  const res = await supabase.rpc('fn_finance_void_loan_installment_allocation', { p_installment_id: installmentId, p_reason: reason || 'حذف پرداخت بدون سند از جزئیات قسط' });
+  if (!res.error) return res.data;
+  if (!isMissingRpc(res.error)) throw new Error(res.error.message || 'خطا در حذف پرداخت قسط');
+  // Fallback for databases without migration 153: reverse the allocation directly.
+  const current = await supabase.from('finance_loan_installments').select('due_date').eq('id', installmentId).single();
+  assertNoError(current, 'قسط یافت نشد');
+  const overdue = String(current.data?.due_date || '') < new Date().toISOString().slice(0, 10);
+  const update = await supabase.from('finance_loan_installments').update({
+    paid_amount: 0, paid_at: null, status: overdue ? 'overdue' : 'pending', notes: `حذف پرداخت بدون سند: ${reason || 'ابطال توسط کاربر'}`,
+  }).eq('id', installmentId).is('payment_id', null).select('id, loan_id').single();
+  assertNoError(update, 'خطا در حذف پرداخت بدون سند قسط');
+  return update.data;
 }
 
 export async function markFinanceLoanInstallmentPaid({ loanId, installmentId, paymentId, paidAmount, paidAt, notes }) {
@@ -1430,6 +1444,72 @@ export async function markFinanceLoanInstallmentPaid({ loanId, installmentId, pa
   });
   assertNoError(res, 'خطا در ثبت پرداخت قسط وام');
   return res.data;
+}
+
+// ثبت پرداخت قسط وام به‌صورت متصل به سیستم دریافت/پرداخت:
+// سند پرداخت بانک/صندوق ساخته می‌شود، سند حسابداری آن posted می‌شود و تخصیص اقساط
+// از قسط انتخاب‌شده شروع می‌شود. همین اتصال باعث می‌شود پرداخت در «صندوق و گردش
+// حساب» با روش «پرداخت وام» ظاهر شود و از همان‌جا هم قابل حذف امن باشد.
+export async function registerFinanceLoanPayment({ loanId, installmentId, paidAmount, paidAt, bankAccountId, cashboxId, notes }) {
+  const amount = Number(paidAmount || 0);
+  if (!(amount > 0)) throw new Error('مبلغ پرداخت وام باید بزرگ‌تر از صفر باشد');
+  if (!bankAccountId && !cashboxId) throw new Error('حساب بانکی یا صندوق پرداخت را انتخاب کنید');
+  return createFinancePayment({
+    payment: {
+      direction: 'payment',
+      method: 'loan_payment',
+      loan_id: loanId,
+      loan_start_installment_id: installmentId || null,
+      bank_account_id: bankAccountId || null,
+      cashbox_id: cashboxId || null,
+      payment_date: paidAt || new Date().toISOString().slice(0, 10),
+      amount,
+      description: notes || 'پرداخت قسط وام از بخش وام‌ها',
+      source_module: 'accounting',
+    },
+    post: true,
+  });
+}
+
+// واکشی سند حسابداری یک پرداخت به‌همراه جریانات (خطوط بدهکار/بستانکار) آن.
+export async function fetchFinancePaymentJournal(paymentId) {
+  const entryRes = await supabase
+    .from('finance_journal_entries')
+    .select('id, entry_number, entry_date, description, status, created_at')
+    .eq('related_payment_id', paymentId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  assertNoError(entryRes, 'خطا در دریافت سند حسابداری پرداخت');
+  const entry = entryRes.data;
+  if (!entry) return { entry: null, lines: [] };
+  const linesRes = await supabase
+    .from('finance_journal_lines')
+    .select('id, line_no, debit_amount, credit_amount, description, party_id, account_id, finance_accounts(id, code, name_fa, name_en, account_type)')
+    .eq('entry_id', entry.id)
+    .order('line_no', { ascending: true });
+  assertNoError(linesRes, 'خطا در دریافت جریانات سند حسابداری');
+  return { entry, lines: linesRes.data || [] };
+}
+
+export async function fetchFinanceEntryHead(entryId) {
+  const res = await supabase
+    .from('finance_journal_entries')
+    .select('id, entry_number, entry_date, description, status')
+    .eq('id', entryId)
+    .maybeSingle();
+  assertNoError(res, 'خطا در دریافت سند حسابداری');
+  return res.data;
+}
+
+export async function fetchFinanceEntryLines(entryId) {
+  const linesRes = await supabase
+    .from('finance_journal_lines')
+    .select('id, line_no, debit_amount, credit_amount, description, party_id, account_id, finance_accounts(id, code, name_fa, name_en, account_type)')
+    .eq('entry_id', entryId)
+    .order('line_no', { ascending: true });
+  assertNoError(linesRes, 'خطا در دریافت جریانات سند حسابداری');
+  return linesRes.data || [];
 }
 
 export async function createFinanceOrderCost(payload) {

@@ -676,19 +676,6 @@ table{border-collapse:collapse}
 .ds-qc{width:100%;font-size:8.5pt;text-align:center}
 .ds-qc thead th{background:linear-gradient(180deg,#28517f,#1d3a5f);color:#fff;padding:1.6mm 2.5mm;font-weight:700;border-left:.3mm solid #2d4d76}
 .ds-qc td{border-top:.3mm solid #dde4ee;border-left:.3mm solid #e4eaf2;padding:1.5mm 2.5mm}
-.ds-summary{border-radius:3mm;overflow:hidden;border:.35mm solid #9fb0c5;margin-top:1mm;box-shadow:0 .6mm 1.8mm rgba(29,58,95,.12)}
-.ds-summary .bars{display:grid;grid-template-columns:repeat(3,1fr);background:#fff}
-.ds-summary .cell{padding:2.4mm 2mm;text-align:center;border-left:.3mm solid #e4eaf2}
-.ds-summary .cell:last-child{border-left:none}
-.ds-summary .cell small{display:block;font-size:7.2pt;color:#33506c;margin-bottom:1mm;font-weight:700;letter-spacing:.4px}
-.ds-summary .cell b{font-size:10pt;color:#1d3a5f;font-weight:800}
-.ds-summary .price{display:grid;grid-template-columns:1fr 1fr 1.3fr;background:#1d3a5f;color:#fff}
-.ds-summary .price>div{padding:2.4mm 2mm;text-align:center;border-left:.3mm solid #2d4d76}
-.ds-summary .price>div:last-child{border-left:none}
-.ds-summary .price small{display:block;font-size:7.2pt;opacity:.92;margin-bottom:1mm;font-weight:700;letter-spacing:.4px}
-.ds-summary .price b{font-size:10pt;font-weight:800}
-.ds-summary .price .grand{background:#f2b705;color:#233246}
-.ds-summary .price .grand small{color:#5c4a00}
 .ds-foot{margin-top:auto;border-top:.7mm solid #1d3a5f;padding-top:2mm;display:flex;justify-content:center;gap:4mm;font-size:8.5pt;color:#2e4258}
 .ds-foot b{color:#1d3a5f}
 /* ---------- board one-sheet (Persian) ---------- */
@@ -710,7 +697,8 @@ table{border-collapse:collapse}
 `;
 
   function reportHeader(title, subtitle, docCode, confidential = false) {
-    return `<header class="ds-head"><div class="ds-title"><h1>${escA(title)}</h1><p>${subtitle ? subtitle + ' &nbsp;|&nbsp; ' : ''}Document ID: <b>${escA(docCode)}</b>${confidential ? ' &nbsp;|&nbsp; <b class="secret">Staff Only</b>' : ''}</p></div><div class="ds-logo"><img src="${ARY_LOGO_DATA}" alt="ARYAMAN"></div></header>`;
+    const dc = (docCode && typeof docCode === 'object') ? docCode : { doc: docCode };
+    return `<header class="ds-head"><div class="ds-title"><h1>${escA(title)}</h1><p>${subtitle ? subtitle + ' &nbsp;|&nbsp; ' : ''}${dc.model ? `Model: <b>${escA(dc.model)}</b> &nbsp;|&nbsp; ` : ''}Document ID: <b>${escA(dc.doc)}</b>${confidential ? ' &nbsp;|&nbsp; <b class="secret">Staff Only</b>' : ''}</p></div><div class="ds-logo"><img src="${ARY_LOGO_DATA}" alt="ARYAMAN"></div></header>`;
   }
   function sectionTitle(index, title, caption = '') {
     return `<div class="ds-sec"><i>${escA(index)}</i><h2>${escA(title)}</h2><span class="line"></span></div>${caption ? `<div class="ds-sec-cap">${escA(caption)}</div>` : ''}`;
@@ -727,15 +715,11 @@ table{border-collapse:collapse}
     return rows.map((row) => `<tr><td class="name">N${enNum(row.line_no, 0)} · ${escA(windingNameEn(row.name, row.line_no))}</td><td>${enNum(row.start_pin, 0)}</td><td>${enNum(row.end_pin, 0)}</td><td>${enNum(row.turns, 0)}</td><td>${enNum(row.wire_diameter_mm, 2)}${row.awg ? ` (AWG ${enNum(row.awg, 0)})` : ''}</td><td>${enNum(row.strands, 0)}</td><td>${enNum(row.calculated_layers, 0)}</td><td>${enNum(wraps, 0)}</td><td><span class="dir">${row.direction === 'ccw' ? 'CCW' : 'CW'}</span></td></tr>`).join('');
   }
   function orderSummary(engineering, publicResult, quantity) {
-    return `<div class="ds-summary"><div class="bars">
-    <div class="cell"><small>WINDOW OCCUPANCY</small><b>${enNum(engineering?.occupancy_percent)}%</b></div>
-    <div class="cell"><small>COPPER WIRE WEIGHT</small><b>${enNum(engineering?.copper_weight_per_unit_g)} g / pc</b></div>
-    <div class="cell"><small>ORDER QUANTITY</small><b>${enInt(quantity)} pcs</b></div>
-  </div><div class="price">
-    <div><small>UNIT PRICE</small><b>${irr(publicResult?.unit_sale_rial)}</b></div>
-    <div><small>SETUP FEE</small><b>${Number(publicResult?.setup_fee_rial) > 0 ? irr(publicResult?.setup_fee_rial) : '—'}</b></div>
-    <div class="grand"><small>TOTAL PRICE</small><b>${irr(publicResult?.total_sale_rial)}</b></div>
-  </div></div>`;
+    return `<div class="ds-wrap"><table class="ds-info"><thead><tr><th>Item</th><th>Value</th></tr></thead><tbody>
+    <tr><td class="k">Unit Price — One Transformer</td><td class="v">${irr(publicResult?.unit_sale_rial)}</td></tr>
+    <tr><td class="k">Total Order Price</td><td class="v">${irr(publicResult?.total_sale_rial)}</td></tr>
+    <tr><td class="k">Total Order Quantity</td><td class="v">${enInt(quantity)} pcs</td></tr>
+  </tbody></table></div>`;
   }
   function optionalSections(testData) {
     const t = testData || {};
@@ -762,7 +746,7 @@ table{border-collapse:collapse}
   }
   function datasheetPage(data) {
     data._squareDiagrams = true;
-    const docCode = { model: data.core?.model_code || 'AM', doc: String(data.code || 'PREVIEW') };
+    const docCode = { model: data.model || data.core?.model_code || 'AM', doc: String(data.code || 'PREVIEW') };
     const createdAt = data.createdAt ? new Date(data.createdAt) : new Date();
     const bobbin = data.bobbin || {};
     const coreRows = [
@@ -774,7 +758,7 @@ table{border-collapse:collapse}
       ['Air Gap', data.hasGap ? (data.core?.assembly_method === 'ماشینی' ? 'Yes (machine)' : 'Yes') : '—'],
     ];
     return `<section class="page ds-ltr">
-    ${reportHeader('Switching Transformer Datasheet', '', docCode.doc)}
+    ${reportHeader('Switching Transformer Datasheet', '', docCode)}
     <div class="ds-cols">
       <div>${sectionTitle(1, 'Basic Information')}${infoTable([
         ['Document ID', escA(docCode.doc)],

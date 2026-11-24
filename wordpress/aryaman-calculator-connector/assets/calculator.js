@@ -46,7 +46,7 @@
     overlay.addEventListener('click', (event) => { if (event.target === overlay) overlay.remove(); });
   }
 
-  function printCustomerReport(quoteData, code, payload) {
+  function printCustomerReport(quoteData, code, payload, modelCode) {
     const engineering = quoteData.engineering || {};
     const components = quoteData.components || {};
     const bobbin = components.bobbin || {};
@@ -56,6 +56,7 @@
     window.AryReportLogo = `${(window.AryamanCalculatorConfig || {}).pluginUrl || ''}assets/aryaman-report-logo.png`;
     const html = window.AryReportBuildTransformer({
       code,
+      model: modelCode || '',
       createdAt: quoteData.createdAt || new Date().toISOString(),
       customerName: payload.customer_name,
       customerPhone: payload.customer_phone,
@@ -94,8 +95,8 @@
     root.innerHTML = `<div class="ary-head"><span>مرکز محاسبه آریامن</span><h2>محاسبه ترانس سفارشی</h2></div><div class="ary-body">
 <section class="ary-fieldset"><div class="ary-legend"><i>۱</i><div><h3>اطلاعات مشتری و سفارش</h3><small>نوع سفارش، تعداد و مشخصات تماس</small></div></div><div class="ary-grid"><label>نوع سفارش<select data-order-type><option value="sample">سفارش نمونه ترانس · ۱–۹۹ عدد</option><option value="production">سفارش تعداد · +۱۰۰ عدد</option></select></label><label>تعداد سفارش<input data-quantity type="number" min="1" max="99" value="1"></label></div><div class="ary-grid" style="margin-top:10px"><label>عنوان پروژه<input data-project></label><label>نام مشتری<input data-customer-name autocomplete="name"></label><label>شماره تماس<input data-customer-phone inputmode="tel" autocomplete="tel"></label></div></section>
 <section class="ary-fieldset"><div class="ary-legend"><i>۲</i><div><h3>انتخاب هسته و بوبین</h3><small>مدل فریت، بوبین متناظر و وضعیت گپ</small></div></div><div class="ary-grid"><label>مدل هسته<select data-core><option value="">انتخاب هسته</option>${cores.map((core) => `<option value="${esc(core.id)}" ${core.calculable ? '' : 'disabled'}>${esc(core.model_code)}${core.calculable ? '' : ' · نیازمند تکمیل'}</option>`).join('')}</select><small data-core-stock class="ary-stock-hint">پس از انتخاب، وضعیت موجودی نمایش داده می‌شود.</small></label><label>مدل بوبین<select data-bobbin disabled><option value="">ابتدا هسته را انتخاب کنید</option></select><small data-bobbin-stock class="ary-stock-hint">پس از انتخاب، وضعیت موجودی نمایش داده می‌شود.</small></label><label class="ary-check ary-span-2"><input data-gap type="checkbox"><span>هسته دارای گپ است</span></label></div></section>
-<section class="ary-fieldset"><div class="ary-legend"><i>۳</i><div><h3>اطلاعات سیم‌پیچ‌ها</h3><small>دور، سیم، رشته، چسب هر لایه و جهت هر سیم‌پیچ</small></div></div><div data-windings-shell></div><div class="ary-winding-footer"><button type="button" data-add-winding>+ افزودن سیم‌پیچ</button></div><div class="ary-live-fill" data-live-fill><div><span>پرشدگی زنده پنجره</span><b>—</b></div><div class="ary-live-fill__track"><i></i></div><small>پس از انتخاب هسته، بوبین و سیم به‌صورت خودکار نمایش داده می‌شود.</small></div></section>
-<details class="ary-optional"><summary><b>۴ · اطلاعات اختیاری</b><small>اندوکتانس‌ها و توضیحات — در صورت نیاز باز کنید؛ خالی بماند لحاظ نمی‌شود.</small></summary><div class="ary-grid" style="margin-top:10px"><label>اندوکتانس اولیه (mH)<input data-ind-primary inputmode="decimal" placeholder="مثلاً 12.5"></label><label>اندوکتانس ثانویه (mH)<input data-ind-secondary inputmode="decimal" placeholder="مثلاً 3.2"></label><label>اندوکتانس نشتی (µH)<input data-ind-leakage inputmode="decimal" placeholder="مثلاً 45"></label></div><label style="margin-top:10px">شرح و توضیحات تکمیلی<textarea data-notes rows="3" placeholder="هر نکتهٔ اضافه دربارهٔ طراحی، ساخت یا تست"></textarea></label></details>
+<section class="ary-fieldset"><div class="ary-legend"><i>۳</i><div><h3>اطلاعات سیم‌پیچ‌ها</h3><small>دور، سیم، رشته، چسب هر لایه و جهت هر سیم‌پیچ</small></div></div><div data-windings-shell></div><div class="ary-winding-footer"><button type="button" data-add-winding>+ افزودن سیم‌پیچ</button></div><div class="ary-live-fill" data-live-fill><div><span>درصد پرشدگی پنجره</span><b>—</b></div><div class="ary-live-fill__track"><i></i></div><small>پس از انتخاب هسته، بوبین و سیم به‌صورت خودکار نمایش داده می‌شود.</small></div></section>
+<details class="ary-optional"><summary><div class="ary-legend"><i>۴</i><div><h3>اطلاعات اختیاری</h3><small>اندوکتانس‌ها و توضیحات — در صورت نیاز باز کنید؛ خالی بماند لحاظ نمی‌شود.</small></div></div></summary><div class="ary-grid" style="margin-top:10px"><label>اندوکتانس اولیه (mH)<input data-ind-primary inputmode="decimal" placeholder="مثلاً 12.5"></label><label>اندوکتانس ثانویه (mH)<input data-ind-secondary inputmode="decimal" placeholder="مثلاً 3.2"></label><label>اندوکتانس نشتی (µH)<input data-ind-leakage inputmode="decimal" placeholder="مثلاً 45"></label></div><label style="margin-top:10px">شرح و توضیحات تکمیلی<textarea data-notes rows="3" placeholder="هر نکتهٔ اضافه دربارهٔ طراحی، ساخت یا تست"></textarea></label></details>
 <div data-message></div><button type="button" class="ary-submit" data-submit>محاسبه و نمایش نتیجه</button><div data-result></div></div>`;
     const coreSelect = root.querySelector('[data-core]');
     const bobbinSelect = root.querySelector('[data-bobbin]');
@@ -162,11 +163,12 @@
           liveHost.querySelector('small').textContent = data.error || 'محاسبه زنده ناموفق بود.';
           return;
         }
-        liveHost.className = `ary-live-fill ${percent > 100 ? 'danger' : percent >= 90 ? 'warning' : 'ok'}`;
-        liveHost.querySelector('b').textContent = `${numberFa(percent, 1)}٪${percent > 100 ? ' — بیش از ظرفیت' : ''}`;
-        liveHost.querySelector('i').style.width = percent > 100 ? '100%' : `${Math.min(100, Math.max(0, percent))}%`;
-        liveHost.querySelector('small').textContent = percent > 100
-          ? `پنجره بوبین ${numberFa(percent, 1)}٪ پر شده است؛ ${numberFa(percent - 100, 1)}٪ بیش از ظرفیت مجاز — قابل سفارش نیست.`
+        const over = percent > 100;
+        liveHost.className = `ary-live-fill ${over ? 'danger' : percent >= 90 ? 'warning' : 'ok'}`;
+        liveHost.querySelector('b').textContent = `${numberFa(percent, 1)}٪${over ? ' — بیش از ظرفیت' : ''}`;
+        liveHost.querySelector('i').style.width = over ? '100%' : `${Math.min(100, Math.max(0, percent))}%`;
+        liveHost.querySelector('small').textContent = over
+          ? `ظرفیت بوبین پر شده — پنجره ${numberFa(percent, 1)}٪ پر شده است (${numberFa(percent - 100, 1)}٪ بیش از ظرفیت مجاز) و قابل سفارش نیست.`
           : percent >= 90 ? `پنجره ${numberFa(percent, 1)}٪ پر است — نیازمند بازبینی کارگاهی.` : 'پرشدگی مجاز؛ با تغییر مشخصات به‌صورت خودکار به‌روزرسانی می‌شود.';
       } catch (error) {
         if (sequence !== liveSequence) return;
@@ -264,7 +266,7 @@
             const confirmed = await request(config.confirmUrl, { method: 'POST', body: JSON.stringify({ payload: pendingPayload }) });
             const zone = resultHost.querySelector('.ary-confirm-zone');
             zone.innerHTML = `<div class="ary-confirmed"><b>درخواست با موفقیت ثبت شد</b><span>کد پیگیری: ${esc(confirmed.quote_code)}</span></div><button type="button" class="ary-pdf" data-print-report>دریافت خروجی PDF مشتری</button><button type="button" class="ary-cart-btn" data-add-cart>افزودن سفارش به سبد خرید</button>`;
-            zone.querySelector('[data-print-report]').addEventListener('click', () => printCustomerReport(lastQuoteData || {}, confirmed.quote_code, pendingPayload));
+            zone.querySelector('[data-print-report]').addEventListener('click', () => printCustomerReport(lastQuoteData || {}, confirmed.quote_code, pendingPayload, confirmed.ams_code));
             const cartButton = zone.querySelector('[data-add-cart]');
             if (cartButton) cartButton.addEventListener('click', async () => {
               if (!config.woocommerce) { message.innerHTML = '<p class="ary-error">برای پرداخت آنلاین، افزونه WooCommerce باید روی سایت فعال باشد. پس از فعال‌سازی، در تنظیمات افزونه «شناسه محصول» را وارد و ارز فروشگاه را ریال یا تومان بگذارید.</p>'; return; }
@@ -369,8 +371,22 @@
     });
   }
 
+  /* Skeleton painted instantly (same feel as the static board form) while the
+     catalog loads; the server-side catalog cache usually makes the wait ~ms. */
+  function renderSkeleton(root) {
+    root.innerHTML = `<div class="ary-skeleton" role="status" aria-busy="true">
+      <div class="ary-sk-title"><i></i><div class="ary-sk ary-sk-line" style="width:30%"></div></div>
+      <div class="ary-sk-box"><div class="ary-sk ary-sk-line" style="width:26%"></div><div class="ary-sk-row"><div class="ary-sk ary-sk-field"></div><div class="ary-sk ary-sk-field"></div><div class="ary-sk ary-sk-field"></div></div><div class="ary-sk-row"><div class="ary-sk ary-sk-field"></div><div class="ary-sk ary-sk-field"></div><div class="ary-sk ary-sk-field"></div></div></div>
+      <div class="ary-sk-box"><div class="ary-sk ary-sk-line" style="width:22%"></div><div class="ary-sk-row"><div class="ary-sk ary-sk-field"></div><div class="ary-sk ary-sk-field"></div></div></div>
+      <div class="ary-sk-box"><div class="ary-sk ary-sk-line" style="width:18%"></div><div class="ary-sk-row"><div class="ary-sk ary-sk-field"></div><div class="ary-sk ary-sk-field"></div><div class="ary-sk ary-sk-field"></div></div></div>
+      <div class="ary-sk ary-sk-btn"></div>
+      <small class="ary-sk-note">در حال دریافت مدل‌های قابل محاسبه از مرکز محاسبه…</small>
+    </div>`;
+  }
+
   document.addEventListener('DOMContentLoaded', () => {
     document.querySelectorAll('[data-aryaman-calculator]').forEach(async (root) => {
+      renderSkeleton(root);
       try { const data = await request(config.catalogUrl); renderApp(root, data.catalog || {}); }
       catch (error) { root.innerHTML = `<div class="ary-disabled"><b>محاسبه‌گر عمومی در دسترس نیست</b><span>${esc(error.message)}</span></div>`; }
     });
